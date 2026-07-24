@@ -28,3 +28,6 @@ tools/juggler/
 # Yedek AI CLI (OpenCode/Kilo) — proje-yerel kurulum + calisma verisi
 tools/ai-cli/node_modules/
 tools/ai-cli/home/
+
+# GitHub CLI (taşınabilir ikili)
+tools/gh/
