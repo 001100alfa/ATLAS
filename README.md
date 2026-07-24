@@ -41,10 +41,19 @@ AI çekirdek (Claude Code CLI) bir istisnadır — ayrı kurulur. Ayrıntı:
 [`docs/OFFLINE.md`](docs/OFFLINE.md).
 
 ### v0.4.0 hazır bundle'ları
-Her platform için bağımsız, kopyala-çalıştır bundle. Bundle'lar git deposunda
-tutulmaz (platforma özel ikili); `make-portable.cmd` / `./make-portable.sh` ile
-üretilir (çıktı `dist/atlas-<hedef>/`). Sürüm sayfası:
-<https://github.com/001100alfa/ATLAS/releases/tag/v0.4.0>.
+Her platform için bağımsız, kopyala-çalıştır bundle.
+[Sürüm sayfasından](https://github.com/001100alfa/ATLAS/releases/tag/v0.4.0)
+doğrudan indir (indir → aç → `setup-portable`):
+
+| Platform | İndirme |
+|---|---|
+| Windows x64 | `atlas-windows-x86_64-v0.4.0.zip` |
+| Linux x64 | `atlas-linux-x86_64-v0.4.0.tar.gz` |
+| macOS (Apple Silicon) | `atlas-macos-aarch64-v0.4.0.tar.gz` |
+| macOS (Intel) | `atlas-macos-x86_64-v0.4.0.tar.gz` |
+
+Alternatif: `make-portable.cmd` / `./make-portable.sh` ile kendin üret
+(çıktı `dist/atlas-<hedef>/`).
 
 | Platform | Bundle | Kurulum (bir kez, offline) | Çalıştır |
 |---|---|---|---|
