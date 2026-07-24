@@ -1,5 +1,6 @@
 # Changelog
 Format: Keep a Changelog / SemVer.
+Kararların gerekçeleri ve tuzaklar: [`DECISIONS.md`](DECISIONS.md).
 
 ## [0.4.2] - 2026-07-24
 ### Eklendi
