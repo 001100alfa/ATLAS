@@ -1,6 +1,24 @@
 # Changelog
 Format: Keep a Changelog / SemVer.
 
+## [0.4.1] - 2026-07-24
+### Eklendi
+- Juggler **ACP Agents** entegrasyonu — 5 yedek AI kodlama ajanı stdio ACP
+  (Agent Client Protocol) üzerinden model olarak sürülebilir:
+  opencode, kilo, cline (npm), kimi (pip), goose (Windows binary).
+  `setup-ai-cli.cmd` üçünü de kurar; `setup-acp-agents.cmd` +
+  `tools/gen-acp-config.js` `<project>/.juggler/acp.json` üretir (varlık-kontrollü).
+### Düzeltildi
+- ACP Agents panelinde kilo/opencode çalışmıyordu: Juggler ajanı
+  `LookPath(command)`+`exec` ile spawn eder (kabuk yok) — `command:"kilo"`
+  PATH'te yok, `.cmd` shim'i PE değil. Doğru kayıt: Node CLI'lar `command:"node"`,
+  derlenmiş/Python ikilileri mutlak exe yolu; env ile config/data proje-yerel.
+- cline/goose/kimi ACP panelinde çalışmıyordu: kurulu değillerdi — portable
+  kuruldu ve stdio ACP handshake ile doğrulandı (cline 3.0.46, goose 1.44.0,
+  kimi 1.49.0).
+### Diğer
+- `docs/AI-CLI.md` ACP bölümü; goose python-zipfile ile açılır (bsdtar bozuyordu).
+
 ## [0.4.0] - 2026-07-24
 ### Eklendi
 - Juggler entegrasyonu — web UI + masaüstü GUI ön-yüzü ([`docs/JUGGLER.md`]):
@@ -59,5 +77,6 @@ Format: Keep a Changelog / SemVer.
 - `atlas-sections` CLI.
 - Ajan altyapısı: 5 komut, 3 subagent, 2 skill, hooks, CI.
 
+[0.4.1]: https://github.com/001100alfa/ATLAS/releases/tag/v0.4.1
 [0.4.0]: https://github.com/001100alfa/ATLAS/releases/tag/v0.4.0
 [0.3.0]: https://github.com/001100alfa/ATLAS/releases/tag/v0.3.0
