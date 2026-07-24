@@ -74,14 +74,25 @@ GUI'den sürer. ATLAS yetenekleri (`atlas_section`, `atlas_recall`,
 taşınır. Kurulum, derleme ve lisans: [`docs/JUGGLER.md`](docs/JUGGLER.md).
 
 ## Yedek AI CLI'ları (Claude Code limitinde)
-Claude Code limit aşımında veya tercihe göre iki taşınabilir yedek AI kodlama
-ajanı proje içinde kullanılabilir. Config/data proje içine hapsedilir:
+Claude Code limit aşımında veya tercihe göre taşınabilir yedek AI kodlama
+ajanları proje içinde kullanılabilir. Config/data proje içine hapsedilir.
 ```bat
-setup-ai-cli.cmd     :: bir kez (npm, proje-yerel)
-opencode_Run.cmd     :: OpenCode
-kilo_Run.cmd         :: Kilo
-setup-acp-agents.cmd :: (ops.) Juggler "ACP Agents" olarak kaydet (kilo + opencode)
+setup-ai-cli.cmd     :: bir kez — hepsini kur (npm + pip + goose binary)
+opencode_Run.cmd     :: OpenCode (doğrudan CLI)
+kilo_Run.cmd         :: Kilo (doğrudan CLI)
+setup-acp-agents.cmd :: Juggler "ACP Agents" olarak kaydet
 ```
+
+**Juggler ACP Agents** — 5 ajan stdio ACP üzerinden model olarak sürülür:
+
+| Ajan | Ekosistem | ACP | Sürüm |
+|---|---|---|---|
+| opencode | npm (ikili) | `opencode acp` | 1.18.4 |
+| kilo | npm (Node) | `kilo acp` | 7.4.15 |
+| cline | npm (Node) | `cline --acp` | 3.0.46 |
+| kimi | pip (Python) | `kimi acp` | 1.49.0 |
+| goose | Windows binary | `goose acp` | 1.44.0 |
+
 Ayrıntı: [`docs/AI-CLI.md`](docs/AI-CLI.md).
 
 ## Ajan komutları
