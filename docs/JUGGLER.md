@@ -14,6 +14,22 @@ eklentisiyle taşınır.
 - **Juggler Extension SDK + bundled extensions: Apache-2.0.** ATLAS eklentisi
   (`integrations/juggler/`) bu yüzden Apache-2.0'dır ve copyleft yükümlülüğü yok.
 
+## Kolay başlatma (.bat) — önerilen
+Repo kökündeki başlatıcılar juggler.exe'yi bulur, ATLAS eklentisini kurar,
+ATLAS'ı PATH'e ekler ve projeyi ATLAS olarak açar:
+
+| Başlatıcı | İşlev |
+|---|---|
+| `juggler-webui_Run.bat` | Web UI sunucusu (`http://localhost:3939`, tarayıcıdan aç) |
+| `juggler-webui_Close.bat` | Çalışan Juggler'ı durdur |
+| `juggler-desktop_Run.bat` | Native masaüstü penceresi (`--window`) |
+| `juggler-desktop_Close.bat` | Çalışan Juggler'ı durdur |
+
+juggler.exe arama sırası: `%JUGGLER_EXE%` → `tools\juggler\juggler.exe` → PATH.
+**İki ikili** gerekir: `juggler.exe` (sunucu, her iki mod) ve masaüstü penceresi
+için ayrıca `juggler-app.exe`. İkisini de `tools\juggler\` altına koy (aşağıda
+derleme). `tools\juggler\` git'te tutulmaz.
+
 ## 1) Juggler'ı kaynaktan derle
 Gereksinim: **Go 1.26+**, Wails v3 (repoda vendor'lu), `make`. Windows masaüstü
 uygulaması için ek olarak WebView2 çalışma-zamanı gerekir.
@@ -24,15 +40,22 @@ cd juggler
 make build          # juggler (headless sunucu) + juggler-app (masaüstü) + juggler-test
 ```
 
-- **Headless sunucu** (`cmd/juggler`) — GUI'siz; başlatınca bağlantı URL'si +
-  QR basar, tarayıcıdan bağlanılır. Windows'ta C derleyici gerektirmez
-  (CGO'lu dosyalar yalnız macOS'a özgü). Yalnız bunu derlemek:
-  ```bash
-  go build -o juggler-server ./cmd/juggler
-  ```
-- **Masaüstü uygulaması** (`cmd/juggler-app`) — Wails penceresi; Linux masaüstü
-  natif derlenmeli, Windows binary'leri `make build-windows` ile cross-compile
-  edilir.
+Başlatıcıların beklediği iki ikiliyi doğrudan `go build` ile üret ve
+`tools\juggler\` altına koy (Windows'ta ikisi de C derleyici gerektirmez,
+`CGO_ENABLED=0` — CGO'lu dosyalar yalnız macOS'a özgü):
+```bash
+go build -o tools/juggler/juggler.exe     ./cmd/juggler       # sunucu (web UI + --window dispatch)
+go build -o tools/juggler/juggler-app.exe ./cmd/juggler-app   # native masaüstü penceresi
+```
+- **`cmd/juggler`** — sunucu; başlatınca URL/QR basar (web UI) veya `--window`
+  ile masaüstü penceresini açar (bunun için `juggler-app.exe`'yi çağırır;
+  bulamazsa `JUGGLER_APP_BIN` ile gösterilir).
+- **`cmd/juggler-app`** — Wails native pencere ikilisi. Linux masaüstü natif
+  derlenmeli; Windows/macOS binary'leri cross-compile edilebilir.
+
+Not: kaynaktan derleme öncesi Wails submodule'ü ve icon embed gerekir; bu depoda
+Windows'a özgü tuzaklar (SSH→HTTPS, `core.longpaths`, icon kopya) `DECISIONS.md`
+2026-07-24 kaydında.
 
 Ayrıntılı ön-koşullar: Juggler deposundaki `CONTRIBUTING.md`.
 

@@ -21,3 +21,6 @@ tools/.cache/
 
 # Juggler proje-yerel config (ext geliştirme çalıştırmaları)
 .juggler/
+
+# Juggler ikilileri (AGPL, buyuk; kaynaktan uretilir — docs/JUGGLER.md)
+tools/juggler/
