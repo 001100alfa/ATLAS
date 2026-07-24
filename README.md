@@ -3,7 +3,13 @@
 Claude Code CLI üzerinde çalışan, kodlama uzmanı, kendi ihtiyaçlarını
 yöneten ajan altyapısı + doğrulanmış mühendislik hesap kütüphanesi.
 
-[CI durumu main branch'te otomatik: ruff + mypy --strict + pytest/coverage≥90]
+[![CI](https://github.com/001100alfa/ATLAS/actions/workflows/ci.yml/badge.svg)](https://github.com/001100alfa/ATLAS/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![Version](https://img.shields.io/badge/version-0.3.0-informational)
+![Lint: ruff](https://img.shields.io/badge/lint-ruff-261230)
+![Types: mypy strict](https://img.shields.io/badge/types-mypy--strict-2a6db2)
+
+**Depo:** <https://github.com/001100alfa/ATLAS> — CI: main'de ruff + mypy `--strict` + pytest.
 
 ## Kurulum
 Paket yöneticisi **uv** (proje standardı). Python 3.12 gerekir; uv
