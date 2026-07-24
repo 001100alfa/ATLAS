@@ -80,6 +80,7 @@ ajanı proje içinde kullanılabilir. Config/data proje içine hapsedilir:
 setup-ai-cli.cmd     :: bir kez (npm, proje-yerel)
 opencode_Run.cmd     :: OpenCode
 kilo_Run.cmd         :: Kilo
+setup-acp-agents.cmd :: (ops.) Juggler "ACP Agents" olarak kaydet (kilo + opencode)
 ```
 Ayrıntı: [`docs/AI-CLI.md`](docs/AI-CLI.md).
 
