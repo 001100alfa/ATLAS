@@ -42,14 +42,25 @@ kullanır; bu yüzden `kilo_Run.cmd` `HOME`/`USERPROFILE`'ı proje-yerele yönle
 iki CLI de `XDG_*` ile taşınabilirdir. Bkz `DECISIONS.md` 2026-07-24.
 
 ## Juggler "ACP Agents" olarak kullanım
-Her iki CLI de ACP (Agent Client Protocol) sunucusu olabilir (`... acp`) ve
-Juggler'ın **ACP Agents** panelinden model olarak sürülebilir. Config'i üret:
+Beş CLI de ACP (Agent Client Protocol) sunucusu olabilir ve Juggler'ın
+**ACP Agents** panelinden model olarak sürülebilir (stdio, newline JSON-RPC):
+
+| Ajan | Ekosistem | ACP komutu | Sürüm (doğrulandı) |
+|---|---|---|---|
+| opencode | npm (derlenmiş ikili) | `opencode acp` | 1.18.4 |
+| kilo | npm (Node) | `kilo acp` | 7.4.15 |
+| cline | npm (Node) | `cline --acp` | 3.0.46 |
+| kimi | pip (Python) | `kimi acp` | 1.49.0 |
+| goose | Windows binary (Rust) | `goose acp` | 1.44.0 |
+
+Kurulum + kayıt:
 ```bat
-setup-acp-agents.cmd
+setup-ai-cli.cmd       :: hepsini kur (npm + pip + goose binary)
+setup-acp-agents.cmd   :: .juggler/acp.json üret (kurulu olanları kaydeder)
 ```
-Bu, `<project>\.juggler\acp.json` yazar (Juggler global config'in üstüne alır) ve
-`kilo` + `opencode` ajanlarını kaydeder. Juggler'ı başlat; model seçicide
-**ACP Agents → kilo / opencode** görünür.
+`setup-acp-agents.cmd`, `<project>\.juggler\acp.json` yazar (Juggler global
+config'in üstüne alır). Juggler'ı başlat; model seçicide **ACP Agents →
+opencode / kilo / cline / kimi / goose** görünür. (Yalnız kurulu olanlar yazılır.)
 
 **Neden generator gerekiyor (yaygın hata):** Juggler ACP ajanını
 `exec.LookPath(command)` + doğrudan `exec` ile spawn eder — kabuk yok.

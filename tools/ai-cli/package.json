@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "dependencies": {
     "opencode-ai": "1.18.4",
-    "@kilocode/cli": "7.4.15"
+    "@kilocode/cli": "7.4.15",
+    "cline": "3.0.46"
   }
 }
