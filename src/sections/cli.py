@@ -37,6 +37,9 @@ def main(argv: list[str] | None = None) -> int:
         p_box.add_argument(f"--{name}", type=float, required=True, help=f"{name} [mm]")
 
     args = parser.parse_args(argv)
+    # Windows konsolu (cp1254) üstsimge birimleri (mm², mm⁴) kodlayamaz; UTF-8'e sabitle.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     try:
         if args.type == "i":
             props = i_section(args.h, args.b, args.tw, args.tf)

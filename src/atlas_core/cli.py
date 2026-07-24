@@ -190,6 +190,10 @@ def main(argv: list[str] | None = None) -> int:
     p_scan.set_defaults(func=_cmd_scan)
 
     args = parser.parse_args(argv)
+    # Windows konsolu (cp1254) Türkçe/üstsimge çıktıyı bozabilir; UTF-8'e sabitle.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     return int(args.func(args))
 
 
