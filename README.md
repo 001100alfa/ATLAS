@@ -19,7 +19,7 @@ yoksa 3.12'yi kendisi indirir — sistemde ayrı kurulum gerekmez.
 ```bash
 git clone <repo-url> && cd atlas
 uv sync --extra dev      # .venv (3.12) + tüm bağımlılıklar
-uv run pytest            # 37 test, referans değerlerle doğrulanmış
+uv run pytest            # 39 test, referans değerlerle doğrulanmış
 claude                   # ajanı başlat
 ```
 

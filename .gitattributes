@@ -1,0 +1,30 @@
+# Varsayılan: metin dosyalarında satır sonu otomatik normalize (repo'da LF)
+* text=auto eol=lf
+
+# Windows script'leri CRLF olmalı (cmd.exe CRLF bekler)
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Unix script'leri kesinlikle LF (CRLF olursa bash "bad interpreter" verir)
+*.sh text eol=lf
+
+# Kaynak/doküman: LF
+*.py text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.jsonc text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+
+# İkili dosyalar (diff/normalize yok)
+*.webp binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.exe binary
+*.zip binary
+*.tar.gz binary
+*.whl binary

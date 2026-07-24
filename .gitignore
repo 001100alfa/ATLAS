@@ -35,3 +35,9 @@ tools/gh/
 # Yedek AI CLI ek ikilileri (Goose binary, Kimi py-venv) — kaynaktan/pip ile kurulur
 tools/goose/
 tools/ai-cli/py-venv/
+
+# Coverage veri dosyası
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
