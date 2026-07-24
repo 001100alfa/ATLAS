@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)", "Bash(gh *)", "Bash(uv *)", "Bash(pip *)",
+      "Bash(pytest*)", "Bash(ruff *)", "Bash(python *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)", "Bash(git push --force*)",
+      "Read(.env)", "Read(**/*.pem)", "Read(**/secrets/**)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [{
+      "matcher": "Edit|Write",
+      "hooks": [{ "type": "command",
+        "command": "ruff check --fix $CLAUDE_FILE_PATHS 2>/dev/null; true" }]
+    }],
+    "Stop": [{
+      "hooks": [{ "type": "command",
+        "command": "python -m pytest -q --tb=no 2>/dev/null; true" }]
+    }]
+  }
+}

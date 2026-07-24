@@ -1,0 +1,14 @@
+# gstack: bir görevin uçtan uca yığını (sürücü komutların bildirimsel hali)
+name: gorev-tam-tur
+steps:
+  - uses: pipeline.needs      # /dump ... /prioritize
+  - uses: pipeline.prompts    # /prompt-maker ... /handoff
+  - uses: pipeline.spec       # /fr-extract ... /approve-spec (İNSAN ONAYI)
+    with: { requires_approval: true }
+  - uses: pipeline.plan
+  - uses: pipeline.build
+  - uses: pipeline.test
+  - uses: pipeline.revise
+  - uses: pipeline.simplify
+  - uses: pipeline.ship
+  - uses: memory.archive      # görev -> arşiv + vault düğümü
