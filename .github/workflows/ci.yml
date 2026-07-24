@@ -19,6 +19,8 @@ jobs:
         run: mypy src
       - name: JS sözdizimi (Juggler eklentisi + araçlar)
         run: git ls-files '*.js' | xargs -r -n1 node --check
+      - name: JS testleri (node --test)
+        run: node --test tests/juggler/*.test.mjs
       - name: Sır taraması (atlas scan)
         run: python -m atlas_core.cli scan src
       - name: Testler + coverage
