@@ -73,6 +73,15 @@ GUI'den sürer. ATLAS yetenekleri (`atlas_section`, `atlas_recall`,
 `/atlas-section`) `integrations/juggler/` eklentisiyle (Apache-2.0) Juggler'a
 taşınır. Kurulum, derleme ve lisans: [`docs/JUGGLER.md`](docs/JUGGLER.md).
 
+<p align="center">
+  <img src="docs/images/juggler-desktop-light.webp" alt="Juggler masaüstü — onay akışı ve diff (açık tema)" width="49%">
+  <img src="docs/images/juggler-desktop-plan.webp" alt="Juggler masaüstü — çok-adımlı plan paneli (koyu tema)" width="49%">
+  <br>
+  <img src="docs/images/juggler-mobile-dark.webp" alt="Juggler mobil web UI (koyu tema)" width="30%">
+</p>
+
+<sub>Juggler ön-yüzü: masaüstü onay/diff akışı, çok-adımlı plan paneli ve mobil web UI. Görseller Juggler'a aittir.</sub>
+
 ## Yedek AI CLI'ları (Claude Code limitinde)
 Claude Code limit aşımında veya tercihe göre taşınabilir yedek AI kodlama
 ajanları proje içinde kullanılabilir. Config/data proje içine hapsedilir.
