@@ -24,3 +24,7 @@ tools/.cache/
 
 # Juggler ikilileri (AGPL, buyuk; kaynaktan uretilir — docs/JUGGLER.md)
 tools/juggler/
+
+# Yedek AI CLI (OpenCode/Kilo) — proje-yerel kurulum + calisma verisi
+tools/ai-cli/node_modules/
+tools/ai-cli/home/

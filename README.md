@@ -57,6 +57,16 @@ GUI'den sürer. ATLAS yetenekleri (`atlas_section`, `atlas_recall`,
 `/atlas-section`) `integrations/juggler/` eklentisiyle (Apache-2.0) Juggler'a
 taşınır. Kurulum, derleme ve lisans: [`docs/JUGGLER.md`](docs/JUGGLER.md).
 
+## Yedek AI CLI'ları (Claude Code limitinde)
+Claude Code limit aşımında veya tercihe göre iki taşınabilir yedek AI kodlama
+ajanı proje içinde kullanılabilir. Config/data proje içine hapsedilir:
+```bat
+setup-ai-cli.cmd     :: bir kez (npm, proje-yerel)
+opencode_Run.cmd     :: OpenCode
+kilo_Run.cmd         :: Kilo
+```
+Ayrıntı: [`docs/AI-CLI.md`](docs/AI-CLI.md).
+
 ## Ajan komutları
 | Komut | İşlev |
 |---|---|

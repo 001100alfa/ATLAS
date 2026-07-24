@@ -1,0 +1,10 @@
+{
+  "name": "atlas-ai-cli",
+  "private": true,
+  "description": "ATLAS için taşınabilir yedek AI kodlama CLI'ları (Claude Code limitinde/tercihe göre).",
+  "version": "0.1.0",
+  "dependencies": {
+    "opencode-ai": "1.18.4",
+    "@kilocode/cli": "7.4.15"
+  }
+}
