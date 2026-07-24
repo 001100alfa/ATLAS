@@ -5,12 +5,13 @@ yöneten ajan altyapısı + doğrulanmış mühendislik hesap kütüphanesi.
 
 [![CI](https://github.com/001100alfa/ATLAS/actions/workflows/ci.yml/badge.svg)](https://github.com/001100alfa/ATLAS/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
-![Version](https://img.shields.io/badge/version-0.4.2-informational)
+[![Version](https://img.shields.io/badge/version-0.4.2-informational)](https://github.com/001100alfa/ATLAS/releases/tag/v0.4.2)
 ![Lint: ruff](https://img.shields.io/badge/lint-ruff-261230)
 ![Types: mypy strict](https://img.shields.io/badge/types-mypy--strict-2a6db2)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **Depo:** <https://github.com/001100alfa/ATLAS> — CI: main'de ruff + mypy `--strict` + pytest.
+**Son sürüm:** [v0.4.2](https://github.com/001100alfa/ATLAS/releases/tag/v0.4.2) · [tüm sürümler](https://github.com/001100alfa/ATLAS/releases)
 
 ## Kurulum
 Paket yöneticisi **uv** (proje standardı). Python 3.12 gerekir; uv
