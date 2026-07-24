@@ -1,0 +1,14 @@
+{
+  "id": "@atlas/engineering",
+  "name": "ATLAS Engineering",
+  "version": "0.1.0",
+  "author": "ATLAS",
+  "homepage": "https://github.com/juggler-ai/juggler",
+  "engineApi": "^1.0.0",
+  "permissions": ["shell.exec"],
+  "provides": {
+    "contextItems": ["context-items/*-context-item.js"],
+    "commands": ["commands/*-command-type.js"],
+    "systemPrompt": "system-prompt-contribution.js"
+  }
+}

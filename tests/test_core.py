@@ -68,3 +68,25 @@ class TestCLI:
         from sections.cli import main
         assert main(["box", "--h", "200", "--b", "300", "--t", "100"]) == 2
         assert "HATA" in capsys.readouterr().err
+
+    def test_json_cikti(self, capsys):
+        import json
+
+        from sections.cli import main
+        rc = main(["i", "--h", "200", "--b", "200", "--tw", "9", "--tf", "15", "--json"])
+        assert rc == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["type"] == "i"
+        assert math.isclose(data["properties"]["A"], 7530.0, rel_tol=REL)
+        assert data["units"]["Iy"] == "mm4"
+        assert set(data["properties"]) == {
+            "A", "Iy", "Iz", "Wel_y", "Wel_z", "Wpl_y", "weight_kg_m"
+        }
+
+    def test_json_hata_stderr(self, capsys):
+        import json
+
+        from sections.cli import main
+        rc = main(["box", "--h", "10", "--b", "10", "--t", "20", "--json"])
+        assert rc == 2
+        assert "error" in json.loads(capsys.readouterr().err)

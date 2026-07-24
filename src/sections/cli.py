@@ -7,9 +7,22 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from dataclasses import asdict
 
 from sections.core import SectionError, SectionProperties, box_section, i_section
+
+# Alan -> birim eşlemesi (makine-okur çıktıda birlikte verilir).
+_UNITS = {
+    "A": "mm2",
+    "Iy": "mm4",
+    "Iz": "mm4",
+    "Wel_y": "mm3",
+    "Wel_z": "mm3",
+    "Wpl_y": "mm3",
+    "weight_kg_m": "kg/m",
+}
 
 
 def _report(p: SectionProperties) -> str:
@@ -36,6 +49,11 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("h", "b", "t"):
         p_box.add_argument(f"--{name}", type=float, required=True, help=f"{name} [mm]")
 
+    for p in (p_i, p_box):
+        p.add_argument(
+            "--json", action="store_true", help="Makine-okur JSON çıktı (birimlerle)"
+        )
+
     args = parser.parse_args(argv)
     # Windows konsolu (cp1254) üstsimge birimleri (mm², mm⁴) kodlayamaz; UTF-8'e sabitle.
     if hasattr(sys.stdout, "reconfigure"):
@@ -46,10 +64,17 @@ def main(argv: list[str] | None = None) -> int:
         else:
             props = box_section(args.h, args.b, args.t)
     except SectionError as exc:
-        print(f"HATA: {exc}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        else:
+            print(f"HATA: {exc}", file=sys.stderr)
         return 2
 
-    print(_report(props))
+    if args.json:
+        payload = {"type": args.type, "properties": asdict(props), "units": _UNITS}
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        print(_report(props))
     return 0
 
 
