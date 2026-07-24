@@ -22,6 +22,17 @@ python3.12 -m venv .venv && .venv/Scripts/activate   # Windows
 pip install -e ".[dev]"
 ```
 
+### Taşınabilir / çevrimdışı çalışma
+Python + bağımlılıklar projeye gömülüdür; sistemde Python gerekmez. Klasörü
+kopyala, çalıştır:
+```bat
+setup-portable.cmd    :: bir kez, OFFLINE (venv yoksa)
+atlas-sections i --h 1000 --b 300 --tw 12 --tf 20
+```
+Git'ten klonladıysan bundle'ı bir kez üret (online): `make-portable.cmd`.
+AI çekirdek (Claude Code CLI) bir istisnadır — ayrı kurulur. Ayrıntı:
+[`docs/OFFLINE.md`](docs/OFFLINE.md).
+
 ## Ajan komutları
 | Komut | İşlev |
 |---|---|

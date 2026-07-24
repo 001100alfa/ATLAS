@@ -10,3 +10,9 @@ dist/
 .mypy_cache/
 .atlas/
 desktop.ini
+
+# Taşınabilir çalışma-zamanı yükü — klasörde fiziksel durur (portable),
+# git'te tutulmaz. make-portable.cmd (online) ile üretilir, setup-portable.cmd
+# (offline) ile kurulur. Bkz docs/OFFLINE.md.
+runtime/
+vendor/wheels/
