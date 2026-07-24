@@ -33,6 +33,23 @@ Git'ten klonladıysan bundle'ı bir kez üret (online): `make-portable.cmd`.
 AI çekirdek (Claude Code CLI) bir istisnadır — ayrı kurulur. Ayrıntı:
 [`docs/OFFLINE.md`](docs/OFFLINE.md).
 
+### v0.3.0 hazır bundle'ları
+Her platform için bağımsız, kopyala-çalıştır bundle. Sürüm sayfasından indir:
+`<releases-url>/tag/v0.3.0` (yayımlandıktan sonra). Bundle'lar git deposunda
+tutulmaz; `make-portable.cmd` / `./make-portable.sh` ile de üretilebilir
+(çıktı `dist/atlas-<hedef>/`).
+
+| Platform | Bundle | Kurulum (bir kez, offline) | Çalıştır |
+|---|---|---|---|
+| Windows x64 | `atlas-windows-x86_64` | `setup-portable.cmd` | `atlas-sections i --h 1000 ...` |
+| Linux x64 | `atlas-linux-x86_64` | `./setup-portable.sh` | `./atlas-sections i --h 1000 ...` |
+| macOS (Apple Silicon) | `atlas-macos-aarch64` | `./setup-portable.sh` | `./atlas-sections i --h 1000 ...` |
+| macOS (Intel) | `atlas-macos-x86_64` | `./setup-portable.sh` | `./atlas-sections i --h 1000 ...` |
+
+Her bundle gömülü Python 3.12 + mimariye özel offline wheel'ler içerir;
+`setup-portable` yorumlayıcıyı native `tar` ile açar, venv kurar, bağımlılıkları
+`--no-index` ile yükler. İnternet gerekmez.
+
 ## Ajan komutları
 | Komut | İşlev |
 |---|---|
