@@ -58,3 +58,6 @@ Format: Keep a Changelog / SemVer.
   (A, Iy, Iz, Wel, Wpl, kg/m), EN 1993 gösterimi, SI-mm.
 - `atlas-sections` CLI.
 - Ajan altyapısı: 5 komut, 3 subagent, 2 skill, hooks, CI.
+
+[0.4.0]: https://github.com/001100alfa/ATLAS/releases/tag/v0.4.0
+[0.3.0]: https://github.com/001100alfa/ATLAS/releases/tag/v0.3.0
