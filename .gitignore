@@ -16,3 +16,5 @@ desktop.ini
 # (offline) ile kurulur. Bkz docs/OFFLINE.md.
 runtime/
 vendor/wheels/
+dist/
+tools/.cache/

@@ -43,6 +43,30 @@ make-portable.cmd     :: Python 3.12 + uv + wheelhouse indirir (online)
 setup-portable.cmd    :: venv'i offline kurar
 ```
 
+## Çok-platform bundle üretimi (bakımcı)
+Kök klasördeki `runtime/` bundle'ı **Windows x64** içindir. Başka
+platformlar için bağımsız bundle'lar üretilir:
+```bash
+python tools/make_portable.py            # tüm hedefler
+python tools/make_portable.py --list     # hedefleri gör
+# veya: make-portable.cmd / ./make-portable.sh
+```
+Hedefler: `windows-x86_64`, `linux-x86_64`, `macos-aarch64`, `macos-x86_64`.
+Çıktı `dist/atlas-<hedef>/` — her biri bağımsız kopyala-çalıştır ağaç.
+
+**Tasarım:** yorumlayıcı arşivi (python-build-standalone) build makinesinde
+AÇILMAZ; `runtime/python.tar.gz` olarak kopyalanır. Hedef makinede
+`setup-portable` kendi OS'unun native `tar`'ı ile açar (hızlı) + venv + offline
+pip. Böylece Linux/macOS bundle'ları bir Windows makinesinde üretilebilir.
+Wheel'ler `pip download --platform ... --only-binary=:all:` ile her hedefe özel
+çekilir. Sürüm sabitleri `tools/make_portable.py` başındadır (`PY_VERSION`,
+`PBS_TAG`).
+
+Hedef makinede kurulum:
+```bash
+cd atlas-linux-x86_64 && ./setup-portable.sh && ./atlas-sections i --h 1000 --b 300 --tw 12 --tf 20
+```
+
 ## Çevrimdışı doğrulama
 `setup-portable.cmd` `--no-index` ile çalışır: PyPI'ye hiç bağlanmaz. Başlatıcılar
 (`*.cmd`) yalnız `runtime/venv` içindeki gömülü yorumlayıcıyı kullanır; hiçbir

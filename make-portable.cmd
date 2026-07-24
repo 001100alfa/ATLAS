@@ -1,20 +1,16 @@
 @echo off
-rem ATLAS taşınabilir bundle ÜRETİCİ — yalnız bakımcı için, İNTERNET GEREKİR.
-rem Gömülü Python 3.12 + uv.exe indirir, wheelhouse'u yeniler.
-rem Kullanıcılar bunu çalıştırmaz; setup-portable.cmd yeterlidir.
+rem ATLAS çok-platform taşınabilir bundle ÜRETİCİ — bakımcı için, İNTERNET GEREKİR.
+rem Windows/Linux/macOS için dist/atlas-<hedef>/ altında bağımsız ağaçlar üretir.
+rem Kullanıcılar bunu çalıştırmaz; hedef makinede setup-portable yeterlidir.
+rem
+rem   make-portable.cmd                         :: tüm hedefler
+rem   make-portable.cmd --targets linux-x86_64  :: seçili hedef
+rem   make-portable.cmd --list                  :: hedefleri listele
 setlocal
-set "ATLAS_HOME=%~dp0"
-where uv >nul 2>&1 || ( echo [HATA] Sistemde uv yok. Once uv kurun. & exit /b 1 )
+set "H=%~dp0"
 
-echo [1/3] Portable Python 3.12 indiriliyor...
-uv python install 3.12 --install-dir "%ATLAS_HOME%runtime\python" || exit /b 1
+rem Yerel bir Python bul: önce gömülü, sonra sistem.
+set "PY=%H%runtime\python\cpython-3.12.13-windows-x86_64-none\python.exe"
+if not exist "%PY%" set "PY=python"
 
-echo [2/3] uv.exe projeye kopyalaniyor...
-for /f "delims=" %%U in ('where uv') do copy /y "%%U" "%ATLAS_HOME%runtime\uv.exe" >nul
-
-echo [3/3] Wheelhouse yenileniyor...
-set "PY=%ATLAS_HOME%runtime\python\cpython-3.12.13-windows-x86_64-none\python.exe"
-"%PY%" -m pip download --dest "%ATLAS_HOME%vendor\wheels" numpy>=1.26 ezdxf>=1.3 pyyaml>=6.0 || exit /b 1
-
-echo.
-echo Bundle hazir. Offline kurulum icin: setup-portable.cmd
+"%PY%" "%H%tools\make_portable.py" %*
