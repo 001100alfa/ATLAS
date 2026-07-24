@@ -50,6 +50,13 @@ Her bundle gömülü Python 3.12 + mimariye özel offline wheel'ler içerir;
 `setup-portable` yorumlayıcıyı native `tar` ile açar, venv kurar, bağımlılıkları
 `--no-index` ile yükler. İnternet gerekmez.
 
+## Web UI & Masaüstü GUI (Juggler)
+Ön-yüz olarak [Juggler](https://github.com/juggler-ai/juggler) ajan
+workbench'i kullanılır; ATLAS'ın Claude Code çekirdeğini web UI ve masaüstü
+GUI'den sürer. ATLAS yetenekleri (`atlas_section`, `atlas_recall`,
+`/atlas-section`) `integrations/juggler/` eklentisiyle (Apache-2.0) Juggler'a
+taşınır. Kurulum, derleme ve lisans: [`docs/JUGGLER.md`](docs/JUGGLER.md).
+
 ## Ajan komutları
 | Komut | İşlev |
 |---|---|
