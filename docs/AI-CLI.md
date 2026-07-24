@@ -41,6 +41,30 @@ kullanır; bu yüzden `kilo_Run.cmd` `HOME`/`USERPROFILE`'ı proje-yerele yönle
 (npm `.cmd` shim'i override'ı yuttuğu için node doğrudan çağrılır). *nix'te her
 iki CLI de `XDG_*` ile taşınabilirdir. Bkz `DECISIONS.md` 2026-07-24.
 
+## Juggler "ACP Agents" olarak kullanım
+Her iki CLI de ACP (Agent Client Protocol) sunucusu olabilir (`... acp`) ve
+Juggler'ın **ACP Agents** panelinden model olarak sürülebilir. Config'i üret:
+```bat
+setup-acp-agents.cmd
+```
+Bu, `<project>\.juggler\acp.json` yazar (Juggler global config'in üstüne alır) ve
+`kilo` + `opencode` ajanlarını kaydeder. Juggler'ı başlat; model seçicide
+**ACP Agents → kilo / opencode** görünür.
+
+**Neden generator gerekiyor (yaygın hata):** Juggler ACP ajanını
+`exec.LookPath(command)` + doğrudan `exec` ile spawn eder — kabuk yok.
+- `command: "kilo"` → kilo **proje-yerel**, PATH'te yok → *"not found on PATH"*.
+- `kilo.cmd` shim'i PE ikili olmadığından Go `exec` ile çalışmaz.
+
+Doğru kayıt (generator bunu yazar):
+- **Kilo** (Node CLI): `command:"node"`, `args:[<kilo bin>, "acp"]`,
+  `env` HOME/USERPROFILE → proje-yerel.
+- **OpenCode** (derlenmiş ikili): `command:<opencode.exe mutlak yolu>`,
+  `args:["acp"]`, `env` XDG_* (4'lü) → proje-yerel.
+
+`.juggler/acp.json` makineye özel mutlak yollar içerir; git'te tutulmaz —
+generator (`setup-acp-agents.cmd`) tutulur. Başka makinede yeniden çalıştır.
+
 ## API anahtarları
 Her CLI kendi kimlik akışını kullanır (`opencode auth`, Kilo ilk çalıştırmada
 sorar). Anahtarlar **repoya girmez**; proje-yerel config dizinlerinde (yukarıda)
