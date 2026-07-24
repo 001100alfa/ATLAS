@@ -159,9 +159,13 @@ rem tar (Windows 10+ bsdtar) ve gomulu arsiv disinda hicbir sey gerektirmez.
 setlocal
 set "H=%~dp0"
 set "PY=%H%runtime\\python\\python.exe"
+rem Windows built-in bsdtar'i acikca kullan; PATH'teki GNU tar (Git) drive
+rem harfli yollari "uzak host" sanip patlar. System32\\tar.exe bsdtar'dir.
+set "TAR=%SystemRoot%\\System32\\tar.exe"
+if not exist "%TAR%" set "TAR=tar"
 if not exist "%PY%" (
   echo Yorumlayici aciliyor: runtime\\python.tar.gz
-  tar -xzf "%H%runtime\\python.tar.gz" -C "%H%runtime" || (
+  "%TAR%" -xf "%H%runtime\\python.tar.gz" -C "%H%runtime" || (
     echo [HATA] tar basarisiz. Windows 10+ gerekir. & exit /b 1 )
 )
 echo Venv olusturuluyor...
