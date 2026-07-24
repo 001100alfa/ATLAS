@@ -1,6 +1,20 @@
 # Changelog
 Format: Keep a Changelog / SemVer.
 
+## [0.4.2] - 2026-07-24
+### Eklendi
+- Otomatik testler: `tests/test_make_portable.py` (10) ve
+  `tests/juggler/gen-acp-config.test.mjs` (`node --test`, 4) — daha önce yalnız
+  manuel doğrulanan araçlara regresyon koruması.
+- `SECURITY.md` (sır/audit/bildirim politikası), `docs/adr/` (ADR referansı gerçek),
+  `.gitattributes` (satır-sonu: `.cmd`=CRLF, `.sh`=LF; ikili dosyalar).
+### Düzeltildi (kalite kapıları — öz-inceleme)
+- CI mypy artık **tüm `src`** (atlas_core dahil), yalnız `sections` değil.
+- CI coverage `--cov=sections --cov=atlas_core` (platform katmanı da ölçülür, %96).
+- **Windows test job'u** eklendi (çift-OS matrix); JS `node --check` + `node --test`
+  ve `atlas scan` (sır taraması) CI adımları.
+- README stale "37 test" → 39; atıl `api` extra (fastapi/uvicorn) kaldırıldı.
+
 ## [0.4.1] - 2026-07-24
 ### Eklendi
 - Juggler **ACP Agents** entegrasyonu — 5 yedek AI kodlama ajanı stdio ACP
@@ -77,6 +91,7 @@ Format: Keep a Changelog / SemVer.
 - `atlas-sections` CLI.
 - Ajan altyapısı: 5 komut, 3 subagent, 2 skill, hooks, CI.
 
+[0.4.2]: https://github.com/001100alfa/ATLAS/releases/tag/v0.4.2
 [0.4.1]: https://github.com/001100alfa/ATLAS/releases/tag/v0.4.1
 [0.4.0]: https://github.com/001100alfa/ATLAS/releases/tag/v0.4.0
 [0.3.0]: https://github.com/001100alfa/ATLAS/releases/tag/v0.3.0
