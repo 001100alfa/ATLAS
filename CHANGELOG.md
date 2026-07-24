@@ -1,6 +1,26 @@
 # Changelog
 Format: Keep a Changelog / SemVer.
 
+## [0.4.0] - 2026-07-24
+### Eklendi
+- Juggler entegrasyonu — web UI + masaüstü GUI ön-yüzü ([`docs/JUGGLER.md`]):
+  - `integrations/juggler/` eklentisi (Apache-2.0): `atlas_section` ve
+    `atlas_recall` context-item araçları, `/atlas-section` slash komutu,
+    sistem-prompt katkısı; ATLAS launcher'larına `juggler/ops` shell köprüsü.
+  - Başlatıcılar: `juggler-webui_Run/Close.bat`, `juggler-desktop_Run/Close.bat`.
+  - `atlas-sections --json` (properties + units; hata JSON'u stderr, exit 2).
+- Taşınabilir yedek AI CLI'ları (Claude Code limitinde/tercihe göre):
+  OpenCode (`opencode-ai`) + Kilo (`@kilocode/cli`), proje-yerel npm kurulumu
+  (`setup-ai-cli.cmd`), `opencode_Run.cmd` / `kilo_Run.cmd`. Config/data proje
+  içine hapsedilir (OpenCode XDG_* 4'lü; Kilo HOME override). [`docs/AI-CLI.md`].
+- MIT lisansı (`LICENSE`) + README rozetleri (CI, Python, sürüm, ruff, mypy, MIT).
+### Düzeltildi
+- `setup-portable` (ve Juggler setup) Windows'ta built-in bsdtar'ı açıkça çağırır.
+- Kilo Windows'ta XDG_* onurlandırmıyor + npm `.cmd` shim'i USERPROFILE'ı yutuyor
+  → `kilo_Run.cmd` node'u doğrudan çağırır + HOME/USERPROFILE proje-yerele.
+### Diğer
+- Depo yayımlandı: https://github.com/001100alfa/ATLAS (public, MIT, CI yeşil).
+
 ## [0.3.0] - 2026-07-24
 ### Eklendi
 - Taşınabilir / çevrimdışı çalışma-zamanı: gömülü Python 3.12 + uv +
