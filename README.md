@@ -40,11 +40,11 @@ Git'ten klonladıysan bundle'ı bir kez üret (online): `make-portable.cmd`.
 AI çekirdek (Claude Code CLI) bir istisnadır — ayrı kurulur. Ayrıntı:
 [`docs/OFFLINE.md`](docs/OFFLINE.md).
 
-### v0.3.0 hazır bundle'ları
-Her platform için bağımsız, kopyala-çalıştır bundle. Sürüm sayfasından indir:
-`<releases-url>/tag/v0.3.0` (yayımlandıktan sonra). Bundle'lar git deposunda
-tutulmaz; `make-portable.cmd` / `./make-portable.sh` ile de üretilebilir
-(çıktı `dist/atlas-<hedef>/`).
+### v0.4.0 hazır bundle'ları
+Her platform için bağımsız, kopyala-çalıştır bundle. Bundle'lar git deposunda
+tutulmaz (platforma özel ikili); `make-portable.cmd` / `./make-portable.sh` ile
+üretilir (çıktı `dist/atlas-<hedef>/`). Sürüm sayfası:
+<https://github.com/001100alfa/ATLAS/releases/tag/v0.4.0>.
 
 | Platform | Bundle | Kurulum (bir kez, offline) | Çalıştır |
 |---|---|---|---|
