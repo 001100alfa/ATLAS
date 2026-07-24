@@ -106,3 +106,10 @@ uv run atlas-sections box --h 200 --b 300 --t 10           # kutu
 - `docs/ARCHITECTURE.md` — katmanlar ve görev yaşam döngüsü
 - `docs/CONTRIBUTING.md` — katkı ve kalite kapıları
 - `CHANGELOG.md` — sürüm geçmişi
+
+## Lisans
+[MIT](LICENSE) — Copyright (c) 2026 Serkan Acan.
+
+Gömülü/entegre üçüncü taraf bileşenler ayrı lisanslara tabidir: Juggler çekirdeği
+AGPL-3.0 (ayrı uygulama, [`docs/JUGGLER.md`](docs/JUGGLER.md)); taşınabilir
+çalışma-zamanı bileşenleri [`docs/THIRD_PARTY_LICENSES.md`](docs/THIRD_PARTY_LICENSES.md).
