@@ -64,12 +64,26 @@ Juggler'ın varsayılanı olmayı sürdürür.
 | `commands/*` | `home/commands/*` | kullanıcı |
 | `skills/*` | `home/skills/*` | kullanıcı |
 | `mcp/servers.json` | `home/mcp.json` | kullanıcı |
+| `settings.json` | `home/settings.json` (üst düzey anahtar birleştirme) | kullanıcı |
 | ACP ajanları (üretilir) | `home/acp.json` + `<proje>/.juggler/acp.json` | kullanıcı + proje |
 
 ACP ajanları şablondan değil, kurulumun **gerçek** durumundan üretilir
 (`tools/setup_gui/detect.py` → `tools/agents/*.cmd` sarmalayıcıları). Böylece
 yollar her zaman bu makinedeki kuruluma uyar; şablonla gerçek arasında sapma
 olmaz.
+
+## Otomatik güncelleyici kapalı
+
+Profil `settings.json` ile `updates.mode = "off"` dayatır. Gerekçe ölçülmüş bir
+olaydır: 2026-07-27'de panelin otomatik güncelleyicisi çalıştı, `tools/juggler/`
+içindeki **çalışan ikiliyi yerinde değiştirdi** ve kaynaktan derlenmiş yerel işin
+(ACP authenticate düzeltmesi, childcontain, …) tamamı indirilen upstream sürümüyle
+yer değiştirdi. Ayrıntı: ATLAS `DECISIONS.md`, 2026-07-27.
+
+Kapalı olan yalnız **kendiliğinden indirme**; panelden "güncelleme denetle"
+elle çalışmaya devam eder. Aynı ayar eski konuma (`~/.juggler/settings.json`) da
+yazılır — panel ATLAS başlatıcıları dışından açılırsa ayarları oradan okur.
+Kullanıcının diğer ayar bölümlerine dokunulmaz.
 
 ## Lisans
 
