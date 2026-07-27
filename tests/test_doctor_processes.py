@@ -72,6 +72,31 @@ def test_sibling_helper_binary_counts(tmp_path: Path, monkeypatch):
     assert [p["pid"] for p in processes.stray(root)] == [7]
 
 
+def test_npm_platform_package_counts(tmp_path: Path, monkeypatch):
+    """npm ajanı asıl işi AYRI bir platform paketinde yapar; ada göre yakalanmalı.
+
+    Gerçek vaka (2026-07-27): kayıt `node_modules/cline/bin/cline` iken çalışan
+    süreç `node_modules/@cline/cli-windows-x64/bin/cline.exe` idi. Kardeş
+    değil — yalnız yola bakan ölçüt kaçırıyordu ve `npm install` EBUSY veriyordu.
+    """
+    root = _repo(tmp_path)
+    plat = root / "tools" / "ai-cli" / "node_modules" / "@cline" / "cli-windows-x64" / "bin"
+    plat.mkdir(parents=True)
+    exe = str(plat / "cline.exe")
+    _fake_procs(monkeypatch, [{"ProcessId": 8, "Name": "cline.exe", "ExecutablePath": exe}])
+    assert [p["pid"] for p in processes.stray(root)] == [8]
+
+
+def test_same_name_outside_repo_still_ignored(tmp_path: Path, monkeypatch):
+    """Ada göre eşleşme depo sınırını GEVŞETMEZ."""
+    root = _repo(tmp_path)
+    _fake_procs(
+        monkeypatch,
+        [{"ProcessId": 9, "Name": "cline.exe", "ExecutablePath": r"C:\Baska\kurulum\cline.exe"}],
+    )
+    assert processes.stray(root) == []
+
+
 def test_own_process_excluded(tmp_path: Path, monkeypatch):
     """Sihirbazın kendi süreci asla listeye girmez."""
     import os

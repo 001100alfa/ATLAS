@@ -75,6 +75,19 @@ def agent_binaries(root: Path) -> set[str]:
     return out
 
 
+def agent_names(root: Path) -> set[str]:
+    """Ajan ikililerinin uzantısız adları (küçük harf).
+
+    Yol eşleşmesi tek başına YETMİYOR: npm ajanları asıl işi ayrı bir platform
+    paketinde yapar — cline'ın kaydı `node_modules/cline/bin/cline` iken çalışan
+    süreç `node_modules/@cline/cli-windows-x64/bin/cline.exe`. İkincisi birincinin
+    kardeşi değil, o yüzden yalnız yola bakan ölçüt onu kaçırıyordu (ölçüldü:
+    2026-07-27, `npm install` EBUSY'sine yol açan süreç tam olarak buydu).
+    Ada göre eşleşme bunu yakalar; kapsam yine depo içiyle sınırlıdır.
+    """
+    return {Path(b).stem.lower() for b in agent_binaries(root)}
+
+
 def stray(root: Path) -> list[dict]:
     """Depoya ait, ARTIK olduğu düşünülen ajan süreçleri.
 
@@ -85,6 +98,7 @@ def stray(root: Path) -> list[dict]:
         return []
     root_s = str(root.resolve()).lower()
     bins = agent_binaries(root)
+    names = agent_names(root)
     me = os.getpid()
     found: list[dict] = []
     for p in _all_processes():
@@ -94,9 +108,13 @@ def stray(root: Path) -> list[dict]:
         low = path.lower()
         if not low.startswith(root_s):
             continue  # depo dışı — bizim işimiz değil
-        # Ajanın kendi ikilisi ya da onun yanındaki yardımcı ikili (ör. cline'in
-        # platform paketi) — ikisi de aynı kurulumun parçasıdır.
-        if not (low in bins or any(low.startswith(str(Path(b).parent).lower()) for b in bins)):
+        # Kayıtlı ikilinin kendisi, yanındaki yardımcı, ya da AYNI ADI taşıyan
+        # bir ikili (npm platform paketleri: @cline/cli-windows-x64/bin/cline.exe).
+        if not (
+            low in bins
+            or Path(low).stem in names
+            or any(low.startswith(str(Path(b).parent).lower()) for b in bins)
+        ):
             continue
         pid = int(p.get("ProcessId") or 0)
         if pid in (0, me):
