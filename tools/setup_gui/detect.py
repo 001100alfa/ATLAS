@@ -82,6 +82,9 @@ def agent_specs(root: Path | None = None) -> dict[str, dict]:
             "args": ["acp"],
             "env": _xdg_env(home),
             "keyless": False,
+            # ÖLÇÜLDÜ: `auth` bir komut GRUBU (list/login/logout); tek başına yalnız
+            # yardım basar. Girişi başlatan alt komut `login`.
+            "auth_cmd": ["auth", "login"],
             "auth_hint": "opencode auth login",
         },
         "kilo": {
@@ -93,6 +96,7 @@ def agent_specs(root: Path | None = None) -> dict[str, dict]:
             "args": ["acp"],
             "env": _home_env(home / "kilo-home"),
             "keyless": False,
+            "auth_cmd": ["auth", "login"],  # `auth` grubu; giriş `login` altında
             "auth_hint": "kilo auth login",
         },
         "cline": {
@@ -123,6 +127,8 @@ def agent_specs(root: Path | None = None) -> dict[str, dict]:
             # `kimi-code` paketi farklı davranır ve anahtarsız çalışabilir.)
             "keyless": False,
             "local_model_ok": True,  # yerel model doğrudan CLI kullanımında geçerli
+            # ÖLÇÜLDÜ: kimi'de `auth` diye bir alt komut YOK; giriş `kimi login`.
+            "auth_cmd": ["login"],
             "auth_hint": "kimi login (ACP hesap ister)",
         },
         "goose": {
