@@ -36,6 +36,13 @@ tools/gh/
 tools/goose/
 tools/ai-cli/py-venv/
 
+# Taşınabilir yerel model sunucusu + model deposu (GB'larca; SETUP.cmd indirir)
+tools/ollama/
+
+# Kurulum sihirbazının ürettiği ajan sarmalayıcıları — makineye özel (node yolu);
+# üretici tools/setup_gui/wrappers.py git'te tutulur, çıktısı tutulmaz.
+tools/agents/
+
 # Coverage veri dosyası
 .coverage
 .coverage.*

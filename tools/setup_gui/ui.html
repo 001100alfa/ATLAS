@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATLAS — Kurulum Sihirbazı</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --ink:#15181d; --muted:#5c6470; --line:#e3e6ea;
+    --brand:#2b5cff; --brand-ink:#fff; --ok:#0d8a4f; --okbg:#e7f6ee;
+    --warn:#a86400; --warnbg:#fdf3e2; --err:#c0322b; --errbg:#fdeceb; --code:#f1f3f6;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0f1115; --card:#171a20; --ink:#e8eaed; --muted:#9aa3b0; --line:#272b33;
+      --brand:#5b82ff; --ok:#4ad08a; --okbg:#12301f; --warn:#e8b45a; --warnbg:#33270f;
+      --err:#ff7a70; --errbg:#3a1a18; --code:#11141a;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:940px;margin:0 auto;padding:28px 20px 64px}
+  header h1{margin:0 0 4px;font-size:24px;letter-spacing:-.02em}
+  header p{margin:0 0 22px;color:var(--muted)}
+
+  /* adım göstergesi */
+  .steps{display:flex;gap:6px;margin-bottom:22px;flex-wrap:wrap}
+  .steps div{flex:1 1 120px;padding:8px 10px;border-radius:8px;background:var(--card);
+    border:1px solid var(--line);font-size:12.5px;color:var(--muted);text-align:center}
+  .steps div.on{background:var(--brand);color:var(--brand-ink);border-color:transparent;font-weight:600}
+  .steps div.ok{border-color:var(--ok);color:var(--ok)}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:22px;margin-bottom:16px}
+  .card h2{margin:0 0 6px;font-size:18px}
+  .card .sub{color:var(--muted);margin:0 0 18px}
+
+  button{font:inherit;border-radius:8px;border:1px solid var(--line);background:var(--card);
+    color:var(--ink);padding:9px 15px;cursor:pointer}
+  button:hover:not(:disabled){border-color:var(--brand)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:var(--brand);color:var(--brand-ink);border-color:transparent;font-weight:600}
+  button.sm{padding:6px 11px;font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px}
+  .spacer{flex:1}
+
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
+    font-size:12.5px;font-weight:600}
+  .p-ok{background:var(--okbg);color:var(--ok)} .p-warn{background:var(--warnbg);color:var(--warn)}
+  .p-err{background:var(--errbg);color:var(--err)} .p-idle{background:var(--code);color:var(--muted)}
+
+  ul.checks{list-style:none;padding:0;margin:0}
+  ul.checks li{display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+  ul.checks li:last-child{border-bottom:0}
+  ul.checks .name{font-weight:600;min-width:150px}
+  ul.checks .val{color:var(--muted);font-size:13.5px;word-break:break-all}
+
+  pre.log{background:var(--code);border-radius:8px;padding:12px;max-height:260px;overflow:auto;
+    font:12.5px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;margin:14px 0 0}
+  pre.log:empty{display:none}
+
+  .agents{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+  .agent{border:1px solid var(--line);border-radius:10px;padding:14px}
+  .agent h3{margin:0;font-size:15px;display:flex;align-items:center;gap:8px;justify-content:space-between}
+  .agent .kind{color:var(--muted);font-size:12.5px;margin:3px 0 10px}
+  .agent .detail{font-size:13px;color:var(--muted);margin:8px 0 0;min-height:18px}
+  .agent .acts{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+
+  .note{background:var(--warnbg);color:var(--warn);border-radius:8px;padding:11px 13px;
+    font-size:13.5px;margin-top:14px}
+  .note.info{background:var(--code);color:var(--muted)}
+  .hide{display:none}
+  code{background:var(--code);padding:1.5px 6px;border-radius:5px;font-size:13px}
+  a{color:var(--brand)}
+  .big{font-size:17px;font-weight:600;margin:10px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>ATLAS Kurulum Sihirbazı</h1>
+    <p>Birkaç adımda kurulumu tamamlayın. Teknik bilgi gerekmez — her adımı sizin için yapıyoruz.</p>
+  </header>
+
+  <div class="steps" id="steps"></div>
+  <div id="screen"></div>
+</div>
+
+<script>
+const T = new URLSearchParams(location.search).get('t') || '';
+const api = (p, opt) => fetch(p + (p.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(T), opt)
+  .then(r => r.json());
+const post = (p, body) => api(p, {method:'POST', headers:{'Content-Type':'application/json'},
+  body: JSON.stringify(body || {})});
+const el = h => { const d = document.createElement('div'); d.innerHTML = h.trim(); return d.firstChild; };
+const esc = s => String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+
+const STEPS = ['Kontrol', 'ATLAS kur', 'AI CLI kur', 'Yerel AI', 'Ajanları bağla', 'Bitti'];
+let step = 0, S = null;           // S = /api/status anlık görüntüsü
+let probes = {};                  // ajan → son test sonucu
+
+function drawSteps(){
+  document.getElementById('steps').innerHTML = STEPS
+    .map((s,i)=>`<div class="${i===step?'on':(i<step?'ok':'')}">${i+1}. ${s}</div>`).join('');
+}
+async function refresh(){ S = await api('/api/status'); }
+function go(n){ step = n; drawSteps(); render(); }
+
+/* ---------- uzun iş çalıştırma + canlı log ---------- */
+async function runJob(task, logEl, btn, params){
+  btn.disabled = true;
+  logEl.textContent = '';
+  const r = await post('/api/run/' + task, params);
+  if (r.error) { logEl.textContent = 'HATA: ' + r.error; btn.disabled = false; return null; }
+  let seen = 0;
+  while (true){
+    const s = await api('/api/job/' + r.job + '&since=' + seen);
+    if (s.lines && s.lines.length){ seen = s.total; logEl.textContent += s.lines.join('\n') + '\n';
+      logEl.scrollTop = logEl.scrollHeight; }
+    if (s.done){ btn.disabled = false; return s.code; }
+    await new Promise(r => setTimeout(r, 700));
+  }
+}
+
+/* ---------- ekranlar ---------- */
+function render(){
+  const scr = document.getElementById('screen');
+  scr.innerHTML = '';
+  scr.appendChild([screenCheck, screenCore, screenClis, screenLocalAI, screenAgents, screenDone][step]());
+}
+
+/* 0 — sistem kontrolü */
+function screenCheck(){
+  const r = S.runtimes;
+  const item = (name, val, ok, hint) => `<li>
+      <span class="pill ${ok?'p-ok':'p-warn'}">${ok?'✓':'!'}</span>
+      <span class="name">${name}</span>
+      <span class="val">${esc(val || hint)}</span></li>`;
+  const c = el(`<div class="card">
+    <h2>1. Sistem kontrolü</h2>
+    <p class="sub">Bilgisayarınızda nelerin hazır olduğuna bakıyoruz.</p>
+    <ul class="checks">
+      ${item('Python (gömülü)', r.python_embedded, !!r.python_embedded, 'bulunamadı — bundle eksik')}
+      ${item('Node.js', r.node_version, !!r.node, 'yok — Kilo ve Cline için gerekir (diğerleri çalışır)')}
+      ${item('npm', r.npm_version, !!r.npm, 'yok — AI CLI kurulumu için gerekir')}
+      ${item('ATLAS çekirdek', r.venv ? 'kurulu' : '', !!r.venv, 'henüz kurulmadı (2. adımda kurulacak)')}
+    </ul>
+    ${!r.node ? `<div class="note">Node.js bulunamadı. Kurulum yine de sürebilir; yalnız
+      <b>Kilo</b> ve <b>Cline</b> ajanları kullanılamaz. Node.js kurmak isterseniz:
+      <a href="https://nodejs.org" target="_blank" rel="noreferrer">nodejs.org</a></div>` : ''}
+    <div class="row"><div class="spacer"></div>
+      <button class="primary" id="next">Devam →</button></div></div>`);
+  c.querySelector('#next').onclick = () => go(1);
+  return c;
+}
+
+/* 1 — çekirdek kurulum */
+function screenCore(){
+  const done = !!S.runtimes.venv;
+  const c = el(`<div class="card">
+    <h2>2. ATLAS çekirdeğini kur</h2>
+    <p class="sub">Hesap makinesi ve araçların çalışması için gereken paketler.
+      İnternet gerekmez — her şey pakette geliyor.</p>
+    ${done ? `<span class="pill p-ok">✓ Zaten kurulu</span>` :
+      `<span class="pill p-idle">Kurulmadı</span>`}
+    <pre class="log" id="log"></pre>
+    <div class="row">
+      <button id="run">${done ? 'Yeniden kur' : 'Kur'}</button>
+      <div class="spacer"></div>
+      <button class="sm" id="back">← Geri</button>
+      <button class="primary" id="next" ${done?'':'disabled'}>Devam →</button>
+    </div></div>`);
+  const log = c.querySelector('#log'), next = c.querySelector('#next');
+  c.querySelector('#back').onclick = () => go(0);
+  next.onclick = () => go(2);
+  c.querySelector('#run').onclick = async e => {
+    const code = await runJob('install-core', log, e.target);
+    await refresh();
+    if (code === 0){ next.disabled = false; next.focus(); }
+  };
+  return c;
+}
+
+/* 2 — AI CLI kurulumu */
+function screenClis(){
+  const n = S.summary.clis_installed, tot = S.summary.clis_total;
+  const c = el(`<div class="card">
+    <h2>3. AI CLI'ları kur</h2>
+    <p class="sub">Panelde kullanacağınız yapay zeka ajanları (OpenCode, Kilo, Cline, Kimi, Goose).
+      <b>İnternet gerekir</b> ve birkaç dakika sürebilir.</p>
+    <span class="pill ${n===tot?'p-ok':(n?'p-warn':'p-idle')}">${n} / ${tot} kurulu</span>
+    ${!S.runtimes.npm ? `<div class="note">npm bulunamadı — bu adım çalışmaz.
+      Node.js kurup sihirbazı yeniden başlatın.</div>` : ''}
+    <pre class="log" id="log"></pre>
+    <div class="row">
+      <button id="run" ${S.runtimes.npm?'':'disabled'}>${n?'Eksikleri kur':'Kur'}</button>
+      <div class="spacer"></div>
+      <button class="sm" id="back">← Geri</button>
+      <button class="primary" id="next" ${n?'':'disabled'}>Devam →</button>
+    </div></div>`);
+  const log = c.querySelector('#log'), next = c.querySelector('#next');
+  c.querySelector('#back').onclick = () => go(1);
+  next.onclick = () => go(3);
+  c.querySelector('#run').onclick = async e => {
+    await runJob('install-clis', log, e.target);
+    await refresh();
+    if (S.summary.clis_installed) next.disabled = false;
+  };
+  return c;
+}
+
+/* 3 — yerel AI */
+const MODELS = [
+  {id:'llama3.2:1b',       ad:'Llama 3.2 · 1B',      boyut:'~1,3 GB', not:'En hızlı, en az yer'},
+  {id:'llama3.2:3b',       ad:'Llama 3.2 · 3B',      boyut:'~2 GB',   not:'Dengeli — önerilen', on:true},
+  {id:'qwen2.5-coder:7b',  ad:'Qwen2.5 Coder · 7B',  boyut:'~4,7 GB', not:'Kod için en iyi'},
+];
+
+function screenLocalAI(){
+  const o = S.ollama, has = o.backend_available;
+  const where = o.port_serving ? `127.0.0.1:${o.port}` : (o.system_running ? '127.0.0.1:11434' : null);
+  const installed = o.portable_installed;
+
+  const c = el(`<div class="card">
+    <h2>4. Yerel yapay zeka (isteğe bağlı)</h2>
+    <p class="sub">Bilgisayarınızda çalışan bir model, <b>Goose</b> ajanını hesap açmadan ve
+      anahtar girmeden kullanmanızı sağlar. İsterseniz bu adımı atlayabilirsiniz.</p>
+
+    ${has ? `<span class="pill p-ok">✓ Çalışıyor — ${where}</span>
+      <div class="note info">Hazır. Sonraki adımda <b>Goose</b>'u tek tıkla buna bağlayabilirsiniz.</div>`
+    : installed ? `<span class="pill p-warn">Kurulu ama kapalı</span>
+      <div class="note">Yerel model sunucusu kurulu fakat çalışmıyor. Başlatın:</div>`
+    : `<span class="pill p-idle">Kurulu değil</span>`}
+
+    ${(!has && !installed) ? `
+      <div class="note info" style="margin-top:14px">
+        <div class="big">Sizin için indirebiliriz</div>
+        Yönetici hakkı gerekmez, sisteme hiçbir şey kurulmaz — her şey proje klasörüne iner
+        ve klasörü taşıdığınızda birlikte gelir. Ollama programı <b>~1,4 GB</b>, ayrıca
+        seçtiğiniz model iner.<br>
+        <b>İnternet hızınıza göre uzun sürebilir</b> — ilerlemeyi aşağıda canlı görürsünüz.
+      </div>
+      <div style="margin-top:14px">
+        ${MODELS.map(m => `<label style="display:flex;gap:9px;align-items:flex-start;
+            padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer">
+          <input type="radio" name="model" value="${m.id}" ${m.on?'checked':''} style="margin-top:4px">
+          <span><b>${m.ad}</b> · ${m.boyut}<br>
+            <span style="color:var(--muted);font-size:13px">${m.not}</span></span>
+        </label>`).join('')}
+      </div>` : ''}
+
+    <pre class="log" id="log"></pre>
+
+    <div class="row">
+      ${(!has && !installed) ? `<button class="primary" id="install">İndir ve kur</button>` : ''}
+      ${(!has && installed) ? `<button class="primary" id="start">Sunucuyu başlat</button>` : ''}
+      <button class="sm" id="recheck">Yeniden denetle</button>
+      <div class="spacer"></div>
+      <button class="sm" id="back">← Geri</button>
+      <button class="primary" id="next">${has ? 'Devam →' : 'Atla →'}</button>
+    </div>
+    ${(!has && !installed) ? `<div class="note" style="margin-top:12px">
+      Kurmak istemiyorsanız <b>Atla</b> diyebilirsiniz — diğer ajanlar kendi hesaplarıyla çalışır.
+      Ollama'yı elle kurmayı tercih ederseniz:
+      <a href="https://ollama.com/download" target="_blank" rel="noreferrer">ollama.com</a></div>` : ''}
+    </div>`);
+
+  const log = c.querySelector('#log');
+  c.querySelector('#back').onclick = () => go(2);
+  c.querySelector('#next').onclick = () => go(4);
+  c.querySelector('#recheck').onclick = async e => {
+    e.target.disabled = true; await refresh(); render();
+  };
+
+  const inst = c.querySelector('#install');
+  if (inst) inst.onclick = async e => {
+    const model = (c.querySelector('input[name=model]:checked') || {}).value || 'llama3.2:3b';
+    const code = await runJob('install-ollama', log, e.target, {model});
+    await refresh();
+    if (code === 0) render(); else
+      log.textContent += '\nKurulum tamamlanamadı. İnternet bağlantınızı kontrol edip yeniden deneyin.\n';
+  };
+
+  const st = c.querySelector('#start');
+  if (st) st.onclick = async e => {
+    e.target.disabled = true; log.textContent = 'Başlatılıyor…\n';
+    const r = await post('/api/ollama/start');
+    log.textContent += (r.detail || '') + '\n';
+    await refresh(); render();
+  };
+  return c;
+}
+
+/* 4 — ajanları bağla (asıl ekran) */
+const STATUS_UI = {
+  ready:          ['p-ok',   '✓ Hazır'],
+  needs_auth:     ['p-warn', 'Giriş gerekli'],
+  needs_provider: ['p-warn', 'Model gerekli'],
+  not_installed:  ['p-idle', 'Kurulu değil'],
+  error:          ['p-err',  'Hata'],
+  timeout:        ['p-err',  'Yanıt yok'],
+};
+
+function agentCard(a){
+  const p = probes[a.name];
+  const [cls, label] = p ? (STATUS_UI[p.status] || ['p-err', p.status])
+                         : (a.installed ? ['p-idle','Test edilmedi'] : ['p-idle','Kurulu değil']);
+  const canKeyless = a.keyless && S.ollama.backend_available && a.installed;
+  const needsFix = p && ['needs_auth','needs_provider'].includes(p.status);
+  const src = a.source;
+  const foreign = src && src.kind !== 'atlas-wrapper' && src.kind !== 'atlas-direct';
+  return `<div class="agent" data-agent="${a.name}">
+    <h3>${esc(a.label)} <span class="pill ${cls}">${label}</span></h3>
+    <div class="kind">${esc(a.kind)}</div>
+    <div class="src" style="font-size:12px;color:var(--muted);margin:6px 0 0">
+      ${src ? `Kaynak: <b style="color:${foreign?'var(--warn)':'inherit'}">${esc(src.label)}</b>`
+            : 'Panele kayıtlı değil'}
+    </div>
+    <div class="detail">${esc(p ? (p.detail || '') : (a.installed ? 'Bağlantıyı sınamak için Test edin.' : 'Önce 3. adımda kurun.'))}</div>
+    <div class="acts">
+      <button class="sm test" ${a.installed?'':'disabled'}>Test et</button>
+      ${canKeyless ? `<button class="sm keyless">Yerel modele bağla</button>` : ''}
+      ${(needsFix && !a.keyless) || (needsFix && !canKeyless)
+        ? `<button class="sm primary login">Giriş yap</button>` : ''}
+    </div>
+    <div class="devlogin hide"></div>
+  </div>`;
+}
+
+/* Panelde şu an hangi kurulumların kayıtlı olduğunu özetler. */
+function installationsNote(){
+  const inst = (S.registration && S.registration.installations) || {};
+  const rows = Object.entries(inst);
+  if (rows.length <= 1) return '';
+  const others = rows.filter(([,i]) => !i.label.startsWith('ATLAS'));
+  return `<div class="note" style="margin-top:14px">
+    <div class="big">Bu bilgisayarda birden fazla kurulum var</div>
+    ${rows.map(([root,i]) => `• <b>${esc(i.label)}</b> — ${i.agents.length} ajan
+        <span style="color:var(--muted)">${esc(root)}</span>`).join('<br>')}
+    <br><br>Panel her ajan için tek bir kaynağı çalıştırır; yukarıdaki kartlarda
+    <b>hangisinin</b> bağlı olduğunu görüyorsunuz. Proje kaydı genel kaydı ezer,
+    yani <b>ATLAS'a bağla</b> dediğinizde ATLAS sürümü devreye girer.
+    ${others.length ? `<br>Diğer kurulum${others.length>1?'ları':'u'} silmenize gerek yok —
+      dokunulmadan durur.` : ''}
+  </div>`;
+}
+
+function screenAgents(){
+  const c = el(`<div class="card">
+    <h2>5. Ajanları bağla</h2>
+    <p class="sub">Her ajanı gerçekten sınıyoruz — “kurulu” olması yetmez, panelde
+      çalışacağını doğruluyoruz. Sorunluları tek tıkla düzeltin.</p>
+    <div class="row" style="margin-top:0">
+      <button class="primary" id="probeAll">Hepsini test et</button>
+      <button class="sm" id="reg">ATLAS'a bağla</button>
+      <span class="pill p-idle" id="regstate">${S.summary.agents_registered} ajan kayıtlı</span>
+    </div>
+    <div class="note info" id="hint">İlk test 15–30 saniye sürebilir (her ajan gerçekten başlatılır).
+      <b>ATLAS'a bağla</b>, ajanları ATLAS'ın kendi sarmalayıcılarına yönlendirir: ayarlar proje
+      içinde kalır ve yerel model gerektiğinde kendiliğinden başlar.</div>
+    ${installationsNote()}
+    <div class="agents" id="grid">${S.agents.map(agentCard).join('')}</div>
+    <div class="row">
+      <button class="sm" id="back">← Geri</button>
+      <div class="spacer"></div>
+      <button class="primary" id="next">Devam →</button>
+    </div></div>`);
+
+  c.querySelector('#back').onclick = () => go(3);
+  c.querySelector('#next').onclick = () => go(5);
+
+  c.querySelector('#reg').onclick = async e => {
+    e.target.disabled = true; e.target.textContent = 'Bağlanıyor…';
+    await post('/api/register');
+    await refresh();
+    render();  // kaynak rozetleri değişti — ekranı tazele
+  };
+
+  c.querySelector('#probeAll').onclick = async e => {
+    e.target.disabled = true; e.target.textContent = 'Test ediliyor…';
+    const r = await post('/api/probe');
+    (r.results || []).forEach(x => probes[x.name] = x);
+    e.target.disabled = false; e.target.textContent = 'Hepsini test et';
+    redrawGrid(c);
+  };
+
+  wireCards(c);
+  return c;
+}
+
+function redrawGrid(c){
+  c.querySelector('#grid').innerHTML = S.agents.map(agentCard).join('');
+  wireCards(c);
+}
+
+function wireCards(c){
+  c.querySelectorAll('.agent').forEach(card => {
+    const name = card.dataset.agent;
+    const detail = card.querySelector('.detail');
+
+    card.querySelector('.test').onclick = async e => {
+      e.target.disabled = true; detail.textContent = 'Sınanıyor…';
+      const r = await post('/api/probe', {agents: [name]});
+      probes[name] = (r.results || [])[0];
+      redrawGrid(c);
+    };
+
+    const kl = card.querySelector('.keyless');
+    if (kl) kl.onclick = async e => {
+      e.target.disabled = true; detail.textContent = 'Bağlanıyor…';
+      const r = await post('/api/keyless/' + name);
+      detail.textContent = r.detail || '';
+      if (r.ok){
+        const p = await post('/api/probe', {agents: [name]});
+        probes[name] = (p.results || [])[0];
+        await refresh(); redrawGrid(c);
+      } else e.target.disabled = false;
+    };
+
+    const lg = card.querySelector('.login');
+    if (lg) lg.onclick = async e => {
+      e.target.disabled = true;
+      const box = card.querySelector('.devlogin');
+      const a = S.agents.find(x => x.name === name);
+      const r = await post('/api/auth/' + name, {mode: a.device_flow ? 'auto' : 'terminal'});
+      if (!a.device_flow){
+        box.classList.remove('hide');
+        box.innerHTML = `<div class="note">${r.ok
+          ? 'Giriş penceresi açıldı. Oradaki adımları tamamlayın, sonra <b>Test et</b>’e basın.'
+          : esc(r.detail || 'Başlatılamadı')}</div>`;
+        e.target.disabled = false; return;
+      }
+      box.classList.remove('hide');
+      box.innerHTML = `<div class="note">Giriş başlatılıyor…</div>`;
+      pollDevice(name, box, card, c);
+    };
+  });
+}
+
+async function pollDevice(name, box, card, c){
+  for (let i = 0; i < 300; i++){
+    const s = await api('/api/auth/' + name);
+    if (s.url){
+      box.innerHTML = `<div class="note">
+        <div class="big">Tarayıcıda giriş yapın</div>
+        1) Bu adresi açın:<br><a href="${esc(s.url)}" target="_blank" rel="noreferrer">${esc(s.url)}</a>
+        ${s.code ? `<br>2) Şu kodu girin: <code>${esc(s.code)}</code>` : ''}
+        <br><br>Giriş tamamlanınca burası kendiliğinden güncellenir.</div>`;
+    }
+    if (s.done){
+      box.innerHTML = `<div class="note">${s.ok
+        ? 'Giriş tamamlandı. Doğrulanıyor…' : 'Giriş tamamlanmadı. Tekrar deneyin.'}</div>`;
+      if (s.ok){
+        const p = await post('/api/probe', {agents: [name]});
+        probes[name] = (p.results || [])[0];
+        await refresh(); redrawGrid(c);
+      } else {
+        const b = card.querySelector('.login'); if (b) b.disabled = false;
+      }
+      return;
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  box.innerHTML = `<div class="note">Zaman aşımı. Tekrar deneyebilirsiniz.</div>`;
+}
+
+/* 5 — bitti */
+function screenDone(){
+  const ready = Object.values(probes).filter(p => p.status === 'ready').length;
+  const tested = Object.keys(probes).length;
+  const c = el(`<div class="card">
+    <h2>Kurulum tamam 🎉</h2>
+    <p class="sub">ATLAS kullanıma hazır.</p>
+    <ul class="checks">
+      <li><span class="pill ${S.runtimes.venv?'p-ok':'p-warn'}">${S.runtimes.venv?'✓':'!'}</span>
+        <span class="name">ATLAS çekirdek</span><span class="val">${S.runtimes.venv?'kurulu':'kurulmadı'}</span></li>
+      <li><span class="pill ${S.summary.clis_installed?'p-ok':'p-warn'}">${S.summary.clis_installed?'✓':'!'}</span>
+        <span class="name">AI CLI'lar</span>
+        <span class="val">${S.summary.clis_installed} / ${S.summary.clis_total} kurulu</span></li>
+      <li><span class="pill ${S.summary.agents_registered?'p-ok':'p-warn'}">${S.summary.agents_registered?'✓':'!'}</span>
+        <span class="name">Panele kayıt</span>
+        <span class="val">${S.summary.agents_registered} ajan</span></li>
+      ${tested ? `<li><span class="pill ${ready?'p-ok':'p-warn'}">${ready?'✓':'!'}</span>
+        <span class="name">Bağlantı testi</span>
+        <span class="val">${ready} / ${tested} ajan hazır</span></li>` : ''}
+    </ul>
+    ${runSection()}
+    <div class="note info">Bu sihirbazı istediğiniz zaman <b>SETUP.cmd</b> ile tekrar açabilirsiniz.</div>
+    <div class="row">
+      <button class="sm" id="back">← Ajanlara dön</button>
+      <div class="spacer"></div>
+      <button class="sm" id="folder">Proje klasörünü aç</button>
+    </div></div>`);
+  c.querySelector('#back').onclick = () => go(4);
+  c.querySelector('#folder').onclick = () => post('/api/open', {path: '.'});
+  wireRun(c);
+  return c;
+}
+
+/* --- Projeyi çalıştır --- */
+function runSection(){
+  const L = S.launchers || {};
+  const pref = L.preferred;
+  if (!pref){
+    return `<div class="note" style="margin-top:16px">
+      <div class="big">Projeyi çalıştır</div>
+      Panel ikilileri (<code>tools/juggler/juggler.exe</code>) bulunamadı — bunlar depoda
+      tutulmaz, kaynaktan üretilir. Yönerge: <code>docs/JUGGLER.md</code>.<br>
+      Panel olmadan da ATLAS araçlarını komut satırından kullanabilirsiniz
+      (<code>atlas.cmd</code>, <code>atlas-sections.cmd</code>).</div>`;
+  }
+  const others = ['desktop','webui','cli'].filter(k => k !== pref && L[k] && L[k].available);
+  return `<div class="note info" style="margin-top:16px">
+    <div class="big">Projeyi çalıştır</div>
+    <b>${esc(L[pref].label)}</b> — ${esc(L[pref].hint)}
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="run-${pref}" data-what="${pref}">▶ Projeyi Çalıştır</button>
+      ${others.map(k => `<button class="sm" id="run-${k}" data-what="${k}">${esc(L[k].label)}</button>`).join('')}
+    </div>
+    <div id="runmsg" style="margin-top:10px"></div>
+    <div style="margin-top:10px;color:var(--muted);font-size:13px">
+      Açıldıktan sonra model seçicide <b>ACP Agents</b> altında bağladığınız ajanları görürsünüz.</div>
+  </div>`;
+}
+
+function wireRun(c){
+  c.querySelectorAll('[data-what]').forEach(b => {
+    b.onclick = async e => {
+      const what = e.target.dataset.what;
+      const msg = c.querySelector('#runmsg');
+      e.target.disabled = true;
+      msg.innerHTML = 'Başlatılıyor…';
+      const r = await post('/api/launch', {what});
+      msg.innerHTML = r.ok
+        ? `<span class="pill p-ok">✓ ${esc(r.detail)}</span>
+           <div style="margin-top:8px;color:var(--muted);font-size:13px">
+             Açılan pencereyi kapatmayın. Bir şey görünmediyse görev çubuğunu kontrol edin.</div>`
+        : `<span class="pill p-err">${esc(r.detail || 'Başlatılamadı')}</span>`;
+      e.target.disabled = false;
+    };
+  });
+}
+
+/* başlat */
+(async () => { await refresh(); drawSteps(); render(); })();
+</script>
+</body>
+</html>
