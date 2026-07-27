@@ -99,6 +99,8 @@ const esc = s => String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;',
 const STEPS = ['Kontrol', 'ATLAS kur', 'AI CLI kur', 'Yerel AI', 'Ajanları bağla', 'Bitti'];
 let step = 0, S = null;           // S = /api/status anlık görüntüsü
 let probes = {};                  // ajan → son test sonucu
+let regMsg = null;                // "ATLAS'a bağla" sonucu (render'ı aşar; yoksa
+                                  // zaten bağlıyken düğme hiçbir iz bırakmıyordu)
 
 function drawSteps(){
   document.getElementById('steps').innerHTML = STEPS
@@ -359,6 +361,7 @@ function screenAgents(){
     <div class="note info" id="hint">İlk test 15–30 saniye sürebilir (her ajan gerçekten başlatılır).
       <b>ATLAS'a bağla</b>, ajanları ATLAS'ın kendi sarmalayıcılarına yönlendirir: ayarlar proje
       içinde kalır ve yerel model gerektiğinde kendiliğinden başlar.</div>
+    ${regMsg ? `<div class="note ${regMsg.ok ? 'info' : ''}" id="regmsg">${regMsg.html}</div>` : ''}
     ${installationsNote()}
     <div class="agents" id="grid">${S.agents.map(agentCard).join('')}</div>
     <div class="row">
@@ -370,11 +373,30 @@ function screenAgents(){
   c.querySelector('#back').onclick = () => go(3);
   c.querySelector('#next').onclick = () => go(5);
 
+  // Ajanlar ZATEN ATLAS'a bağlıysa kayıt hiçbir rozeti değiştirmez; sonucu açıkça
+  // yazmazsak düğme "çalışmıyor" görünür. Her durumda ne yazıldığını ve nereye
+  // yazıldığını söyler.
   c.querySelector('#reg').onclick = async e => {
     e.target.disabled = true; e.target.textContent = 'Bağlanıyor…';
-    await post('/api/register');
+    let r;
+    try {
+      r = await post('/api/register');
+    } catch (err) {
+      regMsg = {ok: false, html: `<b>Bağlanamadı.</b> Sunucuya ulaşılamadı: ${esc(err)}`};
+      render();
+      return;
+    }
+    const w = r.written || [], s = r.skipped || [];
+    regMsg = w.length
+      ? {ok: true, html: `<b>✓ ${w.length} ajan ATLAS'a bağlandı</b> — ${esc(w.join(', '))}.
+          Kayıt: <code>${esc(r.path || '.juggler/acp.json')}</code>
+          ${s.length ? `<br>Atlanan (kurulu değil): ${esc(s.join(', '))}` : ''}
+          <br>Panel açıksa kapatıp yeniden açın; ardından <b>Hepsini test et</b> ile doğrulayın.`}
+      : {ok: false, html: `<b>Hiçbir ajan yazılmadı.</b>
+          ${s.length ? `Kurulu görünmeyenler: ${esc(s.join(', '))}. 3. adımda kurun.`
+                     : (esc(r.error || 'Beklenmeyen yanıt.'))}`};
     await refresh();
-    render();  // kaynak rozetleri değişti — ekranı tazele
+    render();  // kaynak rozetleri değişmiş olabilir — ekranı tazele
   };
 
   c.querySelector('#probeAll').onclick = async e => {
