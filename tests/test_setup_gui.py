@@ -478,3 +478,33 @@ def test_auth_commands_match_real_subcommands(tmp_path: Path):
 
     # goose hesapsızdır: giriş komutu tanımlanmaz (sağlayıcı env ile ayarlanır).
     assert "auth_cmd" not in specs["goose"]
+
+
+# --- ACP el sıkışması: authenticate adımı -------------------------------------
+
+
+def test_auth_method_ids_parsing():
+    """initialize yanıtındaki authMethods'tan yöntem kimlikleri çıkarılır."""
+    from setup_gui.acp_probe import _auth_method_ids  # noqa: PLC0415
+
+    assert _auth_method_ids({"authMethods": [{"id": "cline", "name": "Cline"}, {"id": "x"}]}) == [
+        "cline",
+        "x",
+    ]
+    assert _auth_method_ids({"authMethods": ["a", "b"]}) == ["a", "b"]  # düz liste biçimi
+    # Bozuk/eksik girdiler sessizce atılır — sonda boş liste "auth yolu yok" demektir.
+    assert _auth_method_ids({"authMethods": [{"name": "id yok"}, 5, ""]}) == []
+    assert _auth_method_ids({}) == []
+    assert _auth_method_ids({"authMethods": "liste değil"}) == []
+
+
+def test_probe_ids_are_distinct():
+    """Akışın dört adımı ayrı JSON-RPC id'si kullanmalı.
+
+    initialize → session/new → authenticate → session/new (yineleme). İkisi aynı
+    id'yi paylaşırsa yanıtlar karışır ve sonuç sessizce yanlış olur.
+    """
+    from setup_gui import acp_probe  # noqa: PLC0415
+
+    ids = (acp_probe.ID_INIT, acp_probe.ID_NEW, acp_probe.ID_AUTH, acp_probe.ID_RETRY)
+    assert len(set(ids)) == 4

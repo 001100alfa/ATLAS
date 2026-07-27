@@ -1,9 +1,17 @@
 """ACP ajanlarını gerçekten deneyen bağlantı testi (yalnız stdlib).
 
 Sihirbazın "Test et" düğmesi bunu çağırır. Kurulu olmak yetmez — ajan ancak
-`initialize` + `session/new` el sıkışmasını geçerse panelde kullanılabilir.
-Buradaki akış, Juggler'ın ACP istemcisiyle aynıdır (kabuksuz spawn, satır
-sonlu JSON-RPC, aynı iki çağrı), böylece sonuç panelde göreceğinizle örtüşür.
+el sıkışmayı geçerse panelde kullanılabilir. Buradaki akış, Juggler'ın ACP
+istemcisiyle AYNIDIR (kabuksuz spawn, satır sonlu JSON-RPC, aynı çağrı sırası),
+böylece sonuç panelde göreceğinizle örtüşür:
+
+    initialize → session/new
+                   └─ kimlik hatası verirse: authenticate(<ilan edilen yöntem>)
+                      → session/new (bir kez yineleme)
+
+Bu ikinci tur şart: cline gibi ajanlar CLI'dan giriş yapılmış olsa bile her
+oturumu ACP `authenticate` çağrısına bağlar. Tur atlanırsa sınama "kimlik
+gerekli" der ama panel aynı ajanı sorunsuz açar — yani sonuç YANILTICI olur.
 
 Dönen durumlar:
   ready           — session/new başarılı, ajan kullanıma hazır
@@ -24,6 +32,28 @@ from pathlib import Path
 from .detect import acp_config_paths, acp_entry, agent_specs
 
 ACP_PROTOCOL_VERSION = 1
+
+# JSON-RPC istek numaraları. Ayrı sabitler, çünkü akış artık düz değil:
+# initialize → session/new → (gerekirse) authenticate → session/new (yineleme).
+ID_INIT, ID_NEW, ID_AUTH, ID_RETRY = 0, 1, 2, 3
+
+
+def _auth_method_ids(init_result: dict) -> list[str]:
+    """initialize yanıtındaki `authMethods` listesinden yöntem kimlikleri.
+
+    Ajan hangi girişleri kabul ettiğini burada ilan eder (ör. cline: "cline",
+    "openai-codex"). Panel `session/new` kimlik hatası verdiğinde bunları sırayla
+    dener; CLI'dan giriş yapılmışsa authenticate etkileşimsiz geçer.
+    """
+    methods = init_result.get("authMethods")
+    if not isinstance(methods, list):
+        return []
+    out: list[str] = []
+    for m in methods:
+        mid = m.get("id") if isinstance(m, dict) else m
+        if isinstance(mid, str) and mid:
+            out.append(mid)
+    return out
 
 
 def effective_entry(name: str, spec: dict, root: Path | None = None) -> dict:
@@ -110,19 +140,32 @@ def probe_agent(name: str, root: Path | None = None, timeout: float = 50.0) -> d
     threading.Thread(target=drain, daemon=True).start()
 
     result: dict = {"name": name, "status": "timeout", "detail": "ajan yanıt vermedi"}
+    # session/new'in İLK hatası; authenticate denendikten sonra yanıt gelmezse
+    # kullanıcıya bildirilecek asıl neden budur (bkz. fonksiyon sonu).
+    first_error: dict | None = None
 
     def talk() -> None:
-        nonlocal result
+        nonlocal result, first_error
         assert proc.stdin is not None and proc.stdout is not None
         send = lambda obj: (  # noqa: E731 - kısa yardımcı
             proc.stdin.write(json.dumps(obj) + "\n"),
             proc.stdin.flush(),
         )
         try:
+            new_session = {
+                "jsonrpc": "2.0",
+                "id": ID_NEW,
+                "method": "session/new",
+                # Ajan bu dizinde çalışacak; ileri slash Windows'ta da geçerli.
+                "params": {
+                    "cwd": str(root or Path.cwd()).replace("\\", "/"),
+                    "mcpServers": [],
+                },
+            }
             send(
                 {
                     "jsonrpc": "2.0",
-                    "id": 0,
+                    "id": ID_INIT,
                     "method": "initialize",
                     "params": {
                         "protocolVersion": ACP_PROTOCOL_VERSION,
@@ -131,6 +174,22 @@ def probe_agent(name: str, root: Path | None = None, timeout: float = 50.0) -> d
                 }
             )
             sent_new = False
+            pending_methods: list[str] = []  # denenmemiş authenticate yöntemleri
+
+            def try_authenticate() -> bool:
+                """Sıradaki yöntemle authenticate dener. Yöntem kalmadıysa False."""
+                while pending_methods:
+                    send(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": ID_AUTH,
+                            "method": "authenticate",
+                            "params": {"methodId": pending_methods.pop(0)},
+                        }
+                    )
+                    return True
+                return False
+
             for line in proc.stdout:
                 line = line.strip()
                 if not line:
@@ -142,36 +201,38 @@ def probe_agent(name: str, root: Path | None = None, timeout: float = 50.0) -> d
                 if msg.get("method"):
                     continue  # ajanın bize sorduğu istek/bildirim — testte gereksiz
                 mid, err = msg.get("id"), msg.get("error")
+
                 if err:
-                    result = {
-                        "name": name,
-                        "status": _classify(str(err.get("message", "")), str(err.get("data", ""))),
-                        "detail": str(err.get("message", "")).strip() or "bilinmeyen hata",
-                        "stage": "session/new" if mid == 1 else "initialize",
-                    }
+                    detail = str(err.get("message", "")).strip() or "bilinmeyen hata"
+                    status = _classify(detail, str(err.get("data", "")))
+                    stage = {ID_INIT: "initialize", ID_AUTH: "authenticate"}.get(mid, "session/new")
+                    failure = {"name": name, "status": status, "detail": detail, "stage": stage}
+                    # session/new kimlik istiyorsa panel gibi davran: ilan edilen
+                    # yöntemlerle authenticate et, session/new'i bir kez yinele.
+                    if mid in (ID_NEW, ID_RETRY, ID_AUTH) and pending_methods:
+                        first_error = first_error or failure
+                        if try_authenticate():
+                            continue
+                    result = first_error or failure
                     return
+
                 if "result" in msg:
-                    if mid == 0 and not sent_new:
+                    if mid == ID_INIT and not sent_new:
                         sent_new = True
-                        send(
-                            {
-                                "jsonrpc": "2.0",
-                                "id": 1,
-                                "method": "session/new",
-                                # Ajan bu dizinde çalışacak; ileri slash Windows'ta da geçerli.
-                                "params": {
-                                    "cwd": str(root or Path.cwd()).replace("\\", "/"),
-                                    "mcpServers": [],
-                                },
-                            }
-                        )
+                        pending_methods = _auth_method_ids(msg.get("result") or {})
+                        send(new_session)
                         continue
-                    if mid == 1:
+                    if mid == ID_AUTH:
+                        # Kimlik kabul edildi; oturumu yeniden dene.
+                        send({**new_session, "id": ID_RETRY})
+                        continue
+                    if mid in (ID_NEW, ID_RETRY):
                         info = (msg.get("result") or {}).get("agentInfo") or {}
                         result = {
                             "name": name,
                             "status": "ready",
-                            "detail": "bağlantı doğrulandı",
+                            "detail": "bağlantı doğrulandı"
+                            + (" (authenticate sonrası)" if mid == ID_RETRY else ""),
                             "version": info.get("version"),
                         }
                         return
@@ -187,6 +248,13 @@ def probe_agent(name: str, root: Path | None = None, timeout: float = 50.0) -> d
     except OSError:
         pass
 
+    # authenticate'e girildiyse ve yanıt gelmediyse "timeout" yanıltıcıdır: ajan
+    # kimlik olmadığı için orada etkileşim bekleyip asılmıştır. Asıl nedeni bildir.
+    if result["status"] == "timeout" and first_error:
+        result = {
+            **first_error,
+            "detail": first_error["detail"] + " (authenticate denendi, ajan yanıt vermedi)",
+        }
     if result["status"] in ("error", "timeout") and stderr_tail:
         result["stderr"] = "\n".join(stderr_tail[-6:])
     return result
