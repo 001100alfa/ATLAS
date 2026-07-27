@@ -587,9 +587,26 @@ def check_profile(root: Path) -> list[Finding]:
 def check_agents(root: Path, want_remote: bool = True) -> list[Finding]:
     specs = agent_specs(root)
     local = versions.local_versions(root)
+    off = profile_sync.disabled_agents(root)
     out: list[Finding] = []
 
+    if off:
+        out.append(
+            _f(
+                id="agent.disabled",
+                area="ACP ajanları",
+                title="Devre dışı ajanlar",
+                status=INFO,
+                detail=", ".join(sorted(off)),
+                cause="Profilde `disabledAgents` ile kapatıldı; panele kaydedilmiyor.",
+                remedy="Yeniden açmak için juggler-profile/profile.json'daki listeden çıkarıp "
+                "senkronu çalıştırın.",
+            )
+        )
+
     for name, spec in specs.items():
+        if name.lower() in off:
+            continue
         label = spec["label"]
         installed = Path(spec["bin"]).is_file()
         if not installed:
@@ -880,6 +897,8 @@ def check_health(root: Path, names: list[str] | None = None) -> list[Finding]:
     """Panelin yaptığı GERÇEK el sıkışmayı yapar (initialize + session/new)."""
     out: list[Finding] = []
     specs = agent_specs(root)
+    off = profile_sync.disabled_agents(root)
+    names = [n for n in (names or list(specs)) if n.lower() not in off]
     for res in probe_all(root, names):
         name = res["name"]
         label = specs.get(name, {}).get("label", name)

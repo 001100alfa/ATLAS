@@ -49,6 +49,15 @@ def load_profile(root: Path) -> dict:
         return {}
 
 
+def disabled_agents(root: Path) -> set[str]:
+    """Panele kaydedilmeyecek ajanlar (`profile.json` → `disabledAgents`).
+
+    Kaydı silmek yetmez: senkron her açılışta kurulu ajanları yeniden yazar, o
+    yüzden devre dışı listesi profilin KAYNAĞINDA durur ve her turda uygulanır.
+    """
+    return {str(a).lower() for a in (load_profile(root).get("disabledAgents") or [])}
+
+
 def _read_json(path: Path) -> dict:
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
@@ -119,9 +128,10 @@ def _atlas_agent_entries(root: Path) -> dict:
     """
     wrappers.generate(root)
     specs = agent_specs(root)
+    off = disabled_agents(root)
     entries: dict[str, dict] = {}
     for name, spec in specs.items():
-        if not Path(spec["bin"]).is_file():
+        if name.lower() in off or not Path(spec["bin"]).is_file():
             continue
         if wrappers.wrapper_path(root, name).is_file():
             entries[name] = wrappers.wrapper_entry(root, name, spec)
@@ -133,15 +143,23 @@ def _snapshot(d: Path) -> dict[str, int]:
     return {p.relative_to(d).as_posix(): p.stat().st_size for p in d.rglob("*") if p.is_file()}
 
 
-def merge_acp(path: Path, entries: dict, log: list[str], label: str) -> dict:
+def merge_acp(
+    path: Path, entries: dict, log: list[str], label: str, disabled: set[str] | None = None
+) -> dict:
     """ATLAS ajanlarını acp.json'a yazar, yabancı kayıtları korur.
 
     Tek istisna: yabancı bir kayıt ATLAS'ın sahiplendiği bir ajan adını
     kullanıyorsa üzerine yazılır — panelde tek bir "goose" olabilir ve onun
     ATLAS sürümü olmasını istiyoruz.
+
+    Devre dışı ajanların girdisi KALDIRILIR; aksi hâlde daha önce yazılmış kayıt
+    dosyada kalır ve ajan panelde görünmeye devam ederdi.
     """
     doc = _read_json(path)
     agents = dict(doc.get("acpAgents") or {})
+    removed = [n for n in (disabled or set()) if n in agents]
+    for n in removed:
+        del agents[n]
     replaced = [n for n in entries if n in agents and agents[n] != entries[n]]
     agents.update(entries)
     doc["acpAgents"] = agents
@@ -149,6 +167,7 @@ def merge_acp(path: Path, entries: dict, log: list[str], label: str) -> dict:
     log.append(
         f"  ACP ({label}): {len(entries)} ATLAS ajanı yazıldı"
         + (f", {len(replaced)} kayıt tazelendi" if replaced else "")
+        + (f", devre dışı kaldırıldı: {', '.join(sorted(removed))}" if removed else "")
         + f" → {path}"
     )
     return doc
@@ -229,8 +248,11 @@ def sync(root: Path | None = None) -> dict:
     mcp_n = merge_mcp(root, log)
 
     entries = _atlas_agent_entries(root)
-    merge_acp(home / "acp.json", entries, log, "kullanıcı")
-    merge_acp(root / ".juggler" / "acp.json", entries, log, "proje")
+    off = disabled_agents(root)
+    if off:
+        log.append(f"  devre dışı ajanlar: {', '.join(sorted(off))}")
+    merge_acp(home / "acp.json", entries, log, "kullanıcı", off)
+    merge_acp(root / ".juggler" / "acp.json", entries, log, "proje", off)
 
     # Eski global kayıt (~/.juggler/acp.json) da onarılır — VARSA. Başlatıcılar
     # profili gösterse de Juggler elle (başlatıcısız) açılabilir; o durumda okunan
@@ -238,7 +260,7 @@ def sync(root: Path | None = None) -> dict:
     # Yoksa oluşturulmaz: kullanıcının hiç dokunmadığı bir yere durum yazmayız.
     legacy = user_home_juggler() / "acp.json"
     if legacy.is_file():
-        merge_acp(legacy, entries, log, "eski global")
+        merge_acp(legacy, entries, log, "eski global", off)
 
     # Otomatik güncelleyici eski konumda da kapatılır. Gerekçe: panel ATLAS
     # başlatıcıları DIŞINDAN (doğrudan tools/juggler/juggler.exe ile) açılırsa
@@ -266,6 +288,7 @@ def sync(root: Path | None = None) -> dict:
         "home": str(home),
         "log": log,
         "agents": sorted(entries),
+        "disabled": sorted(off),
         "mcp": mcp_n,
         "first_run": first_run,
     }
@@ -302,13 +325,18 @@ def verify(root: Path | None = None) -> dict:
 
     # ATLAS ajanları hâlâ Juggler ağacının içini mi gösteriyor?
     external: list[str] = []
-    owned = set(agent_specs(root))
+    off = disabled_agents(root)
+    owned = set(agent_specs(root)) - off
+    lingering: list[str] = []
     for label, path in (
         ("kullanıcı", home / "acp.json"),
         ("proje", root / ".juggler" / "acp.json"),
         ("eski global", user_home_juggler() / "acp.json"),
     ):
         for name, cfg in (_read_json(path).get("acpAgents") or {}).items():
+            if name.lower() in off:
+                lingering.append(f"{label}/{name}")  # devre dışı ama kaydı duruyor
+                continue
             if name not in owned:
                 continue
             cmd = str((cfg or {}).get("command") or "")
@@ -330,9 +358,15 @@ def verify(root: Path | None = None) -> dict:
             "çalışan ikiliyi yerinde değiştirip yerel derlemeyi silebilir."
         )
 
+    if lingering:
+        problems.append(
+            "Devre dışı ajanın kaydı duruyor: " + ", ".join(lingering) + " — senkron kaldırır."
+        )
+
     return {
         "ok": not problems and not stale and not external,
         "problems": problems,
+        "disabled": sorted(off),
         "stale": stale,
         "external": external,
         "update_mode": update_mode,
