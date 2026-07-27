@@ -28,6 +28,7 @@ panelde ajan açılmaz, araç çağrısı hata verir. Ajan bu zinciri baştan so
 | ACP ajanları | Her ajan kurulu mu, yerel sürüm ↔ kayıt defterindeki son sürüm (npm/PyPI/GitHub) |
 | Yerel AI | Taşınabilir Ollama, sunucu yanıt veriyor mu, model var mı |
 | Yapılandırma | `acp.json` okunabilir mi, **kayıtlı ajan yolları hâlâ var mı**, `atlas-sections --json` köprüsü |
+| Artık süreçler | Sağlık testinden artakalan öksüz ajan süreçleri (ikiliyi kilitler) |
 | Sürüm izi | Son sağlıklı kayıttan bu yana hangi bileşen değişti |
 | Canlı sağlık | Panelin yaptığı GERÇEK el sıkışma: `initialize` + `session/new` |
 
@@ -58,7 +59,13 @@ değişebilir; `acp.json` eski yolu göstermeye devam eder. Panelde ajan görün
 ama başlamaz. Ajan her kayıtlı yolu dosya sisteminde doğrular, "Yolları tazele"
 kaydı mevcut kuruluma göre yeniden yazar.
 
-**4. Kurulu ≠ çalışıyor.** Son adım ajanı gerçekten başlatır ve panelin yaptığı
+**4. Öksüz ajan süreçleri.** Sağlık testi ajanı kapatır, ama bazı ajanlar işi bir
+**alt sürece** yaptırır ve o öksüz kalır (ölçüldü: `cline`, `goose`). Birikince
+çalışan `.exe` kilitli kalır — `npm install` **EBUSY** ile düşer, klasör
+taşınamaz. Denetim yalnız **bu depo içindeki** ajan ikililerini sayar ve panel
+açıkken hiç sayım yapmaz (süreçler kullanımda olabilir).
+
+**5. Kurulu ≠ çalışıyor.** Son adım ajanı gerçekten başlatır ve panelin yaptığı
 iki JSON-RPC çağrısını yapar. Yeşil rozet, panelde de çalışacağı anlamına gelir.
 
 ## Düzeltme eylemleri
@@ -75,6 +82,7 @@ Hepsi **idempotent**tir; hiçbiri kullanıcı verisi silmez.
 | Sunucuyu başlat | Taşınabilir Ollama'yı `127.0.0.1:11435`'te kaldırır |
 | Güncelle (ajan) | `npm install <paket>@latest --prefix tools/ai-cli` veya `pip install -U kimi-cli` |
 | Çekirdeği yeniden kur | `setup-portable.cmd` (canlı log) |
+| Artık süreçleri kapat | Öksüz ajan süreçlerini sonlandırır; panel açılınca ajanlar yeniden başlar |
 | Sağlıklı hâli kaydet | Sürümleri + panel parmak izini `.atlas/doctor/baseline.json`'a yazar |
 
 **Panel ikilisi otomatik indirilmez.** Juggler AGPL lisanslı ayrı bir
