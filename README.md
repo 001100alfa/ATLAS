@@ -27,6 +27,20 @@ Sihirbaz çekirdeği kurar, AI CLI'ları indirir, ajanları **gerçekten sınay�
 (kurulu olmak yetmez) sorunluları tek tıkla bağlar — hesap girişleri dahil.
 Ayrıntı: [`docs/SETUP-GUI.md`](docs/SETUP-GUI.md).
 
+### Bir şey bozulduğunda: sağlık ve güncelleme ajanı
+
+```
+DOCTOR.cmd
+```
+
+Kurulumdan *sonra* kullanılır. Bileşenlerin (Juggler paneli, beş ACP ajanı,
+Python çekirdeği, Ollama, ATLAS eklentisi) güncel olup olmadığını ölçer,
+güncelleme sonrası tipik kopmaları (eklenti↔panel uyumsuzluğu, kırılan ajan
+yolları, panelin kendini güncelleyip ikiliyi değiştirmesi) yakalar,
+düzeltilebilenleri tek tıkla düzeltir ve **canlı bağlantı testiyle** doğrular.
+Her bulguda ölçülen kanıt + kaynak + çözüm görünür; Markdown rapor üretir.
+Ayrıntı: [`docs/DOCTOR-GUI.md`](docs/DOCTOR-GUI.md).
+
 ### Geliştirici kurulumu (komut satırı)
 Paket yöneticisi **uv** (proje standardı). Python 3.12 gerekir; uv
 yoksa 3.12'yi kendisi indirir — sistemde ayrı kurulum gerekmez.

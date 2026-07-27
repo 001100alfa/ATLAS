@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATLAS — Sağlık &amp; Güncelleme Ajanı</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --ink:#15181d; --muted:#5c6470; --line:#e3e6ea;
+    --brand:#2b5cff; --brand-ink:#fff; --ok:#0d8a4f; --okbg:#e7f6ee;
+    --warn:#a86400; --warnbg:#fdf3e2; --err:#c0322b; --errbg:#fdeceb; --code:#f1f3f6;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0f1115; --card:#171a20; --ink:#e8eaed; --muted:#9aa3b0; --line:#272b33;
+      --brand:#5b82ff; --ok:#4ad08a; --okbg:#12301f; --warn:#e8b45a; --warnbg:#33270f;
+      --err:#ff7a70; --errbg:#3a1a18; --code:#11141a;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 20px 64px}
+  header h1{margin:0 0 4px;font-size:24px;letter-spacing:-.02em}
+  header p{margin:0 0 20px;color:var(--muted)}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:20px;margin-bottom:16px}
+  .card h2{margin:0 0 6px;font-size:17px}
+  .card .sub{color:var(--muted);margin:0 0 16px;font-size:14px}
+
+  button{font:inherit;border-radius:8px;border:1px solid var(--line);background:var(--card);
+    color:var(--ink);padding:9px 15px;cursor:pointer}
+  button:hover:not(:disabled){border-color:var(--brand)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:var(--brand);color:var(--brand-ink);border-color:transparent;font-weight:600}
+  button.sm{padding:5px 11px;font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .spacer{flex:1}
+
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
+    font-size:12.5px;font-weight:600;white-space:nowrap}
+  .p-ok{background:var(--okbg);color:var(--ok)} .p-warn{background:var(--warnbg);color:var(--warn)}
+  .p-fail{background:var(--errbg);color:var(--err)} .p-info{background:var(--code);color:var(--muted)}
+  .p-idle{background:var(--code);color:var(--muted)}
+
+  /* adım listesi */
+  .steps{display:grid;gap:6px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));margin-bottom:4px}
+  .steps div{padding:8px 10px;border-radius:8px;background:var(--card);border:1px solid var(--line);
+    font-size:12.5px;color:var(--muted);display:flex;justify-content:space-between;gap:6px}
+  .steps div.run{border-color:var(--brand);color:var(--brand);font-weight:600}
+  .steps div.ok{border-color:var(--ok)} .steps div.warn{border-color:var(--warn)}
+  .steps div.fail{border-color:var(--err)}
+
+  /* bulgu */
+  .find{border:1px solid var(--line);border-radius:10px;padding:13px 15px;margin-bottom:9px}
+  .find.fail{border-color:var(--err)} .find.warn{border-color:var(--warn)}
+  .find .head{display:flex;gap:10px;align-items:flex-start}
+  .find .ttl{font-weight:600;flex:1}
+  .find .det{color:var(--muted);font-size:13.5px;margin-top:3px;word-break:break-word}
+  .find .why{margin-top:10px;font-size:13.5px;border-left:3px solid var(--line);padding-left:11px}
+  .find .why b{color:var(--ink)}
+  .find .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+  .area{margin:20px 0 8px;font-size:13px;font-weight:700;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--muted)}
+
+  pre.log{background:var(--code);border-radius:8px;padding:12px;max-height:240px;overflow:auto;
+    font:12.5px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;margin:12px 0 0}
+  pre.log:empty{display:none}
+  code{background:var(--code);padding:1.5px 6px;border-radius:5px;font-size:13px}
+  .note{background:var(--code);color:var(--muted);border-radius:8px;padding:11px 13px;
+    font-size:13.5px;margin-top:12px}
+  .note.warn{background:var(--warnbg);color:var(--warn)}
+  .hide{display:none}
+  .big{font-size:19px;font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>ATLAS — Sağlık &amp; Güncelleme Ajanı</h1>
+    <p>Bileşenlerin güncel mi, kurulum bütün mü, ajanlar gerçekten bağlanıyor mu —
+       hepsini sırayla ölçer, her sorunun <b>kaynağını</b> ve <b>çözümünü</b> gösterir.</p>
+  </header>
+
+  <div class="card">
+    <div class="row">
+      <button class="primary" id="scan">▶ Tam tarama başlat</button>
+      <button id="rescan-health" disabled>Yalnız canlı sağlık</button>
+      <div class="spacer"></div>
+      <span id="verdict" class="pill p-idle">henüz taranmadı</span>
+    </div>
+    <div class="note" id="netnote">Güncelleme denetimi için internet kullanılır.
+      Bağlantı yoksa tarama yine tamamlanır; yalnız "son sürüm" bilgisi boş kalır.</div>
+    <div class="steps" id="steps" style="margin-top:14px"></div>
+  </div>
+
+  <div id="results"></div>
+
+  <div class="card hide" id="tail">
+    <div class="row">
+      <button id="save-baseline">Sağlıklı hâli kaydet</button>
+      <button id="report">Rapor oluştur (Markdown)</button>
+      <div class="spacer"></div>
+    </div>
+    <div class="note hide" id="tailnote"></div>
+  </div>
+</div>
+
+<script>
+const T = new URLSearchParams(location.search).get('t') || '';
+const api  = (p, opt) => fetch(p + (p.includes('?')?'&':'?') + 't=' + encodeURIComponent(T), opt).then(r=>r.json());
+const post = (p, body) => api(p, {method:'POST', headers:{'Content-Type':'application/json'},
+                                 body: JSON.stringify(body||{})});
+const esc  = s => String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+const el   = h => { const d=document.createElement('div'); d.innerHTML=h.trim(); return d.firstChild; };
+
+let STEPS = [], DATA = {}, busy = false;
+const ICON = {ok:'✓', warn:'!', fail:'✕', info:'i'};
+
+(async function init(){
+  const s = await api('/api/steps');
+  STEPS = s.steps;
+  drawSteps();
+})();
+
+function drawSteps(state){
+  state = state || {};
+  document.getElementById('steps').innerHTML = STEPS.map(s=>{
+    const st = state[s.id] || '';
+    const badge = st==='run' ? '…' : (DATA[s.id] ? worstOf(DATA[s.id]) : '');
+    const cls = st==='run' ? 'run' : (badge ? ({ok:'ok',warn:'warn',fail:'fail',info:''})[badge] : '');
+    return `<div class="${cls||''}"><span>${esc(s.label)}</span><span>${badge?ICON[badge]:''}</span></div>`;
+  }).join('');
+}
+
+function worstOf(list){
+  if (list.some(f=>f.status==='fail')) return 'fail';
+  if (list.some(f=>f.status==='warn')) return 'warn';
+  return list.length ? 'ok' : 'info';
+}
+
+async function scan(only){
+  if (busy) return; busy = true;
+  document.getElementById('scan').disabled = true;
+  document.getElementById('rescan-health').disabled = true;
+  const ids = only || STEPS.map(s=>s.id);
+  if (!only){ await post('/api/scan/_reset'); DATA = {}; }
+  for (const id of ids){
+    drawSteps({[id]:'run'});
+    const r = await post('/api/scan/' + id, {net:true});
+    DATA[id] = r.findings || [];
+    drawSteps(); render();
+  }
+  busy = false;
+  document.getElementById('scan').disabled = false;
+  document.getElementById('rescan-health').disabled = false;
+  document.getElementById('tail').classList.remove('hide');
+  verdict();
+}
+
+function allFindings(){ return STEPS.flatMap(s => DATA[s.id] || []); }
+
+function verdict(){
+  const all = allFindings();
+  const fail = all.filter(f=>f.status==='fail').length;
+  const warn = all.filter(f=>f.status==='warn').length;
+  const v = document.getElementById('verdict');
+  if (fail){ v.className='pill p-fail'; v.textContent = `${fail} engelleyen sorun · ${warn} uyarı`; }
+  else if (warn){ v.className='pill p-warn'; v.textContent = `${warn} uyarı, engel yok`; }
+  else { v.className='pill p-ok'; v.textContent = 'her şey sağlam'; }
+}
+
+function render(){
+  const box = document.getElementById('results');
+  box.innerHTML = '';
+  for (const s of STEPS){
+    const list = DATA[s.id];
+    if (!list || !list.length) continue;
+    const card = el(`<div class="card"><h2>${esc(s.label)}</h2><div class="body"></div></div>`);
+    const body = card.querySelector('.body');
+    // Önce sorunlar, sonra sağlamlar — kullanıcı ekranı yukarıdan okusun.
+    const order = {fail:0, warn:1, info:2, ok:3};
+    [...list].sort((a,b)=>order[a.status]-order[b.status]).forEach(f=>body.appendChild(findingEl(f)));
+    box.appendChild(card);
+  }
+}
+
+function findingEl(f){
+  const hasWhy = f.cause || f.remedy;
+  const node = el(`<div class="find ${f.status==='fail'?'fail':(f.status==='warn'?'warn':'')}">
+    <div class="head">
+      <span class="pill p-${f.status}">${ICON[f.status]||'•'}</span>
+      <div style="flex:1">
+        <div class="ttl">${esc(f.title)}</div>
+        <div class="det">${esc(f.detail)}</div>
+      </div>
+    </div>
+    ${hasWhy ? `<div class="why">
+      ${f.cause ? `<div><b>Kaynağı:</b> ${esc(f.cause)}</div>` : ''}
+      ${f.remedy ? `<div style="margin-top:5px"><b>Çözüm:</b> ${esc(f.remedy)}</div>` : ''}
+    </div>` : ''}
+    ${(f.evidence||[]).length ? `<pre class="log">${esc((f.evidence||[]).join('\n'))}</pre>` : ''}
+    <div class="acts"></div>
+    <pre class="log joblog"></pre>
+  </div>`);
+
+  const acts = node.querySelector('.acts');
+  if (f.fix){
+    const btn = el(`<button class="sm primary">${esc(f.fix_label || 'Düzelt')}</button>`);
+    btn.onclick = () => applyFix(f, btn, node);
+    acts.appendChild(btn);
+  }
+  return node;
+}
+
+async function applyFix(f, btn, node){
+  const log = node.querySelector('.joblog');
+  btn.disabled = true; btn.textContent = 'çalışıyor…';
+  const agent = (f.id.match(/^health\.(\w+)/) || [])[1];
+
+  // Eylemin türünü sunucu söyler (fix_kind): anlık → /api/fix, uzun iş → /api/run.
+  if (f.fix_kind === 'instant'){
+    const r = await post('/api/fix/' + f.fix, {agent});
+    log.textContent = (r.ok===false ? '✕ ' : '✓ ') + (r.detail||'') + (r.note ? '\n' + r.note : '');
+  } else {
+    const started = await post('/api/run/' + f.fix);
+    if (started.error){ log.textContent = 'HATA: ' + started.error; btn.disabled=false; btn.textContent=f.fix_label||'Düzelt'; return; }
+    log.textContent = '';
+    let seen = 0;
+    while (true){
+      const s = await api('/api/job/' + started.job + '&since=' + seen);
+      if (s.lines && s.lines.length){ seen = s.total; log.textContent += s.lines.join('\n') + '\n'; log.scrollTop = log.scrollHeight; }
+      if (s.done) break;
+      await new Promise(r=>setTimeout(r, 700));
+    }
+  }
+  btn.textContent = 'Yeniden denetle';
+  btn.disabled = false;
+  btn.onclick = async () => {
+    const stepId = (STEPS.find(s => (DATA[s.id]||[]).some(x=>x.id===f.id))||{}).id;
+    if (stepId) await scan([stepId]);
+  };
+}
+
+document.getElementById('scan').onclick = () => scan(null);
+document.getElementById('rescan-health').onclick = () => scan(['health']);
+
+document.getElementById('save-baseline').onclick = async (e) => {
+  e.target.disabled = true;
+  const r = await post('/api/fix/save-baseline');
+  note((r.ok?'✓ ':'✕ ') + r.detail + (r.note ? ' — ' + r.note : ''));
+  e.target.disabled = false;
+};
+
+document.getElementById('report').onclick = async (e) => {
+  e.target.disabled = true;
+  const r = await post('/api/report');
+  if (r.ok){
+    const n = note('✓ Rapor yazıldı: ' + r.name);
+    const open = el('<button class="sm" style="margin-left:10px">Aç</button>');
+    open.onclick = () => post('/api/open', {path: r.path});
+    n.appendChild(open);
+  } else note('✕ Rapor üretilemedi');
+  e.target.disabled = false;
+};
+
+function note(text){
+  const n = document.getElementById('tailnote');
+  n.classList.remove('hide');
+  n.textContent = text;
+  return n;
+}
+</script>
+</body>
+</html>
