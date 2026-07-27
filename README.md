@@ -14,6 +14,20 @@ yöneten ajan altyapısı + doğrulanmış mühendislik hesap kütüphanesi.
 **Son sürüm:** [v0.4.2](https://github.com/001100alfa/ATLAS/releases/tag/v0.4.2) · [tüm sürümler](https://github.com/001100alfa/ATLAS/releases)
 
 ## Kurulum
+
+### En kolay yol: kurulum sihirbazı (önerilir)
+Windows'ta tek dosyaya çift tıklayın — tarayıcıda adım adım kurulum açılır.
+Önceden Python/Node kurmanıza gerek yok, komut ezberlemenize de:
+
+```
+SETUP.cmd
+```
+
+Sihirbaz çekirdeği kurar, AI CLI'ları indirir, ajanları **gerçekten sınayıp**
+(kurulu olmak yetmez) sorunluları tek tıkla bağlar — hesap girişleri dahil.
+Ayrıntı: [`docs/SETUP-GUI.md`](docs/SETUP-GUI.md).
+
+### Geliştirici kurulumu (komut satırı)
 Paket yöneticisi **uv** (proje standardı). Python 3.12 gerekir; uv
 yoksa 3.12'yi kendisi indirir — sistemde ayrı kurulum gerekmez.
 
