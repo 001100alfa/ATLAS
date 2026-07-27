@@ -51,5 +51,9 @@
     "skill-registries.json",
     "skills-installed.json",
     "workspace.json"
-  ]
+  ],
+  "disabledAgents": [
+    "kimi"
+  ],
+  "_disabledAgentsWhy": "Panele KAYDEDILMEZ; kayitliysa ATLAS'in girdisi kaldirilir. kimi 2026-07-27'de devre disi birakildi: hesap girisi tamamlandi (token yazildi) ama kullanilabilir modeli yok - yerel llama3.1:8b silindi, Kimi Coding bulut modelleri 402 Payment Required donuyor. Yeniden etkinlestirmek icin bu listeden cikarip senkronu calistirin."
 }

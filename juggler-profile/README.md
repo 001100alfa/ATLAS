@@ -72,6 +72,16 @@ ACP ajanları şablondan değil, kurulumun **gerçek** durumundan üretilir
 yollar her zaman bu makinedeki kuruluma uyar; şablonla gerçek arasında sapma
 olmaz.
 
+## Devre dışı ajanlar
+
+`profile.json` → `disabledAgents` listesindeki ajanlar panele **kaydedilmez** ve
+daha önce yazılmış kayıtları senkron tarafından **kaldırılır**. Kaydı elle
+silmek yetmez: senkron her açılışta kurulu ajanları yeniden yazar, o yüzden
+karar profilin kaynağında durur.
+
+Doktor bu ajanları arıza saymaz; "Devre dışı ajanlar" satırında bilgi olarak
+gösterir. Yeniden açmak için listeden çıkarıp senkronu çalıştırın.
+
 ## Otomatik güncelleyici kapalı
 
 Profil `settings.json` ile `updates.mode = "off"` dayatır. Gerekçe ölçülmüş bir

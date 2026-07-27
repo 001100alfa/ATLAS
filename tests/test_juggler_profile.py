@@ -335,3 +335,65 @@ def test_legacy_autoupdate_disabled_only_when_dir_exists(tmp_path: Path, monkeyp
     doc = json.loads((legacy / "settings.json").read_text(encoding="utf-8"))
     assert doc["updates"] == {"mode": "off"}
     assert doc["connectivity"] == {"lanOnLaunch": True}
+
+
+# --- devre dışı ajanlar -------------------------------------------------------
+
+
+def test_disabled_agent_is_not_registered_and_existing_entry_removed(tmp_path: Path, monkeypatch):
+    """Devre dışı ajan panele yazılmaz; daha önce yazılmışsa kaydı KALDIRILIR.
+
+    Kaydı elle silmek yetmez — senkron her açılışta kurulu ajanları yeniden
+    yazacağı için ajan geri gelirdi. Bu yüzden liste profilin kaynağında durur.
+    """
+    _make_profile(tmp_path)
+    prof = tmp_path / "juggler-profile"
+    cfg = json.loads((prof / "profile.json").read_text(encoding="utf-8"))
+    cfg["disabledAgents"] = ["kimi"]
+    (prof / "profile.json").write_text(json.dumps(cfg), encoding="utf-8")
+    monkeypatch.setattr(profile, "user_home_juggler", lambda: tmp_path / "nohome")
+
+    # Hem etkin hem devre dışı ajan "kurulu" görünsün.
+    entries = {
+        n: {"command": str(tmp_path / "tools" / "agents" / f"{n}.cmd"), "args": [], "env": {}}
+        for n in ("goose", "kimi")
+    }
+    monkeypatch.setattr(profile, "agent_specs", lambda _r=None: dict.fromkeys(entries, {}))
+    monkeypatch.setattr(
+        profile,
+        "_atlas_agent_entries",
+        lambda r: {k: v for k, v in entries.items() if k not in profile.disabled_agents(r)},
+    )
+
+    proj = tmp_path / ".juggler" / "acp.json"
+    proj.parent.mkdir(parents=True)
+    proj.write_text(json.dumps({"acpAgents": {"kimi": {"command": "ESKI"}}}), encoding="utf-8")
+
+    res = profile.sync(tmp_path)
+    assert res["disabled"] == ["kimi"]
+    agents = json.loads(proj.read_text(encoding="utf-8"))["acpAgents"]
+    assert "goose" in agents
+    assert "kimi" not in agents, "devre dışı ajanın eski kaydı kaldırılmalı"
+
+
+def test_verify_flags_lingering_disabled_entry(tmp_path: Path, monkeypatch):
+    """Devre dışı ajanın kaydı bir yolla geri gelirse denetim bunu söyler."""
+    _make_profile(tmp_path)
+    prof = tmp_path / "juggler-profile"
+    cfg = json.loads((prof / "profile.json").read_text(encoding="utf-8"))
+    cfg["disabledAgents"] = ["kimi"]
+    (prof / "profile.json").write_text(json.dumps(cfg), encoding="utf-8")
+    monkeypatch.setattr(profile, "user_home_juggler", lambda: tmp_path / "nohome")
+    _no_agents(monkeypatch)
+    monkeypatch.setattr(profile, "agent_specs", lambda _r=None: {"kimi": {}})
+
+    profile.sync(tmp_path)
+    assert profile.verify(tmp_path)["ok"] is True
+
+    home = tmp_path / "juggler-profile" / "home"
+    (home / "acp.json").write_text(
+        json.dumps({"acpAgents": {"kimi": {"command": "X"}}}), encoding="utf-8"
+    )
+    res = profile.verify(tmp_path)
+    assert res["ok"] is False
+    assert any("Devre dışı" in p for p in res["problems"])
