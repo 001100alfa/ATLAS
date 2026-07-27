@@ -31,6 +31,8 @@ def _make_profile(root: Path, mcp: dict | None = None) -> None:
     (prof / "mcp" / "servers.json").write_text(
         json.dumps(mcp if mcp is not None else {"mcpServers": {}}), encoding="utf-8"
     )
+    # Gercek profil gibi: otomatik guncelleyici kapali (yoksa verify sorun bildirir).
+    (prof / "settings.json").write_text(json.dumps({"updates": {"mode": "off"}}), encoding="utf-8")
     (prof / "profile.json").write_text(
         json.dumps(
             {
@@ -38,6 +40,11 @@ def _make_profile(root: Path, mcp: dict | None = None) -> None:
                 "install": [
                     {"source": "extensions", "target": "extensions", "kind": "tree"},
                     {"source": "commands", "target": "commands", "kind": "tree"},
+                    {
+                        "source": "settings.json",
+                        "target": "settings.json",
+                        "kind": "merge-json-toplevel",
+                    },
                 ],
                 "migrateFromUserHome": ["credentials.json"],
             }
@@ -248,3 +255,83 @@ def test_verify_without_profile_dir(tmp_path: Path):
     res = profile.verify(tmp_path)
     assert res["ok"] is False
     assert res["problems"]
+
+
+# --- otomatik güncelleyiciyi kapatma -----------------------------------------
+
+
+def test_settings_merge_only_touches_owned_keys(tmp_path: Path, monkeypatch):
+    """ATLAS yalnız sahiplendiği bölümü dayatır; kullanıcının ayarları kalır."""
+    _make_profile(tmp_path)
+    _no_agents(monkeypatch)
+    monkeypatch.setattr(profile, "user_home_juggler", lambda: tmp_path / "nohome")
+    prof = tmp_path / "juggler-profile"
+    (prof / "settings.json").write_text(
+        json.dumps({"_comment": "yorum", "updates": {"mode": "off"}}), encoding="utf-8"
+    )
+    cfg = json.loads((prof / "profile.json").read_text(encoding="utf-8"))
+    cfg["install"].append(
+        {"source": "settings.json", "target": "settings.json", "kind": "merge-json-toplevel"}
+    )
+    (prof / "profile.json").write_text(json.dumps(cfg), encoding="utf-8")
+
+    home = prof / "home"
+    home.mkdir(parents=True)
+    (home / "settings.json").write_text(
+        json.dumps({"connectivity": {"lanOnLaunch": True}, "updates": {"mode": "automatic"}}),
+        encoding="utf-8",
+    )
+
+    profile.sync(tmp_path)
+    doc = json.loads((home / "settings.json").read_text(encoding="utf-8"))
+    assert doc["updates"] == {"mode": "off"}, "otomatik güncelleyici kapatılmalı"
+    assert doc["connectivity"] == {"lanOnLaunch": True}, "diğer bölümlere dokunulmamalı"
+    assert "_comment" not in doc, "yorum anahtarı kurulmamalı"
+
+
+def test_verify_flags_enabled_autoupdate(tmp_path: Path, monkeypatch):
+    """Açık otomatik güncelleyici bir SORUN olarak raporlanır."""
+    _make_profile(tmp_path)
+    _no_agents(monkeypatch)
+    monkeypatch.setattr(profile, "user_home_juggler", lambda: tmp_path / "nohome")
+    profile.sync(tmp_path)
+    home = tmp_path / "juggler-profile" / "home"
+    assert profile.verify(tmp_path)["update_mode"] == "off"
+
+    # Ayar "automatic"e döndürülürse (panel veya kullanıcı) sorun bildirilir.
+    (home / "settings.json").write_text(
+        json.dumps({"updates": {"mode": "automatic"}}), encoding="utf-8"
+    )
+    res = profile.verify(tmp_path)
+    assert res["update_mode"] == "automatic"
+    assert res["ok"] is False
+    assert any("otomatik güncelleyici" in x.lower() for x in res["problems"])
+
+    # Dosya hiç yoksa da varsayılan "automatic"tir — sessiz geçilmez.
+    (home / "settings.json").unlink()
+    assert profile.verify(tmp_path)["update_mode"] == "automatic"
+
+
+def test_legacy_autoupdate_disabled_only_when_dir_exists(tmp_path: Path, monkeypatch):
+    """Panel başlatıcısız açılabilir; eski konumdaki ayar da kapatılır."""
+    _make_profile(tmp_path)
+    _no_agents(monkeypatch)
+    prof = tmp_path / "juggler-profile"
+    (prof / "settings.json").write_text(json.dumps({"updates": {"mode": "off"}}), encoding="utf-8")
+
+    # (a) dizin yoksa oluşturulmaz
+    monkeypatch.setattr(profile, "user_home_juggler", lambda: tmp_path / "yok")
+    profile.sync(tmp_path)
+    assert not (tmp_path / "yok" / "settings.json").exists()
+
+    # (b) dizin varsa yalnız updates bölümü yazılır
+    legacy = tmp_path / "userhome" / ".juggler"
+    legacy.mkdir(parents=True)
+    (legacy / "settings.json").write_text(
+        json.dumps({"connectivity": {"lanOnLaunch": True}}), encoding="utf-8"
+    )
+    monkeypatch.setattr(profile, "user_home_juggler", lambda: legacy)
+    profile.sync(tmp_path)
+    doc = json.loads((legacy / "settings.json").read_text(encoding="utf-8"))
+    assert doc["updates"] == {"mode": "off"}
+    assert doc["connectivity"] == {"lanOnLaunch": True}

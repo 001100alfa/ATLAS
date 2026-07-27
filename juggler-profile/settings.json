@@ -1,0 +1,6 @@
+{
+  "_comment": "ATLAS'in Juggler'a dayattigi global ayarlar. Senkron bunlari home/settings.json'a UST DUZEY ANAHTAR bazinda birlestirir: burada olmayan bolumlere (or. connectivity) dokunulmaz.",
+  "updates": {
+    "mode": "off"
+  }
+}

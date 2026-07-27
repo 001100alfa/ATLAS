@@ -532,6 +532,31 @@ def check_profile(root: Path) -> list[Finding]:
         )
     )
 
+    # Panelin kendi güncelleyicisi kapalı mı? (2026-07-27'de bu makinede açıkken
+    # çalışan ikiliyi yerinde değiştirdi ve yerel derlemeyi sildi.)
+    mode = res.get("update_mode", "?")
+    off = mode == "off"
+    out.append(
+        _f(
+            id="profile.autoupdate",
+            area="ATLAS profili",
+            title="Panelin otomatik güncelleyicisi",
+            status=OK if off else FAIL,
+            detail=f"updates.mode = {mode}" + (" (kapalı)" if off else " — AÇIK"),
+            cause=""
+            if off
+            else "Otomatik güncelleme çalışan .exe'yi yerinde değiştirir. ATLAS panelini "
+            "tools/juggler/ altından sürdüğü için indirilen upstream sürümü, kaynaktan "
+            "derlenmiş yerel işin (ACP authenticate, childcontain, …) YERİNE geçer.",
+            remedy=""
+            if off
+            else "Profili tazeleyin: settings.json'a updates.mode=off yazılır. Manuel "
+            "'güncelleme denetle' çalışmaya devam eder; yalnız kendiliğinden indirme kapanır.",
+            fix=None if off else "profile-sync",
+            fix_label=None if off else "Otomatik güncellemeyi kapat",
+        )
+    )
+
     # Başlatıcılar Juggler'ı profile yönlendiriyor mu?
     wired = []
     for name in ("juggler-webui_Run.bat", "juggler-desktop_Run.bat"):

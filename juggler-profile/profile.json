@@ -5,14 +5,45 @@
   "configDirEnv": "JUGGLER_CONFIG_DIR",
   "home": "home",
   "install": [
-    { "source": "extensions", "target": "extensions", "kind": "tree" },
-    { "source": "commands", "target": "commands", "kind": "tree" },
-    { "source": "skills", "target": "skills", "kind": "tree" },
-    { "source": "mcp/servers.json", "target": "mcp.json", "kind": "merge-json", "mergeKey": "mcpServers" }
+    {
+      "source": "extensions",
+      "target": "extensions",
+      "kind": "tree"
+    },
+    {
+      "source": "commands",
+      "target": "commands",
+      "kind": "tree"
+    },
+    {
+      "source": "skills",
+      "target": "skills",
+      "kind": "tree"
+    },
+    {
+      "source": "mcp/servers.json",
+      "target": "mcp.json",
+      "kind": "merge-json",
+      "mergeKey": "mcpServers"
+    },
+    {
+      "source": "settings.json",
+      "target": "settings.json",
+      "kind": "merge-json-toplevel",
+      "why": "Panelin otomatik guncelleyicisini kapatir (updates.mode=off). Otomatik guncelleme calisan ikiliyi yerinde degistirir ve yerel islemeleri siler."
+    }
   ],
   "generated": [
-    { "what": "acpAgents", "target": "acp.json", "scope": "user" },
-    { "what": "acpAgents", "target": ".juggler/acp.json", "scope": "project" }
+    {
+      "what": "acpAgents",
+      "target": "acp.json",
+      "scope": "user"
+    },
+    {
+      "what": "acpAgents",
+      "target": ".juggler/acp.json",
+      "scope": "project"
+    }
   ],
   "migrateFromUserHome": [
     "credentials.json",

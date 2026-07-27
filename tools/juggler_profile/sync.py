@@ -154,6 +154,28 @@ def merge_acp(path: Path, entries: dict, log: list[str], label: str) -> dict:
     return doc
 
 
+def merge_toplevel_json(root: Path, source: str, target: str, log: list[str]) -> list[str]:
+    """Profildeki bir JSON'u hedefe ÜST DÜZEY ANAHTAR bazında birleştirir.
+
+    Kullanımı `settings.json` içindir: ATLAS yalnız sahiplendiği bölümü dayatır
+    (ör. `updates`), kullanıcının/panelin diğer bölümlerine (`connectivity`,
+    `sandbox`, …) dokunmaz. `_` ile başlayan anahtarlar yorumdur, kurulmaz.
+    """
+    src = profile_dir(root) / source
+    if not src.is_file():
+        return []
+    wanted = {k: v for k, v in _read_json(src).items() if not k.startswith("_")}
+    if not wanted:
+        return []
+    dst = home_dir(root) / target
+    doc = _read_json(dst)
+    doc.update(wanted)
+    _write_json(dst, doc)
+    keys = sorted(wanted)
+    log.append(f"  {target}: {', '.join(keys)} → {dst}")
+    return keys
+
+
 # --- MCP ----------------------------------------------------------------------
 
 
@@ -202,6 +224,8 @@ def sync(root: Path | None = None) -> dict:
     for spec in load_profile(root).get("install", []):
         if spec.get("kind") == "tree":
             _copy_tree(prof / spec["source"], home / spec["target"], log)
+        elif spec.get("kind") == "merge-json-toplevel":
+            merge_toplevel_json(root, spec["source"], spec["target"], log)
     mcp_n = merge_mcp(root, log)
 
     entries = _atlas_agent_entries(root)
@@ -215,6 +239,26 @@ def sync(root: Path | None = None) -> dict:
     legacy = user_home_juggler() / "acp.json"
     if legacy.is_file():
         merge_acp(legacy, entries, log, "eski global")
+
+    # Otomatik güncelleyici eski konumda da kapatılır. Gerekçe: panel ATLAS
+    # başlatıcıları DIŞINDAN (doğrudan tools/juggler/juggler.exe ile) açılırsa
+    # ayarları oradan okur ve otomatik güncelleme ATLAS'ın ikilisini yerinde
+    # değiştirip yerel derlemeyi siler — 2026-07-27'de yaşandı. Yalnız `updates`
+    # bölümü yazılır; kullanıcının diğer ayarlarına dokunulmaz. Manuel "güncelleme
+    # denetle" kapanmaz.
+    if user_home_juggler().is_dir():
+        wanted = {
+            k: v
+            for k, v in _read_json(profile_dir(root) / "settings.json").items()
+            if k == "updates"
+        }
+        if wanted:
+            p = user_home_juggler() / "settings.json"
+            doc = _read_json(p)
+            if doc.get("updates") != wanted["updates"]:
+                doc.update(wanted)
+                _write_json(p, doc)
+                log.append(f"  settings.json (eski global): otomatik güncelleme kapatıldı → {p}")
 
     log.append("Tamam — Juggler bir sonraki açılışta bu profili kullanır.")
     return {
@@ -275,11 +319,23 @@ def verify(root: Path | None = None) -> dict:
             if cmd and not inside_atlas:
                 external.append(f"{label}/{name} → {cmd}")
 
+    # Panelin otomatik güncelleyicisi kapalı mı? Açıkken çalışan ikiliyi yerinde
+    # değiştirir ve yerel derlemeyi (ACP authenticate, childcontain, …) siler —
+    # 2026-07-27'de bu makinede yaşandı, bkz. ATLAS DECISIONS.
+    settings = _read_json(home / "settings.json")
+    update_mode = ((settings.get("updates") or {}).get("mode") or "automatic").lower()
+    if update_mode != "off":
+        problems.append(
+            f"Panelin otomatik güncelleyicisi açık (updates.mode={update_mode}); "
+            "çalışan ikiliyi yerinde değiştirip yerel derlemeyi silebilir."
+        )
+
     return {
         "ok": not problems and not stale and not external,
         "problems": problems,
         "stale": stale,
         "external": external,
+        "update_mode": update_mode,
         "home": str(home),
     }
 
