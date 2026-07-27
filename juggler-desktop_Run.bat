@@ -31,9 +31,11 @@ if not defined JUGGLER_APP_BIN (
   echo   Alternatif: juggler-webui_Run.bat ^(tarayici, bu ikiliye ihtiyac duymaz^).
 )
 
-rem --- ATLAS eklentisini kur (idempotent) ---
-set "EXTDIR=%USERPROFILE%\.juggler\extensions\atlas-engineering"
-xcopy /E /I /Y /Q "%ATLAS_HOME%integrations\juggler" "%EXTDIR%\" >nul
+rem --- ATLAS profilini kur/tazele (eklenti, ACP ajanlari, MCP, komutlar, skills) ---
+rem Profil depo icinde durur; JUGGLER_CONFIG_DIR ile Juggler oraya bakar. Boylece
+rem Juggler klasoru silinip yeniden kurulsa da ATLAS tarafi ayakta kalir.
+call "%ATLAS_HOME%juggler-profile_Sync.cmd" /quiet
+set "JUGGLER_CONFIG_DIR=%ATLAS_HOME%juggler-profile\home"
 
 rem --- ATLAS launcher'lari PATH'e ---
 set "PATH=%ATLAS_HOME%;%PATH%"

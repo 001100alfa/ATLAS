@@ -6,7 +6,7 @@
      aşımında/tercihe göre yedekler: **OpenCode** ve **Kilo** taşınabilir
      CLI'ları (`opencode_Run.cmd` / `kilo_Run.cmd`, bkz `docs/AI-CLI.md`).
    - **Web UI + masaüstü GUI:** **Juggler** ajan workbench'i Claude Code'u
-     sürer; ATLAS yetenekleri `integrations/juggler/` eklentisiyle taşınır
+     sürer; ATLAS yetenekleri `juggler-profile/` eklentisiyle taşınır
      (`atlas_section`, `atlas_recall`, `/atlas-section`). Bkz `docs/JUGGLER.md`.
 2. **Ajan katmanı** (`.claude/`): Claude Code davranışı — CLAUDE.md talimat,
    commands/ iş akışları, agents/ uzman roller, settings.json izin + hooks.

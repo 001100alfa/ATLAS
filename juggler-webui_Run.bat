@@ -21,9 +21,11 @@ if not defined JX (
   exit /b 1
 )
 
-rem --- ATLAS eklentisini kur (idempotent kopya; symlink Windows'ta admin ister) ---
-set "EXTDIR=%USERPROFILE%\.juggler\extensions\atlas-engineering"
-xcopy /E /I /Y /Q "%ATLAS_HOME%integrations\juggler" "%EXTDIR%\" >nul
+rem --- ATLAS profilini kur/tazele (eklenti, ACP ajanlari, MCP, komutlar, skills) ---
+rem Profil depo icinde durur; JUGGLER_CONFIG_DIR ile Juggler oraya bakar. Boylece
+rem Juggler klasoru silinip yeniden kurulsa da ATLAS tarafi ayakta kalir.
+call "%ATLAS_HOME%juggler-profile_Sync.cmd" /quiet
+set "JUGGLER_CONFIG_DIR=%ATLAS_HOME%juggler-profile\home"
 
 rem --- ATLAS launcher'lari PATH'e (eklentinin atlas-sections/atlas shell-out'u icin) ---
 set "PATH=%ATLAS_HOME%;%PATH%"

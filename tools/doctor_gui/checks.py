@@ -19,6 +19,7 @@ import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from tools.juggler_profile import sync as profile_sync
 from tools.setup_gui import connect as connect_mod
 from tools.setup_gui.acp_probe import effective_entry, probe_all
 from tools.setup_gui.detect import (
@@ -128,10 +129,19 @@ def _run(argv: list[str], timeout: float = 30.0, cwd: Path | None = None) -> tup
 
 
 def ext_source_dir(root: Path) -> Path:
-    return root / "integrations" / "juggler"
+    return root / "juggler-profile" / "extensions" / "atlas-engineering"
 
 
-def ext_installed_dir() -> Path:
+def ext_installed_dir(root: Path | None = None) -> Path:
+    """Eklentinin kurulu kopyası — profil çalışma dizini varsa orada.
+
+    Profil kullanılmadığında (başlatıcılar dışından açılmış bir Juggler)
+    Juggler hâlâ `~/.juggler`a bakar; denetim de oraya düşer.
+    """
+    if root is not None:
+        home = profile_sync.home_dir(root)
+        if home.is_dir():
+            return home / "extensions" / "atlas-engineering"
     return Path.home() / ".juggler" / "extensions" / "atlas-engineering"
 
 
@@ -357,7 +367,7 @@ def check_juggler(root: Path, want_remote: bool = True) -> list[Finding]:
     )
 
     # Eklenti kurulu mu ve sürümü kaynakla aynı mı?
-    src, dst = ext_source_dir(root), ext_installed_dir()
+    src, dst = ext_source_dir(root), ext_installed_dir(root)
     src_ver = _ext_version(src)
     dst_ver = _ext_version(dst)
     if not dst.is_dir():
@@ -409,7 +419,8 @@ def check_juggler(root: Path, want_remote: bool = True) -> list[Finding]:
             "eklenti sessizce yüklenmez, ATLAS araçları panelde kaybolur.",
             remedy=""
             if ok
-            else 'integrations/juggler/juggler.extension.json içindeki "engineApi" '
+            else 'juggler-profile/extensions/atlas-engineering/juggler.extension.json '
+            'içindeki "engineApi" '
             "aralığını yeni panelin desteklediği sürüme genişletin, sonra bu denetimi "
             "tekrarlayın. Çözülene kadar eski panel ikilisine dönmek güvenlidir.",
             fix=None if ok else "juggler-restore",
@@ -445,6 +456,104 @@ def _dir_same(a: Path, b: Path) -> bool:
         return snap(a) == snap(b)
     except OSError:
         return False
+
+
+# --- 2b) ATLAS profili --------------------------------------------------------
+
+
+def check_profile(root: Path) -> list[Finding]:
+    """ "Juggler klasörünü silsem ne kırılır?" sorusunun denetimi.
+
+    ATLAS'ın Juggler'a kattığı her şey `juggler-profile/` altında durmalı ve
+    Juggler oraya `JUGGLER_CONFIG_DIR` ile bakmalı. Bu doğruysa Juggler ağacı
+    silinip yeniden kurulduğunda hiçbir şey kaybolmaz.
+    """
+    out: list[Finding] = []
+    res = profile_sync.verify(root)
+    home = profile_sync.home_dir(root)
+
+    installed = home.is_dir()
+    out.append(
+        _f(
+            id="profile.installed",
+            area="ATLAS profili",
+            title="Profil kurulu",
+            status=OK if installed else WARN,
+            detail=str(home) if installed else "henüz kurulmadı",
+            cause=""
+            if installed
+            else "Profil çalışma dizini yok; Juggler hâlâ ~/.juggler'ı kullanıyor olabilir.",
+            remedy="" if installed else "Profili kurun (başlatıcılar da her açılışta kurar).",
+            fix=None if installed else "profile-sync",
+            fix_label=None if installed else "Profili kur",
+        )
+    )
+
+    stale = res["stale"]
+    if installed:
+        out.append(
+            _f(
+                id="profile.current",
+                area="ATLAS profili",
+                title="Kurulu kopya kaynakla aynı",
+                status=OK if not stale else WARN,
+                detail="güncel" if not stale else f"{len(stale)} öğe eski",
+                cause="" if not stale else "Depoda değişen profil içeriği henüz kurulmadı.",
+                remedy="" if not stale else "Profili tazeleyin.",
+                fix=None if not stale else "profile-sync",
+                fix_label=None if not stale else "Profili tazele",
+                evidence=stale,
+            )
+        )
+
+    # ASIL denetim: ATLAS ajanlarından herhangi biri depo dışını gösteriyor mu?
+    external = res["external"]
+    out.append(
+        _f(
+            id="profile.self-contained",
+            area="ATLAS profili",
+            title="Juggler klasöründen bağımsızlık",
+            status=OK if not external else FAIL,
+            detail="ATLAS kayıtlarının tümü depo içini gösteriyor"
+            if not external
+            else f"{len(external)} kayıt depo dışını gösteriyor",
+            cause=""
+            if not external
+            else "Bir ACP kaydı ATLAS deposunun dışını (çoğunlukla Juggler ağacının "
+            "içindeki sarmalayıcıları) gösteriyor. O klasör silinir veya Juggler "
+            "yeniden kurulursa bu ajanlar çalışmaz.",
+            remedy=""
+            if not external
+            else "Profili tazeleyin: kayıtlar ATLAS'ın kendi sarmalayıcılarına "
+            "(tools/agents/*.cmd) yeniden yazılır.",
+            fix=None if not external else "profile-sync",
+            fix_label=None if not external else "Kayıtları ATLAS'a çevir",
+            evidence=external,
+        )
+    )
+
+    # Başlatıcılar Juggler'ı profile yönlendiriyor mu?
+    wired = []
+    for name in ("juggler-webui_Run.bat", "juggler-desktop_Run.bat"):
+        f = root / name
+        if f.is_file() and "JUGGLER_CONFIG_DIR" in f.read_text(encoding="utf-8", errors="replace"):
+            wired.append(name)
+    ok_wired = len(wired) == 2
+    out.append(
+        _f(
+            id="profile.launchers",
+            area="ATLAS profili",
+            title="Başlatıcılar profili kullanıyor",
+            status=OK if ok_wired else WARN,
+            detail=", ".join(wired) if wired else "hiçbiri JUGGLER_CONFIG_DIR ayarlamıyor",
+            cause=""
+            if ok_wired
+            else "Başlatıcı profili göstermezse Juggler varsayılan ~/.juggler'a düşer ve "
+            "profil devre dışı kalır.",
+            remedy="" if ok_wired else "Başlatıcıyı güncelleyin (bkz. juggler-profile/README.md).",
+        )
+    )
+    return out
 
 
 # --- 3) ACP ajanları ----------------------------------------------------------
@@ -779,6 +888,7 @@ def check_drift(root: Path) -> list[Finding]:
 STEPS: list[dict] = [
     {"id": "runtime", "label": "Çalışma zamanları", "fn": check_runtime, "net": False},
     {"id": "juggler", "label": "Juggler paneli", "fn": check_juggler, "net": True},
+    {"id": "profile", "label": "ATLAS profili", "fn": check_profile, "net": False},
     {"id": "agents", "label": "ACP ajanları", "fn": check_agents, "net": True},
     {"id": "ollama", "label": "Yerel AI", "fn": check_ollama, "net": False},
     {"id": "config", "label": "Yapılandırma", "fn": check_config, "net": False},

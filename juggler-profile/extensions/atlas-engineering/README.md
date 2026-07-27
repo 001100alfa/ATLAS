@@ -34,8 +34,8 @@ atlas-sections i --h 1000 --b 300 --tw 12 --tf 20 --json
 
 ## Kurulum (Juggler tarafı)
 ```bash
-juggler ext validate <atlas>/integrations/juggler   # admission check
-juggler ext link     <atlas>/integrations/juggler   # ~/.juggler/extensions'a symlink + hot-reload
+juggler ext validate <atlas>/juggler-profile/extensions/atlas-engineering
+# Kurulum: juggler-profile_Sync.cmd (ext link gerekmez)
 ```
 Juggler'ı başlat/yeniden bağlan; Ayarlar → Extensions altında "ATLAS Engineering"
 görünür. Ayrıntı ve derleme: ATLAS `docs/JUGGLER.md`.

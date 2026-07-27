@@ -1,0 +1,11 @@
+{
+  "_comment": "ATLAS'in Juggler'a sundugu MCP sunuculari. ${ATLAS_HOME} kurulum sirasinda depo koku ile degistirilir. Su an ATLAS hicbir MCP sunucusu yayinlamiyor; asagidaki ornek yorumdadir, etkin degildir.",
+  "_example": {
+    "atlas-sections": {
+      "command": "${ATLAS_HOME}/atlas-mcp.cmd",
+      "args": ["serve"],
+      "transport": "stdio"
+    }
+  },
+  "mcpServers": {}
+}
