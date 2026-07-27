@@ -451,3 +451,30 @@ def test_parity_with_js_generator(tmp_path: Path) -> None:
         assert js_cmd == py_cmd, name
         assert js[name]["args"] == py[name]["args"], name
         assert js[name]["env"] == py[name]["env"], name
+
+
+def test_auth_commands_match_real_subcommands(tmp_path: Path):
+    """Her ajanın giriş komutu, CLI'sının GERÇEKTEN desteklediği alt komut olmalı.
+
+    Ölçüldü (2026-07-27, `--help` çıktılarıyla):
+
+    * `kimi` — `auth` diye bir alt komut YOK; giriş `kimi login`.
+    * `opencode` / `kilo` — `auth` bir komut GRUBU (list/login/logout); tek başına
+      yalnız yardım basar, giriş `auth login` altındadır.
+    * `cline` — `auth <yöntem>`; ACP için `auth cline`.
+
+    Varsayılan `["auth"]`e düşmek üçünde de sessizce yanlış komut üretiyordu:
+    "Giriş yap" düğmesi hata verip hiçbir şey yapmıyordu.
+    """
+    expected = {
+        "opencode": ["auth", "login"],
+        "kilo": ["auth", "login"],
+        "cline": ["auth", "cline"],
+        "kimi": ["login"],
+    }
+    specs = agent_specs(tmp_path)
+    for name, want in expected.items():
+        assert specs[name].get("auth_cmd") == want, f"{name} giriş komutu"
+
+    # goose hesapsızdır: giriş komutu tanımlanmaz (sağlayıcı env ile ayarlanır).
+    assert "auth_cmd" not in specs["goose"]
