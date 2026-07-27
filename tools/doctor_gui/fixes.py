@@ -24,7 +24,7 @@ from tools.setup_gui import wrappers
 from tools.setup_gui.detect import IS_WIN, _exe
 from tools.setup_gui.install_ollama import start_server
 
-from . import versions
+from . import processes, versions
 from .checks import backup_dir, ext_installed_dir, ext_source_dir, write_baseline
 
 # --- anlık eylemler -----------------------------------------------------------
@@ -162,7 +162,27 @@ def _profile_sync(root: Path) -> dict:
     }
 
 
+def _kill_stray(root: Path) -> dict:
+    """Depoya ait öksüz ajan süreçlerini kapatır (panel açıkken hiçbir şey yapmaz)."""
+    found = processes.stray(root)
+    if not found:
+        return {"ok": True, "detail": "Kapatılacak artık süreç yok."}
+    res = processes.kill([p["pid"] for p in found])
+    ok = not res["failed"]
+    gone = len(res.get("gone") or [])
+    return {
+        "ok": ok,
+        "detail": f"{len(res['killed'])} süreç kapatıldı"
+        + (f", {gone} tanesi zaten sonlanmıştı (alt süreçler)" if gone else "")
+        + (f", {len(res['failed'])} kapatılamadı" if res["failed"] else ""),
+        "note": "Panel açıldığında ajanlar yeniden başlatılır; hiçbir oturum kaybolmaz."
+        if ok
+        else "Kapatılamayanlar: " + "; ".join(str(x) for x in res["failed"][:3]),
+    }
+
+
 INSTANT = {
+    "kill-stray": _kill_stray,
     "profile-sync": _profile_sync,
     "ext-install": _ext_install,
     "register": _register,

@@ -32,7 +32,7 @@ from tools.setup_gui.detect import (
     project_root,
 )
 
-from . import versions
+from . import processes, versions
 
 # --- bulgu modeli -------------------------------------------------------------
 
@@ -419,7 +419,7 @@ def check_juggler(root: Path, want_remote: bool = True) -> list[Finding]:
             "eklenti sessizce yüklenmez, ATLAS araçları panelde kaybolur.",
             remedy=""
             if ok
-            else 'juggler-profile/extensions/atlas-engineering/juggler.extension.json '
+            else "juggler-profile/extensions/atlas-engineering/juggler.extension.json "
             'içindeki "engineApi" '
             "aralığını yeni panelin desteklediği sürüme genişletin, sonra bu denetimi "
             "tekrarlayın. Çözülene kadar eski panel ikilisine dönmek güvenlidir.",
@@ -799,6 +799,54 @@ def check_config(root: Path) -> list[Finding]:
     return out
 
 
+# --- 5b) artık süreçler -------------------------------------------------------
+
+
+def check_processes(root: Path) -> list[Finding]:
+    """Sağlık testinden artakalan öksüz ajan süreçleri.
+
+    Ajanın kendisi öldürülse de alt süreci yaşamaya devam edebiliyor (ölçüldü:
+    cline, goose). Birikince çalışan `.exe` kilitli kalıyor: `npm install` EBUSY
+    veriyor, klasör taşınamıyor. Panel açıkken denetim yapılmaz — o süreçler
+    meşru olabilir.
+    """
+    if processes.juggler_running(root):
+        return [
+            _f(
+                id="proc.stray",
+                area="Artık süreçler",
+                title="Öksüz ajan süreci",
+                status=INFO,
+                detail="panel açık — süreçler kullanımda olabilir, sayım yapılmadı",
+                cause="",
+                remedy="Denetim için paneli kapatıp taramayı tekrarlayın.",
+            )
+        ]
+
+    found = processes.stray(root)
+    return [
+        _f(
+            id="proc.stray",
+            area="Artık süreçler",
+            title="Öksüz ajan süreci",
+            status=OK if not found else WARN,
+            detail="yok" if not found else f"{len(found)} süreç hâlâ çalışıyor",
+            cause=""
+            if not found
+            else "ACP sağlık testi ajanı kapatır ama bazı ajanlar işi bir ALT sürece "
+            "yaptırır ve o öksüz kalır. Biriken süreçler ikiliyi kilitler: güncelleme "
+            "EBUSY ile düşer, klasör taşınamaz.",
+            remedy=""
+            if not found
+            else "Kapatın — hiçbiri bir işi sürdürmüyor; panel açılınca ajanlar yeniden "
+            "başlatılır.",
+            fix=None if not found else "kill-stray",
+            fix_label=None if not found else f"{len(found)} süreci kapat",
+            evidence=[f"{p['pid']}  {p['name']}  {p['path']}" for p in found[:10]],
+        )
+    ]
+
+
 # --- 6) canlı sağlık kontrolü -------------------------------------------------
 
 _STATUS_MAP = {
@@ -917,6 +965,7 @@ STEPS: list[dict] = [
     {"id": "agents", "label": "ACP ajanları", "fn": check_agents, "net": True},
     {"id": "ollama", "label": "Yerel AI", "fn": check_ollama, "net": False},
     {"id": "config", "label": "Yapılandırma", "fn": check_config, "net": False},
+    {"id": "processes", "label": "Artık süreçler", "fn": check_processes, "net": False},
     {"id": "drift", "label": "Sürüm izi", "fn": check_drift, "net": False},
     {"id": "health", "label": "Canlı sağlık", "fn": check_health, "net": False},
 ]
