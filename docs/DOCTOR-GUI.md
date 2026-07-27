@@ -69,7 +69,8 @@ Hepsi **idempotent**tir; hiçbiri kullanıcı verisi silmez.
 |---|---|
 | Şimdi yedek al | `tools/juggler/*.exe` → `.atlas/doctor/juggler-backup/` (+ sürüm notu) |
 | Yedekten geri al | Yedeği geri yazar — bozuk güncellemeden tek tıkla dönüş |
-| Eklentiyi kur / tazele | `integrations/juggler` → `~/.juggler/extensions/atlas-engineering` |
+| Eklentiyi kur / tazele | profil kaynağı → `juggler-profile/home/extensions/` |
+| Profili kur / tazele | ATLAS'ın Juggler'a kattığı her şeyi senkronlar, kayıtları ATLAS'a çevirir |
 | Ajanları kaydet / Yolları tazele | `acp.json` + `tools/agents/` sarmalayıcılarını yeniden üretir |
 | Sunucuyu başlat | Taşınabilir Ollama'yı `127.0.0.1:11435`'te kaldırır |
 | Güncelle (ajan) | `npm install <paket>@latest --prefix tools/ai-cli` veya `pip install -U kimi-cli` |

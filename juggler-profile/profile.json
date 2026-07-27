@@ -1,0 +1,24 @@
+{
+  "name": "ATLAS Juggler Profili",
+  "version": "1.0.0",
+  "description": "ATLAS'in Juggler'a kattigi her sey: eklentiler, ACP ajanlari, MCP sunuculari, komutlar, skills. Juggler klasoru silinip yeniden kurulsa da bu profil ayakta kalir.",
+  "configDirEnv": "JUGGLER_CONFIG_DIR",
+  "home": "home",
+  "install": [
+    { "source": "extensions", "target": "extensions", "kind": "tree" },
+    { "source": "commands", "target": "commands", "kind": "tree" },
+    { "source": "skills", "target": "skills", "kind": "tree" },
+    { "source": "mcp/servers.json", "target": "mcp.json", "kind": "merge-json", "mergeKey": "mcpServers" }
+  ],
+  "generated": [
+    { "what": "acpAgents", "target": "acp.json", "scope": "user" },
+    { "what": "acpAgents", "target": ".juggler/acp.json", "scope": "project" }
+  ],
+  "migrateFromUserHome": [
+    "credentials.json",
+    "default-model.json",
+    "skill-registries.json",
+    "skills-installed.json",
+    "workspace.json"
+  ]
+}

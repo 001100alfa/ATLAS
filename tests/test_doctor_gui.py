@@ -86,7 +86,8 @@ def test_step_crash_becomes_finding(tmp_path: Path, monkeypatch):
     def boom(_root):
         raise RuntimeError("patladı")
 
-    monkeypatch.setitem(checks.STEPS[3], "fn", boom)  # ollama adımı
+    ollama_step = next(s for s in checks.STEPS if s["id"] == "ollama")
+    monkeypatch.setitem(ollama_step, "fn", boom)
     found = checks.run_step("ollama", tmp_path)
     assert len(found) == 1
     assert found[0]["status"] == "fail"
@@ -174,12 +175,12 @@ def test_restore_without_backup_fails_cleanly(tmp_path: Path):
 
 
 def test_ext_install_copies_tree(tmp_path: Path, monkeypatch):
-    src = tmp_path / "integrations" / "juggler"
+    src = tmp_path / "juggler-profile" / "extensions" / "atlas-engineering"
     (src / "commands").mkdir(parents=True)
     (src / "juggler.extension.json").write_text('{"version":"0.1.0"}', encoding="utf-8")
     (src / "commands" / "a-command-type.js").write_text("//", encoding="utf-8")
     dst = tmp_path / "home" / ".juggler" / "extensions" / "atlas-engineering"
-    monkeypatch.setattr(fixes, "ext_installed_dir", lambda: dst)
+    monkeypatch.setattr(fixes, "ext_installed_dir", lambda _root=None: dst)
 
     assert fixes.run_instant("ext-install", tmp_path)["ok"] is True
     assert (dst / "commands" / "a-command-type.js").is_file()

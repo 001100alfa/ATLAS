@@ -99,8 +99,11 @@ Her bundle gömülü Python 3.12 + mimariye özel offline wheel'ler içerir;
 Ön-yüz olarak [Juggler](https://github.com/juggler-ai/juggler) ajan
 workbench'i kullanılır; ATLAS'ın Claude Code çekirdeğini web UI ve masaüstü
 GUI'den sürer. ATLAS yetenekleri (`atlas_section`, `atlas_recall`,
-`/atlas-section`) `integrations/juggler/` eklentisiyle (Apache-2.0) Juggler'a
-taşınır. Kurulum, derleme ve lisans: [`docs/JUGGLER.md`](docs/JUGGLER.md).
+`/atlas-section`) `juggler-profile/` eklentisiyle (Apache-2.0) Juggler'a taşınır.
+ATLAS'ın Juggler'a kattığı **her şey** (eklenti, ACP ajanları, MCP sunucuları,
+komutlar, skills) o klasörde toplanır ve `JUGGLER_CONFIG_DIR` ile Juggler oraya
+yönlendirilir — Juggler klasörü silinip yeniden kurulsa da ATLAS tarafı ayakta
+kalır (`juggler-profile_Sync.cmd`). Kurulum, derleme ve lisans: [`docs/JUGGLER.md`](docs/JUGGLER.md).
 
 <p align="center">
   <img src="docs/images/juggler-desktop-light.webp" alt="Juggler masaüstü — onay akışı ve diff (açık tema)" width="49%">

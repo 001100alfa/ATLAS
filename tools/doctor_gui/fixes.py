@@ -18,6 +18,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from tools.juggler_profile import sync as profile_sync
 from tools.setup_gui import connect as connect_mod
 from tools.setup_gui import wrappers
 from tools.setup_gui.detect import IS_WIN, _exe
@@ -30,7 +31,7 @@ from .checks import backup_dir, ext_installed_dir, ext_source_dir, write_baselin
 
 
 def _ext_install(root: Path) -> dict:
-    src, dst = ext_source_dir(root), ext_installed_dir()
+    src, dst = ext_source_dir(root), ext_installed_dir(root)
     if not src.is_dir():
         return {"ok": False, "detail": f"kaynak yok: {src}"}
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -150,7 +151,19 @@ def _auth_hint(root: Path, agent: str = "") -> dict:
     }
 
 
+def _profile_sync(root: Path) -> dict:
+    """Profili kurar/tazeler — kayıtları ATLAS'ın kendi sarmalayıcılarına çevirir."""
+    r = profile_sync.sync(root)
+    return {
+        "ok": bool(r.get("ok")),
+        "detail": "\n".join(r.get("log") or []),
+        "note": "Panel açıksa kapatıp yeniden açın; başlatıcılar JUGGLER_CONFIG_DIR'i "
+        "profile çevirir, böylece Juggler klasörü silinse de ATLAS tarafı ayakta kalır.",
+    }
+
+
 INSTANT = {
+    "profile-sync": _profile_sync,
     "ext-install": _ext_install,
     "register": _register,
     "ollama-start": _ollama_start,

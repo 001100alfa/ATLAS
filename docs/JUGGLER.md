@@ -4,15 +4,15 @@
 workbench'idir: Go backend + Wails (masaüstü) + tarayıcı UI, ağaç-yapılı
 oturumlar, JS eklenti mimarisi, çoklu-istemci. Model backend olarak **Claude
 Code**'u sürebilir — böylece ATLAS'ın Claude Code çekirdeğine web UI ve masaüstü
-GUI ön-yüzü olur. ATLAS yetenekleri Juggler'a `integrations/juggler/`
-eklentisiyle taşınır.
+GUI ön-yüzü olur. ATLAS yetenekleri Juggler'a `juggler-profile/` altındaki eklentiyle taşınır.
 
 ## Lisans (önemli)
 - **Juggler uygulama çekirdeği: AGPL-3.0.** Ayrı bir uygulamadır; ATLAS ile
   *birlikte dağıtılmadığı* sürece ATLAS'a copyleft yükümlülüğü taşımaz. Burada
   Juggler ayrı derlenip ayrı çalıştırılır (bundle'a gömülmez).
 - **Juggler Extension SDK + bundled extensions: Apache-2.0.** ATLAS eklentisi
-  (`integrations/juggler/`) bu yüzden Apache-2.0'dır ve copyleft yükümlülüğü yok.
+  (`juggler-profile/extensions/atlas-engineering/`) bu yüzden Apache-2.0'dır ve copyleft
+  yükümlülüğü yok.
 
 ## Kolay başlatma (.bat) — önerilen
 Repo kökündeki başlatıcılar juggler.exe'yi bulur, ATLAS eklentisini kurar,
@@ -71,8 +71,8 @@ stabil sözleşmedir.)
 ## 3) ATLAS eklentisini yükle
 Derlenen `juggler` ikilisiyle:
 ```bash
-juggler ext validate <atlas>/integrations/juggler   # admission check
-juggler ext link     <atlas>/integrations/juggler   # ~/.juggler/extensions'a symlink + hot-reload
+juggler ext validate <atlas>/juggler-profile/extensions/atlas-engineering
+# Kurulum icin ext link GEREKMEZ: juggler-profile_Sync.cmd profili kurar.
 ```
 
 > **Windows notu:** `ext link` symlink oluşturur; Windows'ta symlink için
@@ -80,7 +80,7 @@ juggler ext link     <atlas>/integrations/juggler   # ~/.juggler/extensions'a sy
 > "A required privilege is not held" hatası). Alternatif — symlink yerine
 > **kopyala** (hot-reload olmaz, ama çalışır):
 > ```bash
-> cp -r <atlas>/integrations/juggler ~/.juggler/extensions/atlas-engineering
+> juggler-profile_Sync.cmd
 > ```
 
 Juggler'ı başlat (`juggler` → URL/QR) veya masaüstü uygulamasını aç; Ayarlar →
@@ -106,7 +106,8 @@ Extensions altında **ATLAS Engineering** görünür.
 | `/atlas-section` | Slash komut | LLM'siz hızlı hesap: `/atlas-section i 1000 300 12 20` |
 | system-prompt | Prompt katkısı | Etkin araçları modele tanıtır |
 
-Kaynak ve geliştirme notları: [`integrations/juggler/README.md`](../integrations/juggler/README.md).
+Kaynak ve geliştirme notları:
+[`juggler-profile/README.md`](../juggler-profile/README.md).
 
 ## Mimari ilişki
 ```
