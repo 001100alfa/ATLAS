@@ -26,7 +26,21 @@ from . import wrappers
 from .detect import IS_WIN, acp_config_paths, acp_entry, agent_specs, detect_ollama
 
 # Araç çağırabilen (ACP ajanlarının ihtiyacı olan) modelleri öne alan tercih sırası.
-MODEL_PREFERENCE = ("qwen2.5-coder", "llama3.1", "qwen3", "llama3", "mistral", "gemma")
+# Hem yerel hem `*-cloud` adları kapsanır; kayıtlı olmayan ad zaten atlanır.
+MODEL_PREFERENCE = (
+    "qwen2.5-coder",
+    "qwen3-coder",
+    "kimi-k2",
+    "gpt-oss",
+    "qwen3.5",
+    "glm",
+    "deepseek",
+    "llama3.1",
+    "qwen3",
+    "llama3",
+    "mistral",
+    "gemma",
+)
 
 
 # --- yerel AI arka ucu ------------------------------------------------------
@@ -52,13 +66,44 @@ def ollama_models(base_url: str, timeout: float = 5.0) -> list[str]:
         return []
 
 
-def pick_model(models: list[str]) -> str | None:
-    """Araç kullanımına en uygun modeli seçer; yoksa ilk modeli."""
-    for wanted in MODEL_PREFERENCE:
-        for m in models:
-            if m.startswith(wanted):
-                return m
-    return models[0] if models else None
+def model_works(base_url: str, model: str, timeout: float = 90.0) -> bool:
+    """Model GERÇEKTEN istek alabiliyor mu (tek, çok kısa üretim denemesi).
+
+    Kayıtlı olmak yetmez: Ollama'nın cloud modelleri `ollama list`te görünür ama
+    çoğu ücretli abonelik ister ve ilk istekte
+    "this model requires a subscription" döner (ölçüldü 2026-07-28:
+    kimi-k2.7-code / qwen3.5 abonelik istiyor, gpt-oss çalışıyor). Bu denetim
+    olmadan sihirbaz ajanı kullanılamayan bir modele bağlar ve arıza ancak
+    kullanıcı ilk soruyu sorunca ortaya çıkar.
+    """
+    payload = json.dumps(
+        {"model": model, "prompt": "hi", "stream": False, "options": {"num_predict": 1}}
+    ).encode()
+    req = urllib.request.Request(
+        f"{base_url}/api/generate", data=payload, headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - yerel uç
+            doc = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError):
+        return False
+    return not doc.get("error")
+
+
+def pick_model(models: list[str], base_url: str | None = None) -> str | None:
+    """Araç kullanımına en uygun modeli seçer; yoksa ilk modeli.
+
+    `base_url` verilirse seçilen model ayrıca DENENIR — çalışmayan aday atlanır.
+    Denenmeden seçmek, kullanılamayan bir modele bağlanmak demektir (yukarı bak).
+    """
+    ordered = [m for w in MODEL_PREFERENCE for m in models if m.startswith(w)]
+    ordered += [m for m in models if m not in ordered]  # tercih dışı kalanlar sona
+    if base_url is None:
+        return ordered[0] if ordered else None
+    for m in ordered:
+        if model_works(base_url, m):
+            return m
+    return None
 
 
 # --- 1) kayıt ---------------------------------------------------------------
@@ -128,11 +173,18 @@ def enable_keyless(agent: str, root: Path | None = None) -> dict:
             "ok": False,
             "detail": "Çalışan bir Ollama bulunamadı. Önce 'Yerel AI' adımını tamamlayın.",
         }
-    model = pick_model(ollama_models(base))
-    if not model:
+    available = ollama_models(base)
+    if not available:
         return {
             "ok": False,
             "detail": f"{base} yanıt veriyor ama hiç model yok (ollama pull gerekli).",
+        }
+    model = pick_model(available, base)
+    if not model:
+        return {
+            "ok": False,
+            "detail": f"{len(available)} model kayıtlı ama hiçbiri istek alamadı "
+            "(cloud modeller abonelik isteyebilir).",
         }
 
     if agent == "goose":
