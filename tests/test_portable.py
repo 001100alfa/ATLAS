@@ -280,6 +280,46 @@ def test_optional_report_handles_absent_path(tmp_path: Path):
     assert not only["exists"] and only["size"] == 0
 
 
+def test_archiver_search_does_not_assume_c_drive(tmp_path: Path, monkeypatch):
+    """ÖLÇÜLDÜ: WinRAR bu makinede `D:\\Program Files` altındaydı; yalnız C:'ye
+    bakan arama "RAR yazamam" diyordu (yanlış cevap, aracın kendisi kuruluydu)."""
+    d_drive = tmp_path / "D"
+    rar = d_drive / "Program Files" / "WinRAR" / "Rar.exe"
+    rar.parent.mkdir(parents=True)
+    rar.write_text("stub", encoding="utf-8")
+
+    monkeypatch.setattr(package, "_fixed_drives", lambda: [tmp_path / "C", d_drive])
+    monkeypatch.setattr(package.shutil, "which", lambda _n: None)
+
+    found = package.find_archiver("rar")
+    assert found and found[0] == rar
+
+
+def test_archiver_preference_follows_target_extension(tmp_path: Path, monkeypatch):
+    """.rar istendiğinde RAR aracı öne alınmalı; aksi hâlde 7-Zip yakalanır ve
+    RAR yazamadığı için iş 3-4 GB'lik bir uğraşın SONUNDA patlar."""
+    drive = tmp_path / "C"
+    for rel in (r"WinRAR\Rar.exe", r"7-Zip\7z.exe"):
+        p = drive / "Program Files" / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("stub", encoding="utf-8")
+    monkeypatch.setattr(package, "_fixed_drives", lambda: [drive])
+    monkeypatch.setattr(package.shutil, "which", lambda _n: None)
+
+    assert package.find_archiver("rar")[0].name == "Rar.exe"
+    assert package.find_archiver("7z")[0].name == "7z.exe"
+
+
+def test_7zip_refuses_rar_target_early(tmp_path: Path, monkeypatch):
+    """7-Zip RAR yazamaz (`System ERROR: Not implemented`) — bunu ÖNCEDEN söyle."""
+    fake_7z = tmp_path / "7z.exe"
+    fake_7z.write_text("stub", encoding="utf-8")
+    monkeypatch.setattr(package, "find_archiver", lambda prefer="": (fake_7z, ["a"]))
+
+    res = package.make_archive(tmp_path, tmp_path / "cikti.rar", [])
+    assert res["ok"] is False and "WinRAR" in res["detail"] and ".7z" in res["detail"]
+
+
 def test_exclude_args_differ_per_archiver():
     """WinRAR ve 7-Zip dışlamayı farklı yazar; karıştırmak sessizce ETKİSİZ kalır."""
     assert package.exclude_args("7z.exe", ["tools/ollama/lib"]) == [r"-x!tools\ollama\lib"]

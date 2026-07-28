@@ -44,6 +44,17 @@ PAKETLE.cmd --bulut                        # sadece raporlar + haric tutma liste
 klasörü arşive almamanız gerekir (yoksa yine girer). Silmesini istiyorsanız
 `--sil` ekleyin.
 
+### Arşivleyici
+
+`--arsiv` verdiğinizde araç kendisi bulunur: önce PATH, sonra **her sürücünün**
+`Program Files` dizinleri (bu makinede WinRAR `D:\Program Files` altındaydı —
+sürücü harfini varsaymak yanlış cevap üretir). Hedefin uzantısı hangi aracı
+gerektiriyorsa o öne alınır.
+
+`.rar` yalnız WinRAR ile üretilir; 7-Zip RAR **yazamaz** (`Not implemented`).
+WinRAR yoksa `.7z` veya `.zip` hedefi verin — bu durum arşivleme başlamadan
+söylenir, 3-4 GB'lik işin sonunda değil.
+
 ## Alan tarafta
 
 1. Arşivi açın (yol fark etmez; `C:\ATLAS`, `D:\isler\ATLAS`, USB… hepsi olur).

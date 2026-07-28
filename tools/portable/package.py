@@ -47,10 +47,14 @@ SLIM_TARGETS = (
 PYCACHE_ROOTS = ("src", "tools", "tests")
 
 # Arşivleyiciler — bulunanla paketlenir (`--arsiv`).
-ARCHIVERS = (
-    (r"C:\Program Files\WinRAR\Rar.exe", ["a", "-r", "-ep1", "-m1"]),
-    (r"C:\Program Files\7-Zip\7z.exe", ["a", "-mx1"]),
+# Kurulum sürücüsü SABİT DEĞİLDİR: bu makinede WinRAR `D:\Program Files`
+# altındaydı ve yalnız C:'ye bakan arama onu göremeyip "RAR yazamam" dedi.
+# Bu yüzden tüm sabit sürücüler + PATH taranır.
+ARCHIVER_SPECS = (
+    ("rar", r"WinRAR\Rar.exe", ["a", "-r", "-ep1", "-m1"]),
+    ("7z", r"7-Zip\7z.exe", ["a", "-mx1"]),
 )
+PROGRAM_DIRS = ("Program Files", "Program Files (x86)")
 
 # İsteğe bağlı ağır yükler: taşınabilir ama HERKES için gerekli değil.
 # `--bulut` verildiğinde arşive girmez.
@@ -121,12 +125,36 @@ def slim(root: Path) -> list[dict]:
     return out
 
 
-def find_archiver() -> tuple[Path, list[str]] | None:
-    for exe, args in ARCHIVERS:
-        p = Path(exe)
-        if p.is_file():
-            return p, args
+def find_archiver(prefer: str = "") -> tuple[Path, list[str]] | None:
+    """Kurulu arşivleyiciyi bulur. `prefer` ("rar"/"7z") o aracı öne alır.
+
+    Arama: PATH → her sabit sürücünün Program Files dizinleri. Sürücü harfini
+    varsaymak bu makinede yanlış cevap üretmişti (WinRAR D:'deydi).
+    """
+    specs = sorted(ARCHIVER_SPECS, key=lambda s: s[0] != prefer)
+    for _key, rel, args in specs:
+        name = Path(rel).name
+        if found := shutil.which(name):
+            return Path(found), args
+        for drive in _fixed_drives():
+            for prog in PROGRAM_DIRS:
+                p = drive / prog / rel
+                if p.is_file():
+                    return p, args
     return None
+
+
+def _fixed_drives() -> list[Path]:
+    """Var olan sürücü kökleri (C: önce)."""
+    out = []
+    for letter in "CDEFGHIJKLMNOPQRSTUVWXYZAB":
+        p = Path(f"{letter}:/")
+        try:
+            if p.exists():
+                out.append(p)
+        except OSError:
+            continue  # bagli olmayan ag surucusu aramayi durdurmaz
+    return out
 
 
 def exclude_args(exe_name: str, rels: list[str]) -> list[str]:
@@ -143,13 +171,23 @@ def exclude_args(exe_name: str, rels: list[str]) -> list[str]:
 
 def make_archive(root: Path, dst: Path, exclude: list[str] | None = None) -> dict:
     """RAR/7z ile arşivler (kurulu değilse elle sıkıştırma yönergesi döner)."""
-    tool = find_archiver()
+    # Hedef uzantı hangi aracı gerektiriyorsa onu tercih et.
+    tool = find_archiver(prefer="rar" if dst.suffix.lower() == ".rar" else "7z")
     if not tool:
         return {
             "ok": False,
             "detail": "WinRAR/7-Zip bulunamadi - klasore sag tiklayip kendiniz sikistirin.",
         }
     exe, args = tool
+    # 7-Zip RAR YAZAMAZ (tescilli bicim; `System ERROR: Not implemented` der).
+    # Bunu onceden soylemezsek kullanici 3-4 GB'lik bir isin sonunda anlar.
+    if dst.suffix.lower() == ".rar" and not exe.name.lower().startswith("rar"):
+        return {
+            "ok": False,
+            "detail": f"{exe.name} RAR yazamaz (RAR'i yalniz WinRAR uretir). "
+            f"Hedefi .7z veya .zip yapin: {dst.with_suffix('.7z')}",
+            "tool": exe.name,
+        }
     argv = [str(exe), *args, *exclude_args(exe.name, exclude or []), str(dst), "."]
     res = subprocess.run(argv, cwd=str(root), capture_output=True, text=True)  # noqa: S603
     ok = res.returncode == 0 and dst.exists()
