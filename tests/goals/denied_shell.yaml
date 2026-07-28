@@ -1,0 +1,10 @@
+goal: "allowlist dışı shell komutu"
+plan_kind: static
+plan_steps:
+  - "shell:rm -rf ."
+action_allowlist: [shell]
+shell_allow_regex: "^echo .*"
+judge_kind: exit_zero
+judge_arg: ""
+budget: 20.0
+max_steps: 3

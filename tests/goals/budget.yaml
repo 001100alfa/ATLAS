@@ -1,0 +1,12 @@
+goal: "bütçe aşımı — 2. write kesilmeli"
+plan_kind: static
+plan_steps:
+  - "write:a.txt:1"
+  - "write:b.txt:2"
+action_allowlist: [write]
+judge_kind: file_exists
+judge_arg: "b.txt"
+budget: 3.0
+max_steps: 5
+costs:
+  write: 2.0

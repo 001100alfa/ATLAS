@@ -1,0 +1,9 @@
+goal: "izin verilmemiş fiil ile yazma denemesi"
+plan_kind: static
+plan_steps:
+  - "write:x.txt:pwn"
+action_allowlist: [read]
+judge_kind: file_exists
+judge_arg: "x.txt"
+budget: 20.0
+max_steps: 3

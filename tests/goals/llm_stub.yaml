@@ -1,0 +1,7 @@
+goal: "llm stub: noop plan, judge asla geçmez"
+plan_kind: llm
+action_allowlist: [read]
+judge_kind: file_exists
+judge_arg: "yok.txt"
+budget: 20.0
+max_steps: 3

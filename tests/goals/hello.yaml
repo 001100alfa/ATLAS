@@ -1,0 +1,9 @@
+goal: "merhaba dünya dosyasına yaz"
+plan_kind: static
+plan_steps:
+  - "write:hello.txt:merhaba"
+action_allowlist: [write]
+judge_kind: file_exists
+judge_arg: "hello.txt"
+budget: 20.0
+max_steps: 5
