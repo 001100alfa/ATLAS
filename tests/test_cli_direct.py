@@ -122,6 +122,35 @@ def test_audit_verify_bos(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     assert main(["audit-verify"]) == 0
 
 
+def test_reindex_partial(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _env(monkeypatch, tmp_path)
+    (tmp_path / "v" / "entities").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "v" / "entities" / "a.md").write_text("içerik burada", encoding="utf-8")
+    assert main(["reindex"]) == 0
+
+
+def test_reindex_full(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _env(monkeypatch, tmp_path)
+    assert main(["reindex", "--full"]) == 0
+
+
+def test_recall_cli(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _env(monkeypatch, tmp_path)
+    main(["remember", "kesit", "I-kesit formülleri"])
+    assert main(["recall", "kesit"]) == 0
+
+
+def test_recall_cli_bos(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _env(monkeypatch, tmp_path)
+    assert main(["recall", "hicyokk"]) == 0
+
+
+def test_context_cli(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _env(monkeypatch, tmp_path)
+    main(["remember", "kesit", "I-kesit formülleri"])
+    assert main(["context", "kesit"]) == 0
+
+
 def test_audit_verify_bozuk(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     audit = tmp_path / "a.jsonl"
     audit.write_text('{"ts":"x","actor":"a","action":"b","detail":"c","prev":"WRONG","hash":"deadbeef"}\n')

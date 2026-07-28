@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from atlas_core.memory.gbrain_index import GBrainIndex
 from atlas_core.memory.vault import Vault
 
 _WORD = re.compile(r"[\wçğıöşüÇĞİÖŞÜ]{3,}")
@@ -35,8 +36,10 @@ class Recall:
 class GBrain:
     """Vault üzerinde birleşik hatırlama/geri çağırma arayüzü."""
 
-    def __init__(self, vault_root: Path) -> None:
+    def __init__(self, vault_root: Path, index_path: Path | None = None) -> None:
         self.vault = Vault(vault_root)
+        default_index = vault_root.parent / ".atlas" / "gbrain.sqlite"
+        self.index = GBrainIndex(self.vault, index_path or default_index)
 
     # ---------- YAZMA DİSİPLİNİ ----------
 
@@ -58,9 +61,16 @@ class GBrain:
         block = f"\n{content}\n{link_line} {tag_line}".rstrip() + "\n"
         try:
             self.vault.read(name, folder=folder)
-            return self.vault.append(name, block, folder=folder)
+            path = self.vault.append(name, block, folder=folder)
         except Exception:
-            return self.vault.write(name, f"# {name}\n{block}", folder=folder)
+            path = self.vault.write(name, f"# {name}\n{block}", folder=folder)
+        # FTS indeksini deterministik güncelle (sessiz başarısızlık — vault gerçek kaynak)
+        if self.index.is_fts_available():
+            try:
+                self.index.upsert(name)
+            except Exception:  # noqa: BLE001 - indeks bozulursa vault yazımını bloklamaz
+                pass
+        return path
 
     def log_event(self, entry: str) -> Path:
         """Zaman eksenli hafıza: bugünün günlük notuna kayıt düşer."""
@@ -71,17 +81,47 @@ class GBrain:
     def recall(self, query: str, limit: int = 5) -> list[Recall]:
         """Anahtar kelime + graf komşuluğu skorlamasıyla geri çağırma.
 
-        1. Sorgu kelimeleri not gövdesi/başlığında aranır (birincil skor).
-        2. Eşleşen notların graf komşuları küçük skorla dahil edilir —
-           doğrudan geçmese de İLİŞKİLİ bilgi yüzeye çıkar.
+        FTS yolu (varsayılan): SQLite bm25 + snippet + graf komşuluğu.
+        Fallback: sqlite/fts5 yoksa eski O(N·M) yol.
         """
         words = {w.lower() for w in _WORD.findall(query)}
         if not words:
             return []
+        if self.index.is_fts_available():
+            return self._recall_fts(query, words, limit)
+        return self._recall_scan(words, limit)
+
+    def _recall_fts(self, query: str, words: set[str], limit: int) -> list[Recall]:
+        """FTS5 destekli hızlı geri çağırma."""
+        self.index.ensure_fresh()
+        # FTS'ten geniş aday havuzu al (skor + snippet)
+        hits = self.index.search(query, limit=max(limit * 3, 15))
         g = self.vault.graph()
         scores: dict[str, float] = {}
         snippets: dict[str, str] = {}
+        for name, fts_score, snippet in hits:
+            s = fts_score
+            if any(w in name.lower() for w in words):
+                s += W_TITLE
+            scores[name] = s
+            snippets[name] = snippet.strip()[:120] or "(FTS eşleşme)"
+        for name in list(scores):
+            for nb in g.neighbors(name):
+                if nb not in scores:
+                    scores[nb] = 0.0
+                    snippets.setdefault(nb, "(graf komşusu)")
+                scores[nb] += W_NEIGHBOR
+        ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+        return [
+            Recall(name=n, score=round(s, 2), snippet=snippets.get(n, ""))
+            for n, s in ranked[:limit]
+        ]
 
+    def _recall_scan(self, words: set[str], limit: int) -> list[Recall]:
+        """Fallback: FTS yoksa eski O(N·M) tarama."""
+        g = self.vault.graph()
+        scores: dict[str, float] = {}
+        snippets: dict[str, str] = {}
         for name, note in g.nodes.items():
             text = note.path.read_text(encoding="utf-8")
             low = text.lower()
@@ -93,14 +133,12 @@ class GBrain:
                     if any(w in line.lower() for w in words):
                         snippets[name] = line.strip()[:120]
                         break
-
         for name in list(scores):
             for nb in g.neighbors(name):
                 if nb not in scores:
                     scores[nb] = 0.0
                     snippets.setdefault(nb, "(graf komşusu)")
                 scores[nb] += W_NEIGHBOR
-
         ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
         return [
             Recall(name=n, score=round(s, 2), snippet=snippets.get(n, ""))

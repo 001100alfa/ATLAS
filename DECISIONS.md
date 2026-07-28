@@ -1,6 +1,31 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-28 (Görev 005 — GBrain FTS indeksi)
+- [KARAR] Önbellek katmanı = `.atlas/gbrain.sqlite`; vault gerçek kaynak
+  olarak kalır. İndeks silinirse bilgi kaybı yok — `atlas reindex` yeniden kurar.
+- [KARAR] Stale tespit stratejisi: mtime hızlı yol, sha256 emniyet. mtime
+  uyuşuyorsa hash atlanır (hız); mtime farklıysa hash ile teyit edilir
+  (mtime hilesine karşı). Full rebuild'de her zaman hash.
+- [KARAR] Skor sözleşmesi genişletildi ama uyumlu: FTS bm25 `1/(1+rank)`
+  ile 0..1'e normalize edilir; W_TITLE=3, W_NEIGHBOR=0.5 sabitleri korundu.
+  Ranked skorlar farklı sayısal aralıkta olsa da sıralama semantiği aynı.
+- [KARAR] Otomatik reindex `recall()` başında lazy; `remember()` yazma
+  yolunda `upsert` (deterministik, stale bırakmaz). Böylece kullanıcı
+  `atlas reindex` çağırmayı unutabilir.
+- [KARAR] FTS5 yoksa (nadir eski sqlite) `is_fts_available()==False`
+  → GBrain eski O(N·M) yola düşer, stderr uyarı. Böylece yeni bağımlılık
+  girmedi ama regresyon garantisi var.
+- [KARAR] `GBrain.__init__` opsiyonel `index_path` alır; eski çağrılar
+  aynen çalışır (default: `<vault>/../.atlas/gbrain.sqlite`).
+- [KARAR] FTS sorgu güvenliği: `_sanitize_query()` alfanumerik+Türkçe
+  karakterleri korur, geri kalanı boşluğa çevirir, ≥2 karakterli her
+  token'ı `"..."` içine alır. FTS operatör enjeksiyonu (AND, ", (, ) )
+  etkisiz.
+- [HATA] İlk test `remember()` sonrası notu `vault/silinecek.md` yerine
+  `vault/entities/silinecek.md`'de arıyordu — `remember` varsayılan
+  folder="entities". Kalıp: vault yerleşimi remember default'una uyar.
+
 ## 2026-07-28 (Görev 004 — WorkflowEngine handler kaydı)
 - [KARAR] Handler kaydı **paket** yapısı: `atlas_core/workflows/handlers/`
   altında her handler kendi dosyasında; `register_builtins()` fabrikası

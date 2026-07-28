@@ -197,6 +197,19 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0 if result.done else 4
 
 
+def _cmd_reindex(args: argparse.Namespace) -> int:
+    """SPEC 005: `atlas reindex [--full]` — GBrain FTS indeksini yeniden kurar."""
+    brain = GBrain(_vault_root())
+    if not brain.index.is_fts_available():
+        print("UYARI: SQLite FTS5 yok — reindex atlandı (fallback modda çalışır).",
+              file=sys.stderr)
+        return 0
+    stats = brain.index.rebuild() if args.full else brain.index.ensure_fresh()
+    print(f"indexed={stats.indexed} skipped={stats.skipped} "
+          f"removed={stats.removed} elapsed={stats.elapsed_s:.3f}s")
+    return 0
+
+
 def _cmd_workflow_run(args: argparse.Namespace) -> int:
     """SPEC 004: `atlas workflow run <yaml> [--dry-run]`."""
     yaml_path = Path(args.yaml)
@@ -280,6 +293,10 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--budget", type=float, default=100.0)
     p_run.add_argument("--step-cost", type=float, default=10.0)
     p_run.set_defaults(func=_cmd_run)
+
+    p_rx = sub.add_parser("reindex", help="GBrain FTS indeksini yeniden kur")
+    p_rx.add_argument("--full", action="store_true", help="mevcut indeksi sil, sıfırdan kur")
+    p_rx.set_defaults(func=_cmd_reindex)
 
     p_wf = sub.add_parser("workflow", help="YAML workflow yürüt")
     wf_sub = p_wf.add_subparsers(dest="wf_cmd", required=True)
