@@ -19,6 +19,7 @@ Windows'ta bu yolla çalışır (Go ve Python subprocess ile ölçüldü).
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -83,6 +84,35 @@ def _ensure_ollama_cmd(root: Path) -> str:
     )
 
 
+def git_bash_path() -> Path | None:
+    """Git for Windows'un `bash.exe`'si (yoksa None).
+
+    kimi-cli'nin Shell aracı Windows'ta git-bash ister ve onu HER OTURUM AÇILIŞINDA
+    yeniden arar: `where.exe git` → `git --exec-path` (5 sn zaman aşımı) → yalnız
+    `C:\\Program Files\\Git\\...`. ÖLÇÜLDÜ (2026-07-28): git kullanıcı dizinine
+    kurulu olduğunda (`%LOCALAPPDATA%\\Programs\\Git`) bu arama ARADA BİR düşüyor ve
+    `session/new` "Internal error" veriyor — 3 turda 1. Sarmalayıcı yolu bir kez
+    çözüp `KIMI_CLI_GIT_BASH_PATH` ile sabitler; arama hiç çalışmaz.
+    """
+    candidates: list[Path] = []
+    if override := os.environ.get("KIMI_CLI_GIT_BASH_PATH"):
+        candidates.append(Path(override))
+    if git := shutil.which("git"):
+        # git.exe ya <git>\cmd\ ya da <git>\mingw64\bin\ altındadır.
+        parent = Path(git).parent.parent
+        candidates += [parent / "bin" / "bash.exe", parent.parent / "bin" / "bash.exe"]
+    candidates += [
+        Path(r"C:\Program Files\Git\bin\bash.exe"),
+        Path(r"C:\Program Files (x86)\Git\bin\bash.exe"),
+    ]
+    for c in candidates:
+        # Sarmalayıcılar saf ASCII yazılır; ASCII olmayan yol yazılamaz (kimi
+        # kendi aramasına düşer, davranış eskisi gibi olur).
+        if str(c).isascii() and c.is_file():
+            return c
+    return None
+
+
 def _agent_cmd(root: Path, name: str, spec: dict) -> str:
     """Tek bir ajanın sarmalayıcısı."""
     bin_path = _rel(root, Path(spec["bin"]))
@@ -106,13 +136,23 @@ def _agent_cmd(root: Path, name: str, spec: dict) -> str:
         home = _rel(root, Path(spec["env"]["HOME"]))
         lines.append(f'set "CLINE_DIR={home}"\n')
 
+    if name == "kimi" and (bash := git_bash_path()):
+        # kimi'nin git-bash aramasi arada bir dusuyor (bkz. git_bash_path).
+        lines.append(
+            "rem kimi Shell araci git-bash ister; yolu sabitle (arama arada bir duser).\n"
+            f'set "KIMI_CLI_GIT_BASH_PATH={bash}"\n'
+        )
+
+    if spec.get("keyless") or spec.get("local_model_ok"):
+        # Modeli yerel Ollama'dan gelen her ajan once sunucunun ayakta oldugundan
+        # emin olur (makine yeniden baslamissa kapalidir).
+        lines.append("\nrem --- yerel model sunucusu ---\n" 'call "%~dp0ensure-ollama.cmd"\n')
+
     if spec.get("keyless"):
         # Model secimi sihirbazin yazdigi local-model.cmd'de durur; sarmalayici
         # sabit kalir. (local-model.cmd setlocal KULLANMAZ, degiskenler buraya
         # sizsin diye.) Yoksa makul varsayilanlara duseriz.
         lines.append(
-            "\nrem --- anahtarsiz yerel model ---\n"
-            'call "%~dp0ensure-ollama.cmd"\n'
             'if exist "%~dp0local-model.cmd" call "%~dp0local-model.cmd"\n'
             'if not defined GOOSE_PROVIDER set "GOOSE_PROVIDER=ollama"\n'
             f'if not defined OLLAMA_HOST set "OLLAMA_HOST=http://127.0.0.1:{OLLAMA_PORT}"\n'

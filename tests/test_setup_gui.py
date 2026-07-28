@@ -166,6 +166,42 @@ def test_keyless_goose_writes_local_model_when_wrapped(tmp_path: Path) -> None:
     assert "llama3.1:8b" in text
 
 
+@pytest.mark.skipif(not IS_WIN, reason="sarmalayıcılar Windows'a özgü")
+def test_kimi_wrapper_pins_git_bash(tmp_path: Path, monkeypatch) -> None:
+    """ÖLÇÜLDÜ: kimi git-bash'i her oturumda arar ve arama arada bir düşer.
+
+    Düşünce `session/new` "Internal error" verir (3 turda 1). Sarmalayıcı yolu
+    bir kez çözüp sabitlemeli ki aramanın kararsızlığı panele yansımasın.
+    """
+    _stub_tree(tmp_path)
+    bash = tmp_path / "Git" / "bin" / "bash.exe"
+    bash.parent.mkdir(parents=True)
+    bash.write_text("stub", encoding="utf-8")
+    monkeypatch.setenv("KIMI_CLI_GIT_BASH_PATH", str(bash))
+
+    wrappers.generate(tmp_path)
+    text = (tmp_path / "tools" / "agents" / "kimi.cmd").read_text(encoding="ascii")
+    assert f'set "KIMI_CLI_GIT_BASH_PATH={bash}"' in text
+
+
+@pytest.mark.skipif(not IS_WIN, reason="sarmalayıcılar Windows'a özgü")
+def test_git_bash_path_ignores_missing_override(monkeypatch, tmp_path: Path) -> None:
+    """Var olmayan yol yazılmamalı: kimi kendi aramasına düşsün, yanlış yola değil."""
+    monkeypatch.setenv("KIMI_CLI_GIT_BASH_PATH", str(tmp_path / "yok" / "bash.exe"))
+    found = wrappers.git_bash_path()
+    assert found is None or found.is_file()
+
+
+@pytest.mark.skipif(not IS_WIN, reason="sarmalayıcılar Windows'a özgü")
+def test_local_model_agents_start_ollama(tmp_path: Path) -> None:
+    """Modeli yerel Ollama'dan gelen her ajan (goose ve kimi) sunucuyu ayağa kaldırmalı."""
+    _stub_tree(tmp_path)
+    wrappers.generate(tmp_path)
+    for name in ("goose", "kimi"):
+        text = (tmp_path / "tools" / "agents" / f"{name}.cmd").read_text(encoding="ascii")
+        assert 'call "%~dp0ensure-ollama.cmd"' in text, name
+
+
 # --- kaynak sınıflandırma (iki kurulum tek görünüm) -------------------------
 
 

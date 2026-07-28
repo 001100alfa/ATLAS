@@ -52,8 +52,6 @@
     "skills-installed.json",
     "workspace.json"
   ],
-  "disabledAgents": [
-    "kimi"
-  ],
-  "_disabledAgentsWhy": "Panele KAYDEDILMEZ; kayitliysa ATLAS'in girdisi kaldirilir. kimi 2026-07-27'de devre disi birakildi: hesap girisi tamamlandi (token yazildi) ama kullanilabilir modeli yok - yerel llama3.1:8b silindi, Kimi Coding bulut modelleri 402 Payment Required donuyor. Yeniden etkinlestirmek icin bu listeden cikarip senkronu calistirin."
+  "disabledAgents": [],
+  "_disabledAgentsWhy": "Devre disi ajan panele KAYDEDILMEZ; kayitliysa ATLAS'in girdisi kaldirilir. Liste bos: kimi 2026-07-27'de modelsiz kaldigi icin kapatilmisti, 2026-07-28'de geri acildi (ollama gpt-oss:120b-cloud + git-bash yolu sabitlendi; ACP el sikismasi 6/6 ready)."
 }
