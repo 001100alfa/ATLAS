@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 from tools.juggler_profile import sync as profile_sync
+from tools.portable import runtimes
 from tools.setup_gui import connect as connect_mod
 from tools.setup_gui import wrappers
 from tools.setup_gui.detect import IS_WIN, _exe
@@ -242,7 +243,9 @@ def job_argv(action: str, root: Path) -> tuple[list[str], str] | None:
     if action.startswith("update-"):
         agent = action[len("update-") :]
         if agent in NPM_PACKAGES:
-            npm = shutil.which("npm")
+            # Depo icindeki node paketi npm'i de getirir; once o denenir ki
+            # tasinan klasor npm kurulu OLMAYAN bir makinede de guncellenebilsin.
+            npm = runtimes.npm_cmd(root)
             if not npm:
                 return None
             prefix = root / "tools" / "ai-cli"

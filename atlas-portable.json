@@ -1,0 +1,7 @@
+{
+  "_aciklama": "Tasinabilir calisma ayarlari. BASLAT.cmd bu dosyayi okur.",
+  "_autoUpdate": "agents = ajanlari kendiliginden guncelle (varsayilan) | notify = yalniz bildir | off = hic denetleme",
+  "_panelNotu": "Panel ikilisi (juggler) HICBIR ayarda otomatik guncellenmez - olculmus self-update olayi, bkz DECISIONS.md 2026-07-27.",
+  "autoUpdate": "agents",
+  "checkEveryHours": 24
+}

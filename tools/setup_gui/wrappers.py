@@ -19,9 +19,9 @@ Windows'ta bu yolla çalışır (Go ve Python subprocess ile ölçüldü).
 
 from __future__ import annotations
 
-import os
-import shutil
 from pathlib import Path
+
+from tools.portable import runtimes
 
 from .detect import IS_WIN, OLLAMA_PORT, _exe, agent_specs
 
@@ -67,15 +67,22 @@ def _ensure_ollama_cmd(root: Path) -> str:
         f'if not exist "%OLLAMA_EXE%" exit /b 0\n'
         f'set "OLLAMA_MODELS={models}"\n'
         f'set "OLLAMA_HOST=127.0.0.1:{OLLAMA_PORT}"\n'
+        f'set "PROBE=http://127.0.0.1:{OLLAMA_PORT}/api/tags"\n'
+        'set "CURL=%SystemRoot%\\System32\\curl.exe"\n'
         "\n"
-        "rem Ayakta mi? `list` basariyla donerse evet.\n"
-        '"%OLLAMA_EXE%" list >nul 2>&1\n'
+        "rem Ayakta mi? HTTP ucu yanit veriyorsa evet.\n"
+        "rem `ollama list` KULLANILMAZ: olculdu 2026-07-28 - sunucu bulut ucuna\n"
+        "rem takildiginda `list` suresiz asiliyor ve sarmalayici HIC donmuyordu.\n"
+        "rem curl.exe Windows 10+ ile birlikte gelir; yoksa eski yonteme duseriz.\n"
+        'if exist "%CURL%" ( "%CURL%" -s -m 3 -o nul "%PROBE%" ) else '
+        '( "%OLLAMA_EXE%" list >nul 2>&1 )\n'
         "if not errorlevel 1 exit /b 0\n"
         "\n"
         "rem Degilse ayri pencerede baslat ve hazir olmasini bekle (~20 sn).\n"
         'start "ATLAS yerel model" /min "%OLLAMA_EXE%" serve\n'
         "for /L %%i in (1,1,40) do (\n"
-        '  "%OLLAMA_EXE%" list >nul 2>&1\n'
+        '  if exist "%CURL%" ( "%CURL%" -s -m 3 -o nul "%PROBE%" ) else '
+        '( "%OLLAMA_EXE%" list >nul 2>&1 )\n'
         "  if not errorlevel 1 exit /b 0\n"
         "  >nul ping -n 2 127.0.0.1\n"
         ")\n"
@@ -84,33 +91,14 @@ def _ensure_ollama_cmd(root: Path) -> str:
     )
 
 
-def git_bash_path() -> Path | None:
-    """Git for Windows'un `bash.exe`'si (yoksa None).
+def git_bash_path(root: Path | None = None) -> Path | None:
+    """Git for Windows'un `bash.exe`'si (yoksa None) — önce depo içi kopya.
 
-    kimi-cli'nin Shell aracı Windows'ta git-bash ister ve onu HER OTURUM AÇILIŞINDA
-    yeniden arar: `where.exe git` → `git --exec-path` (5 sn zaman aşımı) → yalnız
-    `C:\\Program Files\\Git\\...`. ÖLÇÜLDÜ (2026-07-28): git kullanıcı dizinine
-    kurulu olduğunda (`%LOCALAPPDATA%\\Programs\\Git`) bu arama ARADA BİR düşüyor ve
-    `session/new` "Internal error" veriyor — 3 turda 1. Sarmalayıcı yolu bir kez
-    çözüp `KIMI_CLI_GIT_BASH_PATH` ile sabitler; arama hiç çalışmaz.
+    Gerekçe ve ölçüm `tools/portable/runtimes.py`de; burada yalnız devredilir.
+    Depo içi kopya (`tools/git/`) kazanır: klasör başka bir bilgisayara
+    taşındığında makinedeki kurulum orada olmayabilir.
     """
-    candidates: list[Path] = []
-    if override := os.environ.get("KIMI_CLI_GIT_BASH_PATH"):
-        candidates.append(Path(override))
-    if git := shutil.which("git"):
-        # git.exe ya <git>\cmd\ ya da <git>\mingw64\bin\ altındadır.
-        parent = Path(git).parent.parent
-        candidates += [parent / "bin" / "bash.exe", parent.parent / "bin" / "bash.exe"]
-    candidates += [
-        Path(r"C:\Program Files\Git\bin\bash.exe"),
-        Path(r"C:\Program Files (x86)\Git\bin\bash.exe"),
-    ]
-    for c in candidates:
-        # Sarmalayıcılar saf ASCII yazılır; ASCII olmayan yol yazılamaz (kimi
-        # kendi aramasına düşer, davranış eskisi gibi olur).
-        if str(c).isascii() and c.is_file():
-            return c
-    return None
+    return runtimes.git_bash(root)
 
 
 def _agent_cmd(root: Path, name: str, spec: dict) -> str:
@@ -136,11 +124,12 @@ def _agent_cmd(root: Path, name: str, spec: dict) -> str:
         home = _rel(root, Path(spec["env"]["HOME"]))
         lines.append(f'set "CLINE_DIR={home}"\n')
 
-    if name == "kimi" and (bash := git_bash_path()):
+    if name == "kimi" and (bash := git_bash_path(root)):
         # kimi'nin git-bash aramasi arada bir dusuyor (bkz. git_bash_path).
+        # _rel: depo icindeki kopya %ROOT% goreli yazilir -> klasor tasinabilir.
         lines.append(
             "rem kimi Shell araci git-bash ister; yolu sabitle (arama arada bir duser).\n"
-            f'set "KIMI_CLI_GIT_BASH_PATH={bash}"\n'
+            f'set "KIMI_CLI_GIT_BASH_PATH={_rel(root, bash)}"\n'
         )
 
     if spec.get("keyless") or spec.get("local_model_ok"):
@@ -163,7 +152,9 @@ def _agent_cmd(root: Path, name: str, spec: dict) -> str:
         lines.append('"%BIN%" %*\n')
     else:
         # Node CLI: `.cmd` shim'i PE degil, bare ad PATH'te olmayabilir.
-        node = shutil.which("node") or "node"
+        # Depo icindeki node varsa %ROOT% goreli yazilir (tasinabilirlik);
+        # yoksa makinedeki mutlak yol (gelistirme makinesi).
+        node = _rel(root, Path(runtimes.node_exe(root)))
         lines.append(f'set "NODE={node}"\n"%NODE%" "%BIN%" %*\n')
     lines.append("exit /b %ERRORLEVEL%\n")
     return "".join(lines)

@@ -173,14 +173,18 @@ def test_kimi_wrapper_pins_git_bash(tmp_path: Path, monkeypatch) -> None:
     Düşünce `session/new` "Internal error" verir (3 turda 1). Sarmalayıcı yolu
     bir kez çözüp sabitlemeli ki aramanın kararsızlığı panele yansımasın.
     """
-    _stub_tree(tmp_path)
+    root = tmp_path / "repo"
+    root.mkdir()
+    _stub_tree(root)
+    # Depo DIŞINDAKİ (makineye kurulu) git: yol mutlak yazılmalı. Depo içindeki
+    # taşınabilir kopya `%ROOT%` göreli yazılır — bkz. tests/test_portable.py.
     bash = tmp_path / "Git" / "bin" / "bash.exe"
     bash.parent.mkdir(parents=True)
     bash.write_text("stub", encoding="utf-8")
     monkeypatch.setenv("KIMI_CLI_GIT_BASH_PATH", str(bash))
 
-    wrappers.generate(tmp_path)
-    text = (tmp_path / "tools" / "agents" / "kimi.cmd").read_text(encoding="ascii")
+    wrappers.generate(root)
+    text = (root / "tools" / "agents" / "kimi.cmd").read_text(encoding="ascii")
     assert f'set "KIMI_CLI_GIT_BASH_PATH={bash}"' in text
 
 

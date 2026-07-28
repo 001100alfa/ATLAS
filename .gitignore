@@ -52,3 +52,7 @@ htmlcov/
 # Juggler profilinin CALISMA dizini (JUGGLER_CONFIG_DIR hedefi) — kimlik bilgisi
 # ve oturum durumu icerir; kaynagi juggler-profile/ altinda git'te tutulur.
 juggler-profile/home/
+
+# Taşınabilir çalışma zamanları (tools.portable.vendor indirir; ~200 MB)
+tools/node/
+tools/git/
