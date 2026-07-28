@@ -223,6 +223,68 @@ def test_pick_model_prefers_tool_capable() -> None:
     assert connect.pick_model([]) is None
 
 
+def test_pick_model_skips_models_that_cannot_serve(monkeypatch) -> None:
+    """Kayıtlı olmak yetmez: istek alamayan model atlanır.
+
+    Ollama'nın cloud modelleri `list`te görünür ama çoğu abonelik ister ve ilk
+    istekte hata döner (ölçüldü 2026-07-28). base_url verilince aday DENENIR.
+    """
+    calls: list[str] = []
+
+    def fake_works(base: str, model: str, timeout: float = 90.0) -> bool:
+        calls.append(model)
+        return model.startswith("gpt-oss")
+
+    monkeypatch.setattr(connect, "model_works", fake_works)
+    models = ["qwen3.5:cloud", "gpt-oss:120b-cloud", "kimi-k2.7-code:cloud"]
+
+    # Doğrulamasız: tercih sırası kazanır (kimi-k2 listede önde).
+    assert connect.pick_model(models) == "kimi-k2.7-code:cloud"
+    # Doğrulamalı: çalışmayanlar atlanır.
+    assert connect.pick_model(models, "http://x") == "gpt-oss:120b-cloud"
+    assert calls[0] == "kimi-k2.7-code:cloud", "tercih sırası korunmalı, sadece elenmeli"
+
+    # Hiçbiri çalışmıyorsa None — yanlış modele bağlanmaktansa açık başarısızlık.
+    monkeypatch.setattr(connect, "model_works", lambda *a, **k: False)
+    assert connect.pick_model(models, "http://x") is None
+
+
+def test_model_works_reads_error_field(monkeypatch) -> None:
+    """Ollama 200 döner ama gövdede `error` olabilir — o da başarısızlıktır."""
+    import json as _json
+
+    class FakeResp:
+        def __init__(self, payload: dict):
+            self._b = _json.dumps(payload).encode()
+
+        def read(self):
+            return self._b
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(
+        connect.urllib.request, "urlopen", lambda *a, **k: FakeResp({"response": "hi"})
+    )
+    assert connect.model_works("http://x", "m") is True
+
+    monkeypatch.setattr(
+        connect.urllib.request,
+        "urlopen",
+        lambda *a, **k: FakeResp({"error": "requires a subscription"}),
+    )
+    assert connect.model_works("http://x", "m") is False
+
+    def boom(*a, **k):
+        raise OSError("ag yok")
+
+    monkeypatch.setattr(connect.urllib.request, "urlopen", boom)
+    assert connect.model_works("http://x", "m") is False
+
+
 @pytest.mark.parametrize(
     ("message", "expected"),
     [
