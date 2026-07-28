@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass, field
@@ -149,9 +150,69 @@ def juggler_exe(root: Path) -> Path:
     return root / "tools" / "juggler" / _exe("juggler")
 
 
-def backup_dir(root: Path) -> Path:
-    """Panel ikililerinin geri dönüş kopyası (güncelleme öncesi alınır)."""
-    return root / ".atlas" / "doctor" / "juggler-backup"
+BACKUP_PREFIX = "juggler-backup"
+
+
+def backups_root(root: Path) -> Path:
+    """Yedeklerin durduğu dizin (her yedek burada ayrı bir klasör)."""
+    return root / ".atlas" / "doctor"
+
+
+def backup_dir(root: Path, tag: str = "") -> Path:
+    """Bir yedeğin klasörü. Etiketsiz çağrı ESKİ (sürümsüz) klasörü verir.
+
+    Etiket sürümden türer (`juggler-backup-v0.5.0-73e41a6`), çünkü tek bir sabit
+    klasör her yedek almada bir öncekini eziyordu — yani elindeki tek geri dönüş
+    noktasını. Bir sürümün yedeği kendi klasöründe durur; aynı yapıyı ikinci kez
+    yedeklemek aynı klasörü tazeler (idempotent), farklı bir yapıyı yedeklemek
+    yenisini açar.
+    """
+    return backups_root(root) / (f"{BACKUP_PREFIX}-{tag}" if tag else BACKUP_PREFIX)
+
+
+def backup_tag(version: str | None, exe: Path | None = None) -> str:
+    """Sürüm dizgesinden klasör etiketi: `v0.5.0-73e41a6`.
+
+    Sürüm okunamazsa ikilinin özetinden içerik-adresli bir etiket üretilir —
+    böylece etiket HER ZAMAN yapıya özgüdür ve farklı iki yapı asla aynı
+    klasöre yazmaz.
+    """
+    text = version or ""
+    # `\b` "v0.5.0" biçimini yakalamaz ('v' ile '0' arasında sınır yok).
+    m = re.search(r"(?<![\d.])(\d+)\.(\d+)\.(\d+)(?![\d])", text)
+    parts = [f"v{m.group(1)}.{m.group(2)}.{m.group(3)}"] if m else []
+    if c := re.search(r"commit:\s*([0-9a-f]{7,40})", text):
+        parts.append(c.group(1)[:7])
+    if not parts:
+        digest = sha256_file(exe) if exe else None
+        parts.append(f"bilinmeyen-{digest[:12]}" if digest else "bilinmeyen")
+    return "-".join(parts)
+
+
+def list_backups(root: Path) -> list[dict]:
+    """Alınmış yedekler — en yeni önce. Eski sürümsüz klasör de listeye girer."""
+    out: list[dict] = []
+    d = backups_root(root)
+    if not d.is_dir():
+        return out
+    for child in d.iterdir():
+        if not child.is_dir() or not child.name.startswith(BACKUP_PREFIX):
+            continue
+        exe = child / _exe("juggler")
+        if not exe.is_file():
+            continue  # yarım kalmış klasör yedek sayılmaz
+        note = child / "VERSION.txt"
+        version = note.read_text(encoding="utf-8").splitlines()[0].strip() if note.is_file() else ""
+        out.append(
+            {
+                "name": child.name,
+                "path": str(child),
+                "version": version or "bilinmiyor",
+                "mtime": exe.stat().st_mtime,
+            }
+        )
+    out.sort(key=lambda b: b["mtime"], reverse=True)
+    return out
 
 
 # --- 1) çalışma zamanları -----------------------------------------------------
@@ -276,7 +337,7 @@ def check_juggler(root: Path, want_remote: bool = True) -> list[Finding]:
                 "derlenir. Yeni bir kopyada veya temizlikten sonra eksik olur.",
                 remedy="docs/JUGGLER.md → kaynaktan derleyip tools/juggler/ altına koyun. "
                 "Yedek varsa tek tıkla geri alınabilir.",
-                fix="juggler-restore" if (backup_dir(root) / _exe("juggler")).is_file() else None,
+                fix="juggler-restore" if list_backups(root) else None,
                 fix_label="Yedekten geri al",
             )
         )
@@ -337,20 +398,30 @@ def check_juggler(root: Path, want_remote: bool = True) -> list[Finding]:
             )
         )
 
-    have_backup = (backup_dir(root) / _exe("juggler")).is_file()
+    backups = list_backups(root)
+    # Çalışan yapının kendi yedeği var mı? (Başka bir sürümün yedeği geri dönüş
+    # noktasıdır ama "bu yapıyı yedekledim" demek değildir.)
+    this_tag = backup_tag(local, exe)
+    have_this = any(b["name"] == f"{BACKUP_PREFIX}-{this_tag}" for b in backups)
     out.append(
         _f(
             id="juggler.backup",
             area="Juggler",
             title="Geri dönüş yedeği",
-            status=OK if have_backup else WARN,
-            detail=str(backup_dir(root)) if have_backup else "yedek yok",
-            cause="" if have_backup else "Çalışan ikilinin kopyası alınmamış.",
+            status=OK if have_this else WARN,
+            detail=f"{len(backups)} yedek · en yeni: {backups[0]['version']}"
+            if backups
+            else "yedek yok",
+            cause=""
+            if have_this
+            else ("Çalışan ikilinin kopyası alınmamış." if backups else "Hiç yedek yok."),
             remedy=""
-            if have_backup
-            else "Güncellemeden ÖNCE yedek alın: bozulursa tek tıkla geri dönersiniz.",
-            fix=None if have_backup else "juggler-backup",
-            fix_label=None if have_backup else "Şimdi yedek al",
+            if have_this
+            else "Güncellemeden ÖNCE yedek alın: bozulursa tek tıkla geri dönersiniz. "
+            "Her yedek kendi sürüm klasörüne gider, öncekini ezmez.",
+            fix=None if have_this else "juggler-backup",
+            fix_label=None if have_this else "Şimdi yedek al",
+            evidence=[f"{b['name']}  {b['version']}" for b in backups[:5]],
         )
     )
 

@@ -25,7 +25,16 @@ from tools.setup_gui.detect import IS_WIN, _exe
 from tools.setup_gui.install_ollama import start_server
 
 from . import processes, versions
-from .checks import backup_dir, ext_installed_dir, ext_source_dir, write_baseline
+from .checks import (
+    backup_dir,
+    backup_tag,
+    backups_root,
+    ext_installed_dir,
+    ext_source_dir,
+    list_backups,
+    sha256_file,
+    write_baseline,
+)
 
 # --- anlık eylemler -----------------------------------------------------------
 
@@ -64,46 +73,66 @@ def _ollama_start(root: Path) -> dict:
 
 
 def _juggler_backup(root: Path) -> dict:
-    d = backup_dir(root)
+    """Çalışan panel ikililerini SÜRÜM ETİKETLİ kendi klasörüne kopyalar.
+
+    Hedef sabit değildir (`juggler-backup-v0.5.0-73e41a6`): tek bir klasör her
+    yedek almada bir öncekini eziyordu, yani ikinci yedek elindeki tek geri
+    dönüş noktasını siliyordu. Aynı yapıyı yeniden yedeklemek aynı klasörü
+    tazeler; farklı yapı yeni klasör açar.
+    """
+    ver = versions.local_versions(root)["juggler"] or ""
+    src_dir = root / "tools" / "juggler"
+    d = backup_dir(root, backup_tag(ver, src_dir / _exe("juggler")))
     d.mkdir(parents=True, exist_ok=True)
     copied = []
     for name in (_exe("juggler"), _exe("juggler-app")):
-        src = root / "tools" / "juggler" / name
+        src = src_dir / name
         if src.is_file():
             shutil.copy2(src, d / name)
             copied.append(name)
     if not copied:
         return {"ok": False, "detail": "Yedeklenecek ikili yok (tools/juggler boş)."}
-    ver = versions.local_versions(root)["juggler"] or "bilinmiyor"
-    (d / "VERSION.txt").write_text(ver + "\n", encoding="utf-8")
+    # Sürümün YANINDA parmak izleri: "hangi dosya değişti?" tahminle değil
+    # karşılaştırmayla yanıtlanır (panel kendini sessizce güncelleyebiliyor).
+    lines = [ver or "bilinmiyor", ""]
+    lines += [f"{name}  sha256={sha256_file(d / name)}" for name in copied]
+    (d / "VERSION.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    others = [b for b in list_backups(root) if b["name"] != d.name]
     return {
         "ok": True,
-        "detail": f"Yedek alındı ({', '.join(copied)}) → {d}",
-        "note": f"Kaydedilen sürüm: {ver}. Güncelleme bozarsa 'Yedekten geri al' yeterli.",
+        "detail": f"Yedek alındı ({', '.join(copied)}) → {d.name}",
+        "note": f"Kaydedilen sürüm: {ver or 'bilinmiyor'}. "
+        + (f"Korunan diğer yedekler: {len(others)}. " if others else "")
+        + "Güncelleme bozarsa 'Yedekten geri al' yeterli.",
     }
 
 
-def _juggler_restore(root: Path) -> dict:
-    d = backup_dir(root)
+def _juggler_restore(root: Path, name: str = "") -> dict:
+    """Yedeği geri yazar. `name` verilmezse EN YENİ yedek kullanılır."""
+    backups = list_backups(root)
+    if not backups:
+        return {"ok": False, "detail": f"Yedek bulunamadı: {backups_root(root)}"}
+    chosen = next((b for b in backups if b["name"] == name), None) if name else backups[0]
+    if chosen is None:
+        return {"ok": False, "detail": f"Yedek bulunamadı: {name}"}
+
+    d = Path(chosen["path"])
     dst = root / "tools" / "juggler"
     restored = []
-    for name in (_exe("juggler"), _exe("juggler-app")):
-        src = d / name
+    for exe_name in (_exe("juggler"), _exe("juggler-app")):
+        src = d / exe_name
         if src.is_file():
             dst.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst / name)
-            restored.append(name)
+            shutil.copy2(src, dst / exe_name)
+            restored.append(exe_name)
     if not restored:
         return {"ok": False, "detail": f"Yedek bulunamadı: {d}"}
-    ver = (
-        (d / "VERSION.txt").read_text(encoding="utf-8").strip()
-        if (d / "VERSION.txt").is_file()
-        else "?"
-    )
     return {
         "ok": True,
-        "detail": f"Yedek geri yüklendi ({', '.join(restored)}) — sürüm {ver}",
-        "note": "Panel açıksa kapatıp yeniden açın.",
+        "detail": f"Yedek geri yüklendi ({', '.join(restored)}) — sürüm {chosen['version']}",
+        "note": f"Kaynak: {chosen['name']}"
+        + (f" · {len(backups) - 1} yedek daha var." if len(backups) > 1 else "")
+        + " Panel açıksa kapatıp yeniden açın.",
     }
 
 
@@ -120,7 +149,7 @@ def _save_baseline(root: Path) -> dict:
 def _juggler_update_guide(root: Path) -> dict:
     """Panel güncellemesi otomatik yapılmaz — nedeni ve güvenli yolu anlatır."""
     latest = versions.remote_latest("juggler")
-    have_backup = (backup_dir(root) / _exe("juggler")).is_file()
+    have_backup = bool(list_backups(root))
     return {
         "ok": True,
         "detail": f"Üstakım sürümü: {('v' + latest) if latest else 'sorgulanamadı'}",
@@ -245,4 +274,7 @@ def run_instant(action: str, root: Path, params: dict | None = None) -> dict:
     params = params or {}
     if action == "auth-hint":
         return fn(root, str(params.get("agent") or ""))
+    if action == "juggler-restore":
+        # Boş ad = en yeni yedek; arayüz belirli bir yedeği seçebilsin diye açık.
+        return fn(root, str(params.get("name") or ""))
     return fn(root)

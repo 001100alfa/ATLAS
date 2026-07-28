@@ -168,6 +168,73 @@ def test_backup_then_restore_roundtrip(tmp_path: Path, monkeypatch):
     assert "v0.4.2" in res["detail"]
 
 
+def test_backup_tag_from_version_string():
+    assert checks.backup_tag("juggler v0.5.0 (commit: 73e41a6, built: x)") == "v0.5.0-73e41a6"
+    assert checks.backup_tag("v0.4.2") == "v0.4.2"
+
+
+def test_backup_tag_falls_back_to_binary_digest(tmp_path: Path):
+    """Sürüm okunamazsa etiket İÇERİKTEN gelir — iki farklı yapı aynı klasöre yazamaz."""
+    a, b = tmp_path / "a.exe", tmp_path / "b.exe"
+    a.write_bytes(b"yapi A")
+    b.write_bytes(b"yapi B")
+    ta, tb = checks.backup_tag("", a), checks.backup_tag(None, b)
+    assert ta.startswith("bilinmeyen-") and ta != tb
+
+
+def test_backup_does_not_overwrite_previous_version(tmp_path: Path, monkeypatch):
+    """ÖLÇÜLDÜ SORUN: sabit tek klasör, ikinci yedekte tek geri dönüş noktasını siliyordu."""
+    exe = tmp_path / "tools" / "juggler" / checks._exe("juggler")
+    exe.parent.mkdir(parents=True)
+
+    exe.write_bytes(b"eski surum")
+    monkeypatch.setattr(versions, "local_versions", lambda _r=None: {"juggler": "v0.4.2"})
+    assert fixes.run_instant("juggler-backup", tmp_path)["ok"] is True
+
+    exe.write_bytes(b"yeni surum")
+    monkeypatch.setattr(versions, "local_versions", lambda _r=None: {"juggler": "v0.5.0"})
+    assert fixes.run_instant("juggler-backup", tmp_path)["ok"] is True
+
+    names = {b["name"] for b in checks.list_backups(tmp_path)}
+    assert names == {"juggler-backup-v0.4.2", "juggler-backup-v0.5.0"}
+    # Eski yedeğin İÇERİĞİ de duruyor — ezilmiş olsaydı bu bayt yok olurdu.
+    assert (tmp_path / ".atlas" / "doctor" / "juggler-backup-v0.4.2" / exe.name).read_bytes() == (
+        b"eski surum"
+    )
+
+
+def test_backup_is_idempotent_for_same_build(tmp_path: Path, monkeypatch):
+    exe = tmp_path / "tools" / "juggler" / checks._exe("juggler")
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"ayni yapi")
+    monkeypatch.setattr(versions, "local_versions", lambda _r=None: {"juggler": "v0.5.0"})
+
+    fixes.run_instant("juggler-backup", tmp_path)
+    fixes.run_instant("juggler-backup", tmp_path)
+    assert len(checks.list_backups(tmp_path)) == 1
+
+
+def test_restore_defaults_to_newest_and_can_pick_by_name(tmp_path: Path, monkeypatch):
+    exe = tmp_path / "tools" / "juggler" / checks._exe("juggler")
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"eski surum")
+    monkeypatch.setattr(versions, "local_versions", lambda _r=None: {"juggler": "v0.4.2"})
+    fixes.run_instant("juggler-backup", tmp_path)
+    exe.write_bytes(b"yeni surum")
+    monkeypatch.setattr(versions, "local_versions", lambda _r=None: {"juggler": "v0.5.0"})
+    fixes.run_instant("juggler-backup", tmp_path)
+
+    exe.write_bytes(b"bozuk")
+    assert fixes.run_instant("juggler-restore", tmp_path)["ok"] is True
+    assert exe.read_bytes() == b"yeni surum", "adsız geri alma EN YENİ yedeği kullanmalı"
+
+    res = fixes.run_instant("juggler-restore", tmp_path, {"name": "juggler-backup-v0.4.2"})
+    assert res["ok"] is True and "v0.4.2" in res["detail"]
+    assert exe.read_bytes() == b"eski surum"
+
+    assert fixes.run_instant("juggler-restore", tmp_path, {"name": "yok-boyle"})["ok"] is False
+
+
 def test_restore_without_backup_fails_cleanly(tmp_path: Path):
     res = fixes.run_instant("juggler-restore", tmp_path)
     assert res["ok"] is False
