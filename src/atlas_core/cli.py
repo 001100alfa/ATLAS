@@ -20,9 +20,11 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from atlas_core.memory.gbrain import GBrain
+from atlas_core.orchestrator.actions import ActionDeniedError, make_action
 from atlas_core.orchestrator.core import (
     AgentRegistry,
     AgentSpec,
@@ -31,7 +33,14 @@ from atlas_core.orchestrator.core import (
     StepKind,
     run_loop,
 )
+from atlas_core.orchestrator.goals import SpecError, load_goal
+from atlas_core.orchestrator.judges import make_judge
+from atlas_core.orchestrator.planner import PlannerExhaustedError, make_planner
 from atlas_core.security.audit import AuditLog, scan_secrets
+
+
+def _sandbox_root() -> Path:
+    return Path(os.environ.get("ATLAS_SANDBOX", ".atlas/sandbox"))
 
 
 def _vault_root() -> Path:
@@ -71,12 +80,73 @@ def _cmd_recall(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_run_goal(args: argparse.Namespace) -> int:
+    """SPEC 002: `--goal-file` verildiğinde gerçek görev sürücüsü.
+
+    goal YAML'ini yükler, sandbox'i kurar, planner+action+judge'u
+    fabrikadan alır, run_loop'u sürer. ActionDeniedError yakalanır,
+    audit'e 'denied' kaydi düşer, exit 5.
+    """
+    try:
+        goal = load_goal(Path(args.goal_file))
+    except SpecError as exc:
+        print(f"SPEC HATASI: {exc}", file=sys.stderr)
+        return 2
+
+    run_id = args.run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
+    goal_id = f"{Path(args.goal_file).stem}-{run_id}"
+    sandbox = _sandbox_root() / goal_id
+    sandbox.mkdir(parents=True, exist_ok=True)
+
+    audit = AuditLog(_audit_path())
+    budget = CallBudget(limit=goal.budget)
+    last_exit: dict[str, int] = {}
+    plan = make_planner(goal)
+    act = make_action(goal, sandbox, last_exit)
+    judge = make_judge(goal, sandbox, last_exit)
+
+    try:
+        result = run_loop(
+            goal=goal.goal,
+            plan=plan,
+            act=act,
+            judge=judge,
+            budget=budget,
+            audit=audit,
+            max_steps=goal.max_steps,
+            actor="atlas-run",
+        )
+    except ActionDeniedError as exc:
+        audit.record("atlas-run", "denied", str(exc))
+        print(f"REDDEDİLDİ: {exc}", file=sys.stderr)
+        return 5
+    except PlannerExhaustedError as exc:
+        audit.record("atlas-run", "planner_exhausted", str(exc))
+        print(f"PLAN BİTTİ: {exc}", file=sys.stderr)
+        return 4
+    except BudgetExceededError as exc:
+        print(f"BÜTÇE AŞIMI: {exc}", file=sys.stderr)
+        return 3
+
+    for kind, text in result.steps:
+        print(f"  {kind.value:8s} {text[:120]}")
+    print(f"\ndone={result.done}  harcanan={budget.spent:.1f}/{budget.limit:.1f}")
+    print(f"sandbox: {sandbox}")
+    print(f"audit: {audit.path}  (zincir geçerli={audit.verify()})")
+    return 0 if result.done else 4
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     """Platformun tümünü bağlayan demo: kayıtlı ajan + bütçe + audit + P-A-O-R.
 
-    Gerçek eylem yerine yer tutucu (echo) kullanır; amaç orkestratör
-    döngüsünün beyin/güvenlik katmanıyla uçtan uca çalıştığını göstermektir.
+    `--goal-file` verilirse gerçek görev sürücüsüne (`_cmd_run_goal`) dallanır.
+    Aksi halde eski yer tutucu (echo) demo davranışı korunur (regresyon).
     """
+    if args.goal_file:
+        return _cmd_run_goal(args)
+    if not args.goal:
+        print("kullanım: atlas run <hedef> | atlas run --goal-file <yaml>", file=sys.stderr)
+        return 2
     audit = AuditLog(_audit_path())
     registry = AgentRegistry()
     registry.register(
@@ -174,9 +244,11 @@ def main(argv: list[str] | None = None) -> int:
     p_rec.add_argument("--limit", type=int, default=5)
     p_rec.set_defaults(func=_cmd_recall)
 
-    p_run = sub.add_parser("run", help="Bütçeli P-A-O-R döngüsü (demo)")
-    p_run.add_argument("goal")
-    p_run.add_argument("--steps", type=int, default=3, help="hedefe kaç ACT yeter")
+    p_run = sub.add_parser("run", help="Bütçeli P-A-O-R döngüsü")
+    p_run.add_argument("goal", nargs="?", default=None, help="echo demo için hedef metni")
+    p_run.add_argument("--goal-file", default=None, help="YAML hedef dosyası (SPEC 002)")
+    p_run.add_argument("--run-id", default=None, help="sandbox alt dizini için sabit ad (test)")
+    p_run.add_argument("--steps", type=int, default=3, help="echo demo: kaç ACT yeter")
     p_run.add_argument("--max-steps", type=int, default=8)
     p_run.add_argument("--budget", type=float, default=100.0)
     p_run.add_argument("--step-cost", type=float, default=10.0)

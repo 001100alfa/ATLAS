@@ -1,6 +1,39 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-28 (Görev 002 — Orkestratörün Canlanması)
+- [KARAR] `atlas run --goal-file <yaml>` gerçek görev sürücüsü eklendi;
+  eski konumsal `atlas run "hedef"` echo demo davranışı **korundu** (regresyon).
+  Dallanma `_cmd_run` en üstünde; goal-file yoksa eski kod yolu.
+- [KARAR] Orkestratör sözleşme dokunulmazlığı: `run_loop`, `Action`, `Judge`,
+  `CallBudget`, `LoopResult` değişmez. Yeni yetenekler (goals/actions/planner/
+  judges) bu sözleşmeyi karşılayan fabrikalar olarak eklendi. Bu, mevcut
+  `test_platform.py`'yi kırmadan büyümeyi mümkün kıldı.
+- [KARAR] Sandbox jail: `_jail()` platform-bagimsiz mutlak-yol reddi
+  (`/`, `\`, `X:` prefix'i, `Path.is_absolute()`) + `is_relative_to()` +
+  symlink reddi. Windows'ta `Path("/etc/x").is_absolute()` False döndüğü
+  için manuel prefix kontrolü şart.
+- [HATA] Plan formatı `fiil:arg1:arg2` — Windows drive letter (`C:`) parser'ı
+  yanıltıyor (`write:C:/pwn.txt:x` → arg1="C"). Zararsız oluyor (sandbox
+  içine `C/` klasörü yazılır) ama mutlak-yol reddi yine de platform-bagimsiz
+  prefix kontrolüyle sağlanır.
+- [KARAR] LLM planner ilk sürümde **stub** (`ATLAS_LLM=stub` varsayılan);
+  gerçek `claude` subprocess entegrasyonu Görev 003. Gerekçe: DECISIONS
+  2026-07-24'te subprocess+UTF-8 tuzağı belgelendi — tek görevde iki büyük
+  risk tutulmaz.
+- [KARAR] Shell komutu için `shell=False` **sabit** + `shlex.split` +
+  goal dosyasındaki `shell_allow_regex` ile `re.fullmatch`. Global
+  allowlist yerine hedef-başına allowlist (her hedefin izin sınırı kendi
+  YAML'ında).
+- [KARAR] Yeni exit kodları: `2` spec/YAML hatası, `5` action_denied.
+  Mevcut `3` (bütçe) ve `4` (max_steps) korundu.
+- [KARAR] Ruff N818: tüm istisna sınıfları `*Error` sonekli
+  (`ActionDeniedError`, `PlannerExhaustedError`, `SpecError`, `SectionError`,
+  `WorkflowError`, `BudgetExceededError`). Proje standardı.
+- Kapsam: 5 yeni modül, 43 yeni test (250 toplam), coverage %90 korundu,
+  mypy strict + ruff temiz. Görev 002 pipeline artefaktları
+  `pipeline/tasks/002-orkestrator-canlanma/` altında.
+
 ## 2026-04-16
 - [KARAR] Çekirdek: Claude Code CLI + GitHub issue akışı.
 - [KARAR] Paket yöneticisi: uv; yoksa pip'e düş.
