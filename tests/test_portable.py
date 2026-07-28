@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tools.portable import autoupdate, relocate, runtimes, vendor  # noqa: E402
+from tools.portable import autoupdate, package, relocate, runtimes, vendor  # noqa: E402
 from tools.setup_gui import wrappers  # noqa: E402
 from tools.setup_gui.detect import IS_WIN  # noqa: E402
 
@@ -202,6 +202,43 @@ def test_unzip_keeps_root_when_asked(tmp_path: Path):
     dst = tmp_path / "git"
     vendor._unzip_flat(archive, dst, strip_top=False)
     assert (dst / "cmd" / "git.exe").is_file() and (dst / "usr" / "bin" / "sh.exe").is_file()
+
+
+# --- paketleme: istege bagli agir yukler --------------------------------------
+
+
+def test_optional_report_measures_ollama_lib(tmp_path: Path):
+    lib = tmp_path / "tools" / "ollama" / "lib"
+    lib.mkdir(parents=True)
+    (lib / "runner.bin").write_bytes(b"x" * 1024)
+
+    (only,) = package.optional_report(tmp_path, ["ollama-lib"])
+    assert only["exists"] and only["size"] == 1024
+    assert "bulut" in only["safe_when"] and "SETUP.cmd" in only["restore"]
+
+
+def test_optional_report_handles_absent_path(tmp_path: Path):
+    (only,) = package.optional_report(tmp_path, ["ollama-lib"])
+    assert not only["exists"] and only["size"] == 0
+
+
+def test_exclude_args_differ_per_archiver():
+    """WinRAR ve 7-Zip dışlamayı farklı yazar; karıştırmak sessizce ETKİSİZ kalır."""
+    assert package.exclude_args("7z.exe", ["tools/ollama/lib"]) == [r"-x!tools\ollama\lib"]
+    assert package.exclude_args("Rar.exe", ["tools/ollama/lib"]) == [r"-xtools\ollama\lib\*"]
+
+
+def test_prepare_reports_optional_without_deleting(tmp_path: Path, monkeypatch):
+    """--bulut varsayılan olarak SİLMEZ; yalnız arşiv dışında bırakır."""
+    lib = tmp_path / "tools" / "ollama" / "lib"
+    lib.mkdir(parents=True)
+    (lib / "runner.bin").write_bytes(b"x")
+    monkeypatch.setattr(package.processes, "juggler_running", lambda _r: False)
+    monkeypatch.setattr(package.processes, "stray", lambda _r: [])
+
+    rep = package.prepare(tmp_path, do_slim=False, drop=["ollama-lib"])
+    assert rep["optional"][0]["exists"]
+    assert lib.is_dir(), "klasor --sil verilmeden silinmemeli"
 
 
 def test_mingit_gets_a_bash_named_copy(tmp_path: Path):

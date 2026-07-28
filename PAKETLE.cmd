@@ -8,6 +8,10 @@ rem  makine parmak izini siler. Hicbir veri silinmez.
 rem
 rem  Onbellekleri de atmak icin:   PAKETLE.cmd --yagsiz
 rem  Dogrudan arsiv uretmek icin:  PAKETLE.cmd --arsiv C:\yol\ATLAS.rar
+rem  1.8 GB'lik yerel model calistiricilarini disarida birakmak icin
+rem  (yalniz bulut modelleri kullanacaksaniz):
+rem                                PAKETLE.cmd --bulut --arsiv C:\yol\ATLAS.rar
+rem  Elle sikistiracaksaniz klasorden de silmek icin: --bulut --sil
 rem ============================================================
 setlocal
 set "ROOT=%~dp0"

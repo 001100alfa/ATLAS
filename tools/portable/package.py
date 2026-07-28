@@ -12,9 +12,15 @@ Yapılanlar:
    görüp sarmalayıcıları/kayıtları yeniden üretir.
 3. **Rapor** — neyin taşındığı, boyutu ve eksikse ne eksik.
 
-Hiçbir kullanıcı verisi silinmez. Büyük ama gereksiz olanları atmak isterseniz
-`--yagsiz` verin: yalnız yeniden üretilebilir önbellekler (indirme arşivleri,
-__pycache__, test/lint önbellekleri) temizlenir.
+Hiçbir kullanıcı verisi silinmez. Büyük ama gereksiz olanları atmak isterseniz:
+
+* `--yagsiz` — yeniden üretilebilir önbellekler (indirme arşivleri, __pycache__,
+  test/lint önbellekleri) silinir.
+* `--bulut` — yerel model çalıştırıcıları (`tools/ollama/lib`, ~1,8 GB) arşive
+  girmez. ÖLÇÜLDÜ (2026-07-28): bu klasör tamamen yokken ollama sunucusu açıldı,
+  bulut modelini listeledi, üretim yaptı ve goose gerçek bir turu tamamladı —
+  yani `*-cloud` modelleriyle çalışırken gerekmiyor. Yerel model çalıştıracaksanız
+  `SETUP.cmd > Yerel AI` ile geri gelir.
 """
 
 from __future__ import annotations
@@ -45,6 +51,21 @@ ARCHIVERS = (
     (r"C:\Program Files\WinRAR\Rar.exe", ["a", "-r", "-ep1", "-m1"]),
     (r"C:\Program Files\7-Zip\7z.exe", ["a", "-mx1"]),
 )
+
+# İsteğe bağlı ağır yükler: taşınabilir ama HERKES için gerekli değil.
+# `--bulut` verildiğinde arşive girmez.
+OPTIONAL_HEAVY = {
+    "ollama-lib": {
+        "path": "tools/ollama/lib",
+        "why": "yerel model calistiricilari (GPU kutuphaneleri)",
+        # ÖLÇÜLDÜ (2026-07-28): lib/ tamamen kaldırılmışken ollama sunucusu açıldı,
+        # `/api/tags` bulut modelini listeledi, `/api/generate` yanıt üretti ve
+        # goose gerçek bir turu tamamladı (LIBSIZ-AJAN-OK). Bulut modelleriyle
+        # çalışırken bu klasör GEREKMİYOR.
+        "safe_when": "yalniz bulut modelleri (*-cloud) kullaniliyorsa",
+        "restore": "SETUP.cmd > 'Yerel AI' adimi (ollama yeniden indirilir)",
+    },
+}
 
 
 def dir_size(path: Path) -> int:
@@ -108,7 +129,19 @@ def find_archiver() -> tuple[Path, list[str]] | None:
     return None
 
 
-def make_archive(root: Path, dst: Path) -> dict:
+def exclude_args(exe_name: str, rels: list[str]) -> list[str]:
+    """Arşivleyiciye göre dışlama argümanları (WinRAR ve 7-Zip farklı yazar)."""
+    out: list[str] = []
+    for rel in rels:
+        win = rel.replace("/", "\\")
+        if exe_name.lower().startswith("rar"):
+            out.append(f"-x{win}\\*")  # WinRAR: klasör içeriğini dışla
+        else:
+            out.append(f"-x!{win}")  # 7-Zip: yolu dışla
+    return out
+
+
+def make_archive(root: Path, dst: Path, exclude: list[str] | None = None) -> dict:
     """RAR/7z ile arşivler (kurulu değilse elle sıkıştırma yönergesi döner)."""
     tool = find_archiver()
     if not tool:
@@ -117,7 +150,7 @@ def make_archive(root: Path, dst: Path) -> dict:
             "detail": "WinRAR/7-Zip bulunamadi - klasore sag tiklayip kendiniz sikistirin.",
         }
     exe, args = tool
-    argv = [str(exe), *args, str(dst), "."]
+    argv = [str(exe), *args, *exclude_args(exe.name, exclude or []), str(dst), "."]
     res = subprocess.run(argv, cwd=str(root), capture_output=True, text=True)  # noqa: S603
     ok = res.returncode == 0 and dst.exists()
     return {
@@ -127,10 +160,31 @@ def make_archive(root: Path, dst: Path) -> dict:
     }
 
 
-def prepare(root: Path, do_slim: bool = False) -> dict:
+def optional_report(root: Path, chosen: list[str]) -> list[dict]:
+    """Seçilen isteğe bağlı yüklerin durumu (var mı, ne kadar yer kaplıyor)."""
+    out = []
+    for key in chosen:
+        spec = OPTIONAL_HEAVY[key]
+        path = root / spec["path"]
+        out.append(
+            {
+                "key": key,
+                "path": spec["path"],
+                "exists": path.is_dir(),
+                "size": dir_size(path) if path.is_dir() else 0,
+                "why": spec["why"],
+                "safe_when": spec["safe_when"],
+                "restore": spec["restore"],
+            }
+        )
+    return out
+
+
+def prepare(root: Path, do_slim: bool = False, drop: list[str] | None = None) -> dict:
     report: dict = {}
     report["processes"] = stop_everything(root)
     report["slim"] = slim(root) if do_slim else []
+    report["optional"] = optional_report(root, drop or [])
     fp = relocate.state_path(root)
     if fp.is_file():
         fp.unlink()
@@ -147,11 +201,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     ap.add_argument("--yagsiz", action="store_true", help="yeniden uretilebilir onbellekleri sil")
     ap.add_argument("--arsiv", type=Path, default=None, help="hedef .rar/.7z yolu (varsa uretir)")
+    ap.add_argument(
+        "--bulut",
+        action="store_true",
+        help="yerel model calistiricilarini (tools/ollama/lib, ~1.8 GB) arsive KOYMA "
+        "- yalniz bulut modelleri kullanilacaksa",
+    )
+    ap.add_argument(
+        "--sil",
+        action="store_true",
+        help="--bulut ile: klasorden de SIL (elle sikistiracaksaniz gerekir)",
+    )
     args = ap.parse_args(argv)
     root = args.root.resolve()
 
+    drop = ["ollama-lib"] if args.bulut else []
     print(f"ATLAS paketleme - {root}\n")
-    rep = prepare(root, args.yagsiz)
+    rep = prepare(root, args.yagsiz, drop)
 
     p = rep["processes"]
     if p.get("panel_open"):
@@ -169,15 +235,38 @@ def main(argv: list[str] | None = None) -> int:
         extra = "" if c["portable"] else "  (MAKINEYE BAGLI - karsi tarafta olmayabilir)"
         print(f"  {mark} {c['id']}: {c['detail']}{extra}")
 
+    excluded: list[str] = []
+    for opt in rep["optional"]:
+        if not opt["exists"]:
+            print(f"\nDisarida birakilacak yok: {opt['path']} (zaten yok)")
+            continue
+        excluded.append(opt["path"])
+        print(f"\nArsive KOYULMAYACAK: {opt['path']} ({human(opt['size'])})")
+        print(f"  ne: {opt['why']}")
+        print(f"  guvenli: {opt['safe_when']}")
+        print(f"  geri almak: {opt['restore']}")
+        if args.sil:
+            shutil.rmtree(root / opt["path"], ignore_errors=True)
+            print("  klasorden de SILINDI (--sil)")
+
     print(f"\nToplam boyut: {human(rep['size'])}")
+    if excluded and not args.sil:
+        kalan = rep["size"] - sum(o["size"] for o in rep["optional"] if o["exists"])
+        print(f"Arsive girecek (tahmini): {human(kalan)}")
 
     if args.arsiv:
         print("\nArsivleniyor (birkac dakika surebilir)...")
-        res = make_archive(root, args.arsiv.resolve())
+        res = make_archive(root, args.arsiv.resolve(), excluded if not args.sil else [])
         print(("OK   " if res["ok"] else "HATA ") + res["detail"])
         return 0 if res["ok"] else 1
 
     print("\nSimdi klasoru sikistirin (WinRAR: sag tik > Add to archive).")
+    if excluded and not args.sil:
+        print("Elle sikistirirken sunlari HARIC TUTUN (yoksa yine arsive girer):")
+        for rel in excluded:
+            print("  " + rel.replace("/", "\\"))
+        print("Daha kolayi: PAKETLE.cmd --bulut --arsiv D:\\ATLAS.rar  (haric tutmayi kendi yapar)")
+        print("veya: PAKETLE.cmd --bulut --sil  (klasorden siler, elle sikistirmak serbest)")
     print("Karsi makinede: arsivi acin ve BASLAT.cmd'ye cift tiklayin. Hepsi bu.")
     return 0
 

@@ -15,11 +15,34 @@ Kurulum sihirbazı, sürüm takibi, yol düzeltme yok.
 3. Klasörü sıkıştırın (`PAKETLE.cmd --arsiv D:\ATLAS.rar` derseniz WinRAR/7-Zip
    kuruluysa arşivi kendisi üretir).
 
-Boyut: klasör bugün **~5,7 GB** (ölçüldü). `PAKETLE.cmd --yagsiz` yeniden
-indirilebilir kurulum arşivlerini ve derleme önbelleklerini atar (~271 MB;
-`tools/.cache`). Daha fazlasını atmak isterseniz en büyük kalem
-`tools/ollama/lib` (1,8 GB GPU çalıştırıcıları) — yalnız YEREL model
-çalıştıracaksanız gerekir, bulut modelleriyle çalışırken gereksizdir.
+### Boyut
+
+Klasör bugün **~5,7 GB** (ölçüldü). İki küçültme seçeneği var:
+
+| Seçenek | Kazanç | Ne kaybedersiniz |
+|---|---|---|
+| `--yagsiz` | ~271 MB | hiçbir şey (indirme arşivleri + derleme önbellekleri; yeniden üretilir) |
+| `--bulut` | **1,8 GB** | yerel model çalıştırma (`tools/ollama/lib`) — bulut modelleriyle çalışırken gerekmez |
+
+İkisi birlikte: ~3,7 GB'a iner.
+
+`--bulut` **ölçümle** doğrulandı (2026-07-28): `tools/ollama/lib` tamamen
+yokken ollama sunucusu açıldı, `*-cloud` modelini listeledi, `/api/generate`
+yanıt üretti ve goose gerçek bir turu tamamladı. Yerel model (`ollama pull` ile
+inen ağırlıklar) çalıştıracaksanız kullanmayın; kullandıysanız
+`SETUP.cmd > Yerel AI` ile geri gelir.
+
+Kullanımı:
+
+```
+PAKETLE.cmd --bulut --arsiv D:\ATLAS.rar   # haric tutmayi kendisi yapar (onerilen)
+PAKETLE.cmd --bulut --sil                  # klasorden siler, elle sikistirirsiniz
+PAKETLE.cmd --bulut                        # sadece raporlar + haric tutma listesi verir
+```
+
+`--bulut` tek başına **hiçbir şey silmez**: elle sıkıştıracaksanız listelenen
+klasörü arşive almamanız gerekir (yoksa yine girer). Silmesini istiyorsanız
+`--sil` ekleyin.
 
 ## Alan tarafta
 
