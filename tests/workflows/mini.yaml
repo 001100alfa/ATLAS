@@ -1,0 +1,13 @@
+# Mini workflow — 004 e2e testi için üç kanıt handler'ı
+name: mini-004
+steps:
+  - uses: pipeline.gate
+    with:
+      file: pipeline/tasks/004-workflow-handlers/00-need.md
+  - uses: pipeline.test
+    with:
+      paths: [tests/test_goals.py]
+  - uses: memory.archive
+    with:
+      task: 004-workflow-handlers
+      dry_run: true

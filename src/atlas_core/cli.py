@@ -37,6 +37,8 @@ from atlas_core.orchestrator.goals import SpecError, load_goal
 from atlas_core.orchestrator.judges import make_judge
 from atlas_core.orchestrator.planner import PlannerExhaustedError, make_planner
 from atlas_core.security.audit import AuditLog, scan_secrets
+from atlas_core.workflows.engine import WorkflowEngine, WorkflowError
+from atlas_core.workflows.handlers import HandlerError, register_builtins
 
 
 def _sandbox_root() -> Path:
@@ -195,6 +197,31 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0 if result.done else 4
 
 
+def _cmd_workflow_run(args: argparse.Namespace) -> int:
+    """SPEC 004: `atlas workflow run <yaml> [--dry-run]`."""
+    yaml_path = Path(args.yaml)
+    if not yaml_path.is_file():
+        print(f"SPEC HATASI: workflow dosyası yok: {yaml_path}", file=sys.stderr)
+        return 2
+    audit = AuditLog(_audit_path())
+    engine = WorkflowEngine(audit)
+    register_builtins(engine, dry_run=args.dry_run)
+    try:
+        results = engine.run(yaml_path)
+    except HandlerError as exc:
+        audit.record("workflow", "error", str(exc)[:200])
+        print(f"HANDLER HATASI: {exc}", file=sys.stderr)
+        return 6
+    except WorkflowError as exc:
+        audit.record("workflow", "error", str(exc)[:200])
+        print(f"WORKFLOW HATASI: {exc}", file=sys.stderr)
+        return 6
+    for r in results:
+        print(f"  {r.step:20s} {r.output[:100]}")
+    print(f"\nOK: {len(results)} adım tamamlandı  audit: {audit.path}")
+    return 0
+
+
 def _cmd_audit_verify(args: argparse.Namespace) -> int:
     audit = AuditLog(_audit_path())
     ok = audit.verify()
@@ -253,6 +280,13 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--budget", type=float, default=100.0)
     p_run.add_argument("--step-cost", type=float, default=10.0)
     p_run.set_defaults(func=_cmd_run)
+
+    p_wf = sub.add_parser("workflow", help="YAML workflow yürüt")
+    wf_sub = p_wf.add_subparsers(dest="wf_cmd", required=True)
+    p_wf_run = wf_sub.add_parser("run", help="workflow YAML'ini çalıştır")
+    p_wf_run.add_argument("yaml", help="workflow YAML yolu")
+    p_wf_run.add_argument("--dry-run", action="store_true", help="handler'lar no-op çalışır")
+    p_wf_run.set_defaults(func=_cmd_workflow_run)
 
     p_av = sub.add_parser("audit-verify", help="Denetim zinciri bütünlüğü")
     p_av.set_defaults(func=_cmd_audit_verify)

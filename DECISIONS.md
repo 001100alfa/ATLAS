@@ -1,6 +1,25 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-28 (Görev 004 — WorkflowEngine handler kaydı)
+- [KARAR] Handler kaydı **paket** yapısı: `atlas_core/workflows/handlers/`
+  altında her handler kendi dosyasında; `register_builtins()` fabrikası
+  hepsini engine'e bağlar. Yeni handler eklemek = 1 dosya + 1 satır.
+- [KARAR] Yıkıcı `memory.archive` handler'ı için varsayılan `dry_run=True`.
+  Gerçek arşivleme YAML'da `with:{dry_run:false}` ister — kullanıcı niyeti
+  önce, kaza güç. YAML-düzeyi `dry_run` handler-düzeyi varsayılanı ezer.
+- [KARAR] `pipeline.test` handler'ı `sys.executable -m pytest` çağırır
+  (`uv run pytest` DEĞİL) — taşınabilir bundle'da uv gerekmesin.
+  Timeout 300s. Test suite'in kendini rekürsif çağırmaması için testler
+  `paths=[tests/test_goals.py]` gibi minik alt-küme kullanır.
+- [KARAR] CLI'da HandlerError ve WorkflowError ayrı yakalanır ama ikisi de
+  exit 6 döner + audit'e "error" kaydı düşer. Ayrım hata mesajından okunur.
+- [KARAR] Yeni exit kodu: `6` = handler başarısız / bilinmeyen handler.
+- [HATA] pytest-cov subprocess CLI çağrılarını izlemiyor → cli.py kapsamı
+  ilk turda %66'ya düştü. Çözüm: `test_cli_direct.py` in-process `main()`
+  çağrılarıyla aynı branch'leri geziyor; kapsam %95'e çıktı. Kalıp: yeni
+  CLI kodu için subprocess e2e testine ek olarak in-process test şart.
+
 ## 2026-07-28 (Görev 002 — Orkestratörün Canlanması)
 - [KARAR] `atlas run --goal-file <yaml>` gerçek görev sürücüsü eklendi;
   eski konumsal `atlas run "hedef"` echo demo davranışı **korundu** (regresyon).
