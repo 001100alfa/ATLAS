@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tools.portable import runtimes
+from tools.portable import ollama_identity, runtimes
 
 from .detect import IS_WIN, OLLAMA_PORT, _exe, agent_specs
 
@@ -57,6 +57,7 @@ def _ensure_ollama_cmd(root: Path) -> str:
     """Yerel model sunucusunu gerekiyorsa başlatan yardımcı (idempotent)."""
     exe = _rel(root, root / "tools" / "ollama" / _exe("ollama"))
     models = _rel(root, root / "tools" / "ollama" / "models")
+    home = _rel(root, ollama_identity.repo_home(root))
     return (
         "@echo off\n"
         f"rem ATLAS - yerel model sunucusunu (127.0.0.1:{OLLAMA_PORT}) gerekiyorsa baslatir.\n"
@@ -67,6 +68,11 @@ def _ensure_ollama_cmd(root: Path) -> str:
         f'if not exist "%OLLAMA_EXE%" exit /b 0\n'
         f'set "OLLAMA_MODELS={models}"\n'
         f'set "OLLAMA_HOST=127.0.0.1:{OLLAMA_PORT}"\n'
+        "rem Bulut kimligi (`ollama signin` anahtari) normalde %USERPROFILE%\\.ollama\n"
+        "rem altindadir - yani DEPO DISINDA ve tasinmaz. Sunucunun evini depo icine\n"
+        "rem cevirdik; OLCULDU: anahtar olmadan bulut modeli 'Unauthorized' donuyor.\n"
+        f'set "USERPROFILE={home}"\n'
+        f'set "HOME={home}"\n'
         f'set "PROBE=http://127.0.0.1:{OLLAMA_PORT}/api/tags"\n'
         'set "CURL=%SystemRoot%\\System32\\curl.exe"\n'
         "\n"

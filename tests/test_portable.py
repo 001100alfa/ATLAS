@@ -14,7 +14,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tools.portable import autoupdate, package, relocate, runtimes, vendor  # noqa: E402
+from tools.portable import (  # noqa: E402
+    autoupdate,
+    ollama_identity,
+    package,
+    relocate,
+    runtimes,
+    vendor,
+)  # noqa: E402
 from tools.setup_gui import wrappers  # noqa: E402
 from tools.setup_gui.detect import IS_WIN  # noqa: E402
 
@@ -202,6 +209,57 @@ def test_unzip_keeps_root_when_asked(tmp_path: Path):
     dst = tmp_path / "git"
     vendor._unzip_flat(archive, dst, strip_top=False)
     assert (dst / "cmd" / "git.exe").is_file() and (dst / "usr" / "bin" / "sh.exe").is_file()
+
+
+# --- ollama bulut kimliği -----------------------------------------------------
+
+
+def test_identity_status_reports_missing(tmp_path: Path):
+    st = ollama_identity.status(tmp_path)
+    assert st["id"] == "auth.ollama" and not st["ok"] and "signin" in st["detail"]
+
+
+def test_identity_migrates_from_user_home_once(tmp_path: Path, monkeypatch):
+    """ÖLÇÜLDÜ: anahtar depo dışında kalırsa taşınan klasörde bulut modeli
+    `Unauthorized` döner. İlk açılışta bir kez depoya alınır."""
+    fake_home = tmp_path / "kullanici"
+    (fake_home / ".ollama").mkdir(parents=True)
+    (fake_home / ".ollama" / "id_ed25519").write_text("OZEL-ANAHTAR", encoding="utf-8")
+    (fake_home / ".ollama" / "id_ed25519.pub").write_text("acik", encoding="utf-8")
+    monkeypatch.setattr(ollama_identity.Path, "home", staticmethod(lambda: fake_home))
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    res = ollama_identity.migrate(root)
+    assert res["ok"] and res["moved"]
+    assert ollama_identity.has_identity(root)
+    assert ollama_identity.status(root)["portable"]
+
+
+def test_identity_never_overwrites_carried_key(tmp_path: Path, monkeypatch):
+    """Taşınan arşivin kimliği, açıldığı makinenin kimliğiyle EZİLMEMELİ."""
+    fake_home = tmp_path / "kullanici"
+    (fake_home / ".ollama").mkdir(parents=True)
+    (fake_home / ".ollama" / "id_ed25519").write_text("YENI-MAKINE", encoding="utf-8")
+    monkeypatch.setattr(ollama_identity.Path, "home", staticmethod(lambda: fake_home))
+
+    root = tmp_path / "repo"
+    keydir = ollama_identity.repo_key_dir(root)
+    keydir.mkdir(parents=True)
+    (keydir / "id_ed25519").write_text("TASINAN", encoding="utf-8")
+
+    res = ollama_identity.migrate(root)
+    assert res["moved"] is False
+    assert (keydir / "id_ed25519").read_text(encoding="utf-8") == "TASINAN"
+
+
+@pytest.mark.skipif(not IS_WIN, reason="sarmalayıcılar Windows'a özgü")
+def test_ensure_ollama_points_home_into_repo(tmp_path: Path):
+    _stub_tree(tmp_path)
+    wrappers.generate(tmp_path)
+    text = (tmp_path / "tools" / "agents" / "ensure-ollama.cmd").read_text(encoding="ascii")
+    assert 'set "USERPROFILE=%ROOT%\\tools\\ollama\\home"' in text
+    assert 'set "HOME=%ROOT%\\tools\\ollama\\home"' in text
 
 
 # --- paketleme: istege bagli agir yukler --------------------------------------

@@ -23,7 +23,7 @@ from pathlib import Path
 from tools.juggler_profile import sync as profile_sync
 from tools.setup_gui import connect, wrappers
 
-from . import runtimes
+from . import ollama_identity, runtimes
 
 STATE_REL = (".atlas", "portable", "machine.json")
 
@@ -99,7 +99,12 @@ def relocate(root: Path, force: bool = False) -> dict:
         }
     )
 
-    # 3) Juggler profili — eklenti, komutlar, ayarlar, kullanici/proje acp.json.
+    # 3) Ollama bulut kimligi — depo disinda kalirsa tasinmaz (bkz. modul).
+    ident = ollama_identity.migrate(root)
+    if ident["moved"]:
+        steps.append({"step": "ollama-kimligi", "ok": True, "detail": ident["detail"]})
+
+    # 4) Juggler profili — eklenti, komutlar, ayarlar, kullanici/proje acp.json.
     try:
         sync = profile_sync.sync(root)
         steps.append(
@@ -136,6 +141,20 @@ def preflight(root: Path) -> list[dict]:
                 "needed_by": rt["needed_by"],
             }
         )
+    out.append(ollama_identity.status(root))
+    # Uzun yol tuzağı: node_modules ağacı derindir, Windows'un 260 karakter
+    # sınırı kök yolu uzunsa AÇARKEN vurur (dosyalar sessizce eksik kalır).
+    root_len = len(str(root))
+    out.append(
+        {
+            "id": "path.length",
+            "ok": root_len <= 60,
+            "portable": root_len <= 60,
+            "detail": f"kok yolu {root_len} karakter"
+            + ("" if root_len <= 60 else " - C:\\ATLAS gibi kisa bir yere acin"),
+            "needed_by": "derin node_modules agaci (260 karakter siniri)",
+        }
+    )
     specs = {
         "juggler": root / "tools" / "juggler" / "juggler.exe",
         "ollama": root / "tools" / "ollama" / "ollama.exe",

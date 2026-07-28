@@ -95,10 +95,25 @@ içindeki yerel yamalar (ACP `authenticate`) yok oldu ve ajanlar bağlanamaz hâ
 geldi. Panel için yalnız bildirim çıkar; kurulumu `DOCTOR.cmd`teki güvenli
 sırayla yapılır: yedek → ayrı klasörde derle → `ext validate` → kopyala.
 
+## Bulut modeli kimliği
+
+`ollama signin` kimliği bir **anahtar çiftidir** ve normalde
+`%USERPROFILE%\.ollama\id_ed25519` altında, yani deponun DIŞINDA durur.
+Ölçüldü: bu anahtar olmadan bulut modeli ilk istekte `{"error":"Unauthorized"}`
+döner — goose ve kimi çalışmaz.
+
+Bu yüzden ollama sunucusunun ev dizini `tools/ollama/home`a çevrildi ve anahtar
+ilk `BASLAT.cmd`te oraya bir kez kopyalanır. Taşınan arşivin anahtarı, açıldığı
+makinenin anahtarıyla **ezilmez** (o makinede hiç hesap olmayabilir).
+
+Yeni makinede bulut modeli hâlâ `Unauthorized` diyorsa: `BASLAT.cmd` çıktısında
+`auth.ollama` satırına bakın; "yok" diyorsa bir kez `ollama signin` gerekir.
+
 ## Hesap bilgileri de taşınır
 
-Ajan token'ları (`tools/ai-cli/home/…`) ve Juggler kimliği
-(`juggler-profile/home/credentials.json`) klasörün içindedir; yeni makinede
+Ajan token'ları (`tools/ai-cli/home/…`), Juggler kimliği
+(`juggler-profile/home/credentials.json`) ve ollama özel anahtarı
+(`tools/ollama/home/.ollama/id_ed25519`) klasörün içindedir; yeni makinede
 yeniden giriş yapmanız gerekmez. **Bunun sonucu:** arşivi başkasına verirseniz
 hesaplarınızı da vermiş olursunuz. Paylaşacaksanız önce bu dosyaları silin
 (sonra ilgili ajanda bir kez giriş yapılır).
@@ -108,6 +123,23 @@ hesaplarınızı da vermiş olursunuz. Paylaşacaksanız önce bu dosyaları sil
 Hayır — açılış, ajanlar ve panel çevrimdışı çalışır. İnternet yalnız iki şey
 için gerekir: bulut modelleri (`*-cloud`, hesap gerektirir) ve güncelleme
 denetimi. İkisi de yoksa açılış yine tamamlanır, sadece o adımlar sessizce atlanır.
+
+## Bilinen riskler (yeni makinede)
+
+Bunlar ATLAS'ın hatası değil, Windows'un davranışıdır — ama taşırken canınızı
+yakabilir:
+
+1. **Uzun yol (260 karakter).** `node_modules` ağacı derindir. Arşivi
+   `C:\ATLAS` gibi KISA bir yere açın; `C:\Users\...\Downloads\yeni\ATLAS-son\`
+   gibi derin bir yer açarken dosyaları sessizce eksik bırakabilir.
+   `BASLAT.cmd` bunu `path.length` satırında uyarır.
+2. **Mark-of-the-Web / SmartScreen.** Arşivi internetten veya e-postayla
+   aldıysanız Windows içindeki `.exe`leri "engellenmiş" işaretler ve ilk
+   çalıştırmada uyarı çıkar. Açmadan önce: arşive sağ tık → Özellikler →
+   **Engellemeyi kaldır** (Unblock). USB/yerel ağ ile taşırsanız bu olmaz.
+3. **Antivirüs.** Ajan ikilileri imzasızdır; kurumsal antivirüs karantinaya
+   alabilir. `BASLAT.cmd` eksik ikiliyi söyler, sessizce yutmaz.
+4. **Mimari.** Paketteki ikililer **x64**; Windows on ARM makinede çalışmaz.
 
 ## Bir şey ters giderse
 
