@@ -251,3 +251,57 @@ def test_003_2_llm_prompt_tip_hatasi_liste(tmp_path: Path) -> None:
     )
     with pytest.raises(SpecError, match="llm_prompt string olmalı"):
         load_goal(p)
+
+
+# ---------- SPEC 009: opsiyonel llm_model ----------
+
+
+def test_009_llm_model_alan_yok_none() -> None:
+    """Alan yok → goal.llm_model is None."""
+    goal = load_goal(FIXTURES / "hello.yaml")
+    assert goal.llm_model is None
+
+
+def test_009_llm_model_gecerli_string(tmp_path: Path) -> None:
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "llm_model: claude-3-opus-latest\n",
+        encoding="utf-8",
+    )
+    assert load_goal(p).llm_model == "claude-3-opus-latest"
+
+
+def test_009_llm_model_bos_string_none(tmp_path: Path) -> None:
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        'llm_model: ""\n',
+        encoding="utf-8",
+    )
+    assert load_goal(p).llm_model is None
+
+
+def test_009_llm_model_null_none(tmp_path: Path) -> None:
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "llm_model: null\n",
+        encoding="utf-8",
+    )
+    assert load_goal(p).llm_model is None
+
+
+def test_009_llm_model_tip_hatasi(tmp_path: Path) -> None:
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "llm_model: 42\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match="llm_model string olmalı"):
+        load_goal(p)

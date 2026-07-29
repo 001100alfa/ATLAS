@@ -246,8 +246,13 @@ def _claude_planner(goal: Goal, context: str | None = None) -> Planner:
 # ---------- LLM (anthropic HTTPS) yardımcıları ----------
 
 
-def _resolve_anthropic_env() -> tuple[str, str, str, int]:
+def _resolve_anthropic_env(goal: Goal | None = None) -> tuple[str, str, str, int]:
     """`(api_key, url, model, timeout_s)` döner; env eksikse fail-fast.
+
+    Model öncelik zinciri (SPEC 009):
+      1. `goal.llm_model` (YAML'dan görev-başına)
+      2. `ATLAS_LLM_MODEL` env
+      3. `_DEFAULT_ANTHROPIC_MODEL` sabiti
 
     `ANTHROPIC_API_KEY` boş → `LLMPlannerError` (fabrika anında).
     """
@@ -258,7 +263,9 @@ def _resolve_anthropic_env() -> tuple[str, str, str, int]:
             "(veya .env dosyasına ekleyip yeniden yükleyin)"
         )
     url = os.environ.get("ATLAS_LLM_ANTHROPIC_URL", _DEFAULT_ANTHROPIC_URL).strip()
-    model = os.environ.get("ATLAS_LLM_MODEL", _DEFAULT_ANTHROPIC_MODEL).strip()
+    goal_model = (goal.llm_model if goal is not None else None) or ""
+    env_model = os.environ.get("ATLAS_LLM_MODEL", "").strip()
+    model = (goal_model or env_model or _DEFAULT_ANTHROPIC_MODEL).strip()
     timeout_s = int(os.environ.get("ATLAS_LLM_TIMEOUT", str(_DEFAULT_TIMEOUT_S)))
     return api_key, url, model, timeout_s
 
@@ -341,8 +348,12 @@ def _call_anthropic(
 
 
 def _anthropic_planner(goal: Goal, context: str | None = None) -> Planner:
-    """Fabrika: env'i erken çözer (fail-fast), closure her turda çağırır."""
-    api_key, url, model, timeout_s = _resolve_anthropic_env()  # fail-fast
+    """Fabrika: env'i erken çözer (fail-fast), closure her turda çağırır.
+
+    SPEC 009: model önceliği `goal.llm_model` > `ATLAS_LLM_MODEL` env >
+    varsayılan; `_resolve_anthropic_env(goal)` içinde çözülür.
+    """
+    api_key, url, model, timeout_s = _resolve_anthropic_env(goal)  # fail-fast
 
     def _anthropic(_goal: str, history: list[tuple[StepKind, str]]) -> str:
         prompt = _format_prompt(goal, history, context=context)

@@ -53,6 +53,9 @@ class Goal:
     # SPEC 003.2: opsiyonel özel sistem promptu. None → mevcut sabit
     # şablon (bit-uyumlu); str → prompt'un başına eklenir (planner içinde).
     llm_prompt: str | None = None
+    # SPEC 009: opsiyonel model id (şu an anthropic backend'i kullanır).
+    # None → env yolu (`ATLAS_LLM_MODEL`) veya varsayılan sabit.
+    llm_model: str | None = None
 
 
 def _require(spec: dict[str, object], key: str, kind: type) -> object:
@@ -157,6 +160,18 @@ def load_goal(path: Path) -> Goal:
             f"llm_prompt string olmalı, gelen: {type(llm_prompt_raw).__name__}"
         )
 
+    # SPEC 009: opsiyonel model id (aynı 003.2 kalıbıyla).
+    llm_model_raw = raw.get("llm_model")
+    llm_model: str | None
+    if llm_model_raw is None:
+        llm_model = None
+    elif isinstance(llm_model_raw, str):
+        llm_model = llm_model_raw if llm_model_raw else None
+    else:
+        raise SpecError(
+            f"llm_model string olmalı, gelen: {type(llm_model_raw).__name__}"
+        )
+
     # Literal daraltması: yukarıda enum kontrolü yapıldı, tip güvenli.
     return Goal(
         goal=goal,
@@ -172,4 +187,5 @@ def load_goal(path: Path) -> Goal:
         inject_context=inject_ctx_raw,
         context_limit=ctx_limit_raw,
         llm_prompt=llm_prompt,
+        llm_model=llm_model,
     )

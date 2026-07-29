@@ -375,6 +375,71 @@ def test_003_2_ozel_prompt_body_de_gorunur(monkeypatch: pytest.MonkeyPatch) -> N
     assert "planlama alt-ajansısın" not in content
 
 
+# ---------- SPEC 009: goal.llm_model önceliği ----------
+
+def test_009_goal_llm_model_env_ustune(monkeypatch: pytest.MonkeyPatch) -> None:
+    """goal.llm_model set edilirse env değil goal kullanılır."""
+    _prep_key(monkeypatch)
+    monkeypatch.setenv("ATLAS_LLM_MODEL", "claude-3-haiku-latest")  # env AŞILACAK
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(req: Any, **_kw: Any) -> _FakeResponse:
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResponse(
+            json.dumps(
+                {"content": [{"type": "text", "text": "write:x.txt:1"}]}
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    from dataclasses import replace
+    g = replace(_goal_llm(), llm_model="claude-3-opus-latest")
+    p = make_planner(g)
+    p("g", [])
+    assert seen["body"]["model"] == "claude-3-opus-latest"  # env değil, goal
+
+
+def test_009_goal_llm_model_yok_env_dusuyor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """goal.llm_model None → env yolu kullanılır (mevcut davranış)."""
+    _prep_key(monkeypatch)
+    monkeypatch.setenv("ATLAS_LLM_MODEL", "claude-3-haiku-latest")
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(req: Any, **_kw: Any) -> _FakeResponse:
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResponse(
+            json.dumps(
+                {"content": [{"type": "text", "text": "write:x.txt:1"}]}
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    # goal.llm_model = None (varsayılan)
+    p = make_planner(_goal_llm())
+    p("g", [])
+    assert seen["body"]["model"] == "claude-3-haiku-latest"
+
+
+def test_009_goal_llm_model_ve_env_yok_varsayilan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """goal + env yok → _DEFAULT_ANTHROPIC_MODEL."""
+    _prep_key(monkeypatch)
+    monkeypatch.delenv("ATLAS_LLM_MODEL", raising=False)
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(req: Any, **_kw: Any) -> _FakeResponse:
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResponse(
+            json.dumps(
+                {"content": [{"type": "text", "text": "write:x.txt:1"}]}
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())
+    p("g", [])
+    assert seen["body"]["model"] == planner_mod._DEFAULT_ANTHROPIC_MODEL
+
+
 def test_key_asla_hata_mesajina_gecmez(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATLAS_LLM", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-SUPER-SECRET-abcdef")

@@ -1,6 +1,26 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 009 — Goal.llm_model opsiyonel alanı)
+- [KARAR] `Goal.llm_model: str | None = None` — 003.2 llm_prompt kalıbı
+  birebir taşındı: son sırada + default'lu, boş string → None sessiz
+  fallback, tip yanlış → SpecError. Eski YAML'lar hiç değişmedi.
+- [KARAR] Model öncelik zinciri anthropic backend'inde:
+  `goal.llm_model` > `ATLAS_LLM_MODEL` env > `_DEFAULT_ANTHROPIC_MODEL`
+  sabiti. `_resolve_anthropic_env(goal=None)` opsiyonel goal alır;
+  `None` verilirse davranış eskisiyle aynı.
+- [KARAR] claude/acp backend'ler alanı **yok sayar** — kapsam DIŞI.
+  claude subprocess `--model` argümanı Görev 010+; ACP protokolü
+  model bildirimini agent'ın kendi yapılandırmasına bırakır.
+- [KARAR] Model listesi doğrulaması YOK — Anthropic modelleri
+  değişken; env yolu zaten bir emniyet supabı. Kullanıcı bilmeyen
+  model verirse API 400 döner, `LLMPlannerError` üzerinden görünür.
+- Kapsam: 1 modül düzenleme (goals.py — +llm_model + load kolu),
+  1 modül düzenleme (planner.py — _resolve_anthropic_env(goal)),
+  1 test dosyası genişleme (+5 test), 1 backend test dosyası
+  genişleme (+3 test). Toplam 395 test yeşil (387 → +8). mypy strict
+  + ruff temiz. Artefaktlar `pipeline/tasks/009-llm-model/`.
+
 ## 2026-07-29 (Görev 008 — LLM retry/backoff sarmalayıcı)
 - [KARAR] Retry mantığı planner'ın **dışında** — `make_retrying_planner`
   ayrı fabrikadır, `make_planner` sözleşmesi hiç değişmedi. Böylece
