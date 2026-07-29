@@ -1,6 +1,28 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 027 — `atlas replay <run-id>`)
+- [KARAR] **YAML kopyası** replay için yeter — full snapshot (sandbox
+  state, env) YAGNI. Görev YAML'ı deterministik (goal, plan_kind,
+  action_allowlist); dış dünya değişebilir (LLM cost, network) ama
+  bunlar zaten replay'in kapsamı dışında.
+- [KARAR] `goal_id = <yaml stem>-<run-id>` — mevcut `sandbox = ...
+  /goal_id` kalıbı ile simetri. Dashboard `run_id` kolonu bu stem'i
+  gösterir; kullanıcı `atlas replay <stem>` çağırır.
+- [KARAR] Kopyalama **hata sessiz** — disk dolu / izin yoksa ana
+  akış bloklamamalı. `try: ... except OSError: return None`.
+- [KARAR] Dashboard eşleşme **mtime desc + zip runs** — heuristik
+  ama pratik. Alternatif: audit'te `run_id` kaydetmek — audit
+  sözleşmesini genişletir; şu an yaml dosya listesi yeter.
+- [KARAR] Yeni run-id vermek opsiyonel (`--new-run-id`) — varsayılan
+  yeni timestamp. Kullanıcı test/regresyon için stabil id vermek
+  isterse verir.
+- Kapsam: 1 modül düzenleme (cli.py: +_runs_dir, +_archive_goal_yaml,
+  +_cmd_replay ~40 sat; _cmd_run_goal YAML kopyala; dashboard
+  run_id kolonu; parser replay alt-komutu), 1 yeni test dosyası
+  (6 test). Toplam 545 test yeşil (539 → +6). mypy strict + ruff
+  temiz. Artefaktlar `pipeline/tasks/027-atlas-replay/`.
+
 ## 2026-07-29 (Görev 026 — sandbox iyileştirme, Docker YOK)
 - [KARAR] **Docker YASAK** (kullanıcı direktifi). Portable stdlib-only
   yol: env whitelist, PATH kısıt, timeout env, stderr yakalama.

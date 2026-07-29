@@ -161,6 +161,9 @@ def _cmd_run_goal(args: argparse.Namespace) -> int:
     sandbox = _sandbox_root() / goal_id
     sandbox.mkdir(parents=True, exist_ok=True)
 
+    # SPEC 027: YAML'ı .atlas/runs/<goal_id>.yaml'a kopyala (replay için).
+    _archive_goal_yaml(Path(args.goal_file), goal_id)
+
     # SPEC 006: context enjeksiyonu (görev başında bir kez)
     if _context_enabled(goal):
         ctx, ctx_label = _compute_context(goal)
@@ -528,6 +531,51 @@ def _cmd_archive_all(args: argparse.Namespace) -> int:
     if skipped:
         print(f"atlanan: {', '.join(skipped)}")
     return 6 if failed else 0
+
+
+def _runs_dir() -> Path:
+    """SPEC 027: `ATLAS_RUNS_DIR` (varsayılan `.atlas/runs`)."""
+    override = os.environ.get("ATLAS_RUNS_DIR", "").strip()
+    if override:
+        return Path(override)
+    return Path(".atlas/runs")
+
+
+def _archive_goal_yaml(goal_file: Path, run_id: str) -> Path | None:
+    """SPEC 027: YAML'ı `.atlas/runs/<run-id>.yaml` olarak kopyala.
+
+    Hata sessiz — ana akışı bloklamaz.
+    """
+    try:
+        target_dir = _runs_dir()
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / f"{run_id}.yaml"
+        target.write_text(
+            goal_file.read_text(encoding="utf-8", errors="replace"),
+            encoding="utf-8",
+        )
+        return target
+    except OSError:
+        return None
+
+
+def _cmd_replay(args: argparse.Namespace) -> int:
+    """SPEC 027: `atlas replay <run-id>` — arşivlenmiş YAML'ı çalıştır."""
+    yaml_path = _runs_dir() / f"{args.run_id}.yaml"
+    if not yaml_path.is_file():
+        print(
+            f"SPEC HATASI: run bulunamadı: {args.run_id} "
+            f"({yaml_path})",
+            file=sys.stderr,
+        )
+        return 2
+    # `_cmd_run_goal`'a args namespace ile geç.
+    replay_args = argparse.Namespace(
+        goal_file=str(yaml_path),
+        run_id=args.new_run_id,
+        dry_run=getattr(args, "dry_run", False),
+    )
+    return _cmd_run_goal(replay_args)
 
 
 def _load_dotenv(path: Path) -> int:
@@ -969,12 +1017,26 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
     runs = _collect_runs_from_audit(audit_path, limit)
     price_in, price_out = _read_llm_prices()
 
+    # SPEC 027: run_id eşleşmesi — .atlas/runs/*.yaml stem'lerini
+    # mtime desc sırayla runs listesiyle hizala.
+    runs_dir = _runs_dir()
+    run_ids: list[str] = []
+    if runs_dir.is_dir():
+        yaml_files = sorted(
+            runs_dir.glob("*.yaml"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        run_ids = [p.stem for p in yaml_files[:len(runs)]]
+
     if args.json:
         out_runs: list[dict[str, Any]] = []
-        for r in runs:
+        for i, r in enumerate(runs):
             cost = _cost_for_run(r, metrics_path, price_in, price_out)
             item = dict(r)
             item["cost"] = f"${cost:.6f}" if cost is not None else "?"
+            if i < len(run_ids):
+                item["run_id"] = run_ids[i]
             out_runs.append(item)
         print(_json.dumps({
             "audit_chain_valid": chain_ok,
@@ -987,14 +1049,19 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
     if not runs:
         print("  (0 run)")
         return 0
-    print(f"  {'#':<3} {'ts':<20} {'exit':<12} {'steps':<6} cost")
+    print(
+        f"  {'#':<3} {'ts':<20} {'exit':<12} "
+        f"{'steps':<6} {'run_id':<24} cost"
+    )
     for i, r in enumerate(runs, 1):
         cost = _cost_for_run(r, metrics_path, price_in, price_out)
         cost_str = f"${cost:.6f}" if cost is not None else "?"
         ts_short = str(r.get("start_ts", ""))[:19].replace("T", " ")
+        run_id = run_ids[i - 1] if (i - 1) < len(run_ids) else "-"
         print(
             f"  {i:<3} {ts_short:<20} "
-            f"{r.get('exit', '?'):<12} {r.get('steps', 0):<6} {cost_str}"
+            f"{r.get('exit', '?'):<12} {r.get('steps', 0):<6} "
+            f"{run_id[:24]:<24} {cost_str}"
         )
     return 0
 
@@ -1162,6 +1229,13 @@ def main(argv: list[str] | None = None) -> int:
     p_dash.add_argument("--limit", type=int, default=10)
     p_dash.add_argument("--json", action="store_true")
     p_dash.set_defaults(func=_cmd_dashboard)
+
+    p_rep = sub.add_parser("replay", help="Bir run'ı yeniden çalıştır (SPEC 027)")
+    p_rep.add_argument("run_id", help="run-id (`.atlas/runs/<id>.yaml`)")
+    p_rep.add_argument("--new-run-id", default=None,
+                       help="replay'in yeni run-id'si (varsayılan yeni timestamp)")
+    p_rep.add_argument("--dry-run", action="store_true")
+    p_rep.set_defaults(func=_cmd_replay)
 
     p_met = sub.add_parser("metrics", help="LLM çağrı metrikleri özeti (SPEC 023)")
     p_met.add_argument("--limit", type=int, default=20,
