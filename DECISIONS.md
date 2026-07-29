@@ -1,6 +1,30 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 011 — Token cost, report-only)
+- [KARAR] Kapsam **report-only** — CallBudget'a token yansıması YOK.
+  Soyut kredi modeli 003+002'den beri stabil; onu kırmak Görev 013'ün
+  işi. Bu görev sadece "kullanıcı ne kadar yakıyor?" sorusunu görünür
+  kılar.
+- [KARAR] `ATLAS_LLM_TRACE=1` env'i Görev 008 retry trace'iyle
+  **paylaşılır**. Tek env ile hem retry hem usage görünür; kullanıcı
+  ayrı bayrak yönetmez. Kapalıysa sıfır yan-etki (`_emit_...` yalın
+  return, yalnız kısa dict lookup).
+- [KARAR] Fiyat env'leri `ATLAS_LLM_PRICE_IN`/`ATLAS_LLM_PRICE_OUT`
+  **per million token, USD**. Parse hatası → `cost≈?` (fail-safe).
+  Model-specific sabit tablo eklemedik — Anthropic modelleri değişken
+  (aylık fiyat değişimi yaygın); env kullanıcının kontrolünde daha
+  esnek. Model-özel default tablo Görev 013+.
+- [KARAR] claude/acp backend'ler **usage yayınlamaz** — claude subprocess
+  cevap gövdesinde token bilgisi yok, ACP protokolü native usage
+  taşımıyor. Şu an ertelendi; ACP genişleyince tekrar bakılır.
+- [KARAR] Trace format: `[llm] anthropic tokens: in=N out=N cost≈$X.XXXX`
+  — retry trace'i `[retry] ...` prefix'iyle simetrik. Grep/awk ile
+  ayrıştırma kolay.
+- Kapsam: 1 modül genişleme (planner.py +30 sat: 2 yeni yardımcı),
+  1 test dosyası genişleme (+5 test). Toplam 402 test yeşil (397 → +5).
+  mypy strict + ruff temiz. Artefaktlar `pipeline/tasks/011-token-cost/`.
+
 ## 2026-07-29 (Görev 010 — Anthropic system rolü ayrımı)
 - [KARAR] `goal.llm_prompt` **anthropic** backend request gövdesinin
   `system` üst-düzey alanına gider; `messages[0].content` sadece

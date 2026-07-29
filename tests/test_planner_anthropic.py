@@ -343,6 +343,132 @@ def test_model_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert seen["body"]["model"] == "claude-3-opus-latest"
 
 
+# ---------- SPEC 011: token cost trace ----------
+
+def test_011_usage_trace_env_acikken(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AC1+AC2: trace açık → stderr'a `[llm] anthropic tokens: ...` satırı."""
+    _prep_key(monkeypatch)
+    monkeypatch.setenv("ATLAS_LLM_TRACE", "1")
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        return _FakeResponse(
+            json.dumps(
+                {
+                    "content": [{"type": "text", "text": "write:x.txt:1"}],
+                    "usage": {"input_tokens": 123, "output_tokens": 45},
+                }
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())
+    p("g", [])
+    err = capsys.readouterr().err
+    assert "[llm] anthropic tokens:" in err
+    assert "in=123" in err
+    assert "out=45" in err
+    # Fiyat env'i yok → cost=?
+    assert "cost≈?" in err
+
+
+def test_011_usage_trace_env_kapali(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AC3: trace kapalı → stderr temiz."""
+    _prep_key(monkeypatch)
+    monkeypatch.delenv("ATLAS_LLM_TRACE", raising=False)
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        return _FakeResponse(
+            json.dumps(
+                {
+                    "content": [{"type": "text", "text": "write:x.txt:1"}],
+                    "usage": {"input_tokens": 123, "output_tokens": 45},
+                }
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())
+    p("g", [])
+    assert "[llm]" not in capsys.readouterr().err
+
+
+def test_011_cost_hesabi(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AC4: fiyat env'i verilirse cost hesaplanır (per million USD)."""
+    _prep_key(monkeypatch)
+    monkeypatch.setenv("ATLAS_LLM_TRACE", "1")
+    monkeypatch.setenv("ATLAS_LLM_PRICE_IN", "3.0")   # $3/M input
+    monkeypatch.setenv("ATLAS_LLM_PRICE_OUT", "15.0")  # $15/M output
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        return _FakeResponse(
+            json.dumps(
+                {
+                    "content": [{"type": "text", "text": "write:x.txt:1"}],
+                    "usage": {"input_tokens": 1000, "output_tokens": 200},
+                }
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())
+    p("g", [])
+    err = capsys.readouterr().err
+    # 1000 * 3/1e6 + 200 * 15/1e6 = 0.003 + 0.003 = 0.006
+    assert "cost≈$0.006000" in err
+
+
+def test_011_usage_alani_yok(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """response'da usage yok → in=0 out=0 (fail-safe)."""
+    _prep_key(monkeypatch)
+    monkeypatch.setenv("ATLAS_LLM_TRACE", "1")
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        return _FakeResponse(
+            json.dumps(
+                {"content": [{"type": "text", "text": "write:x.txt:1"}]}
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())
+    p("g", [])
+    err = capsys.readouterr().err
+    assert "in=0 out=0" in err
+
+
+def test_011_fiyat_env_bozuk(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Fiyat env parse hatası → cost≈? (fail-safe, çağrı kırılmaz)."""
+    _prep_key(monkeypatch)
+    monkeypatch.setenv("ATLAS_LLM_TRACE", "1")
+    monkeypatch.setenv("ATLAS_LLM_PRICE_IN", "not-a-number")
+    monkeypatch.setenv("ATLAS_LLM_PRICE_OUT", "15.0")
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        return _FakeResponse(
+            json.dumps(
+                {
+                    "content": [{"type": "text", "text": "write:x.txt:1"}],
+                    "usage": {"input_tokens": 100, "output_tokens": 50},
+                }
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())
+    assert p("g", []) == "write:x.txt:1"  # çağrı bozulmaz
+    assert "cost≈?" in capsys.readouterr().err
+
+
 # ---------- Hata mesajı sırrı sızdırmaz ----------
 
 # ---------- SPEC 010: llm_prompt anthropic `system` alanına gider ----------

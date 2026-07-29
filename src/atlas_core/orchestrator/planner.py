@@ -360,7 +360,48 @@ def _call_anthropic(
     first_line = text.splitlines()[0].strip()
     if not first_line:
         raise LLMPlannerError("anthropic boş plan cevabı döndürdü (ilk satır boş)")
+    # SPEC 011: report-only token usage trace (yan etki, sözleşme değişmez).
+    _emit_anthropic_usage_trace(data)
     return first_line
+
+
+def _emit_anthropic_usage_trace(data: Any) -> None:
+    """`ATLAS_LLM_TRACE=1` açıkken usage bilgisini stderr'a yaz.
+
+    Kapalıysa yalın no-op — çağrı yolunda yan etki yok.
+    """
+    if os.environ.get("ATLAS_LLM_TRACE") != "1":
+        return
+    usage = data.get("usage") if isinstance(data, dict) else None
+    in_tok = 0
+    out_tok = 0
+    if isinstance(usage, dict):
+        in_raw = usage.get("input_tokens", 0)
+        out_raw = usage.get("output_tokens", 0)
+        if isinstance(in_raw, int):
+            in_tok = in_raw
+        if isinstance(out_raw, int):
+            out_tok = out_raw
+    cost_txt = _fmt_cost(in_tok, out_tok)
+    print(
+        f"[llm] anthropic tokens: in={in_tok} out={out_tok} cost≈{cost_txt}",
+        file=sys.stderr,
+    )
+
+
+def _fmt_cost(in_tok: int, out_tok: int) -> str:
+    """Fiyat env'i (per million USD) varsa cost, yoksa `?`.
+
+    Parse hatası → `?` (fail-safe; kullanıcı env'i yanlış yazarsa
+    işlemi kırma).
+    """
+    try:
+        price_in = float(os.environ.get("ATLAS_LLM_PRICE_IN", ""))
+        price_out = float(os.environ.get("ATLAS_LLM_PRICE_OUT", ""))
+    except ValueError:
+        return "?"
+    cost = in_tok * price_in / 1_000_000 + out_tok * price_out / 1_000_000
+    return f"${cost:.6f}"
 
 
 def _anthropic_planner(goal: Goal, context: str | None = None) -> Planner:
