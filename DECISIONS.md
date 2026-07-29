@@ -1,6 +1,44 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 003 — LLM planner entegrasyonu)
+- [KARAR] `orchestrator/planner.py` LLM backend'i **subprocess-based** ve
+  **`claude --print`** ile başlar. `ATLAS_LLM=claude` verildiğinde her tur
+  `_call_claude` çalışır; `shell=False`, `text=True`, `encoding="utf-8"`,
+  `errors="replace"`, `input=prompt` (stdin), `capture_output=True`,
+  `timeout=env(ATLAS_LLM_TIMEOUT, 60)`. Kalıp DECISIONS 2026-07-24'ün
+  ("subprocess+UTF-8 tuzağı") ilk uygulaması.
+- [KARAR] `make_planner` **fail-fast**: `plan_kind=llm` + `ATLAS_LLM=claude`
+  altında bin çözümlenemezse `LLMPlannerError` **fabrika anında** patlar
+  (run_loop'a girmez). Öncelik: `ATLAS_LLM_CLAUDE_BIN` env → `shutil.which("claude")`
+  (Windows'ta `.cmd` uzantısını çözer). Çağrı-zamanı hataları (timeout,
+  exit!=0, boş cevap) da `LLMPlannerError`; sözleşme: planner closure'ı
+  yalnız bu istisnayı fırlatır.
+- [KARAR] Yeni exit kodu **7** = LLM planner hatası. 6 workflow-handler'a
+  ayrılmış (2026-07-28); karışmasın. `cli.py::_cmd_run_goal` fabrika ve
+  runtime hatalarını ayrı `except` bloklarında yakalar, audit'e
+  `("atlas-run","llm_error", str(exc)[:200])` yazar.
+- [KARAR] `acp` ve `anthropic` backend'leri açık `NotImplementedError`
+  ("Görev 003.1'de eklenecek") ile bırakıldı. Prompt YAML'da (Goal.llm_prompt)
+  Görev 003.2. Retry Görev 013. Token cost Görev 011. Küçük tutuldu.
+- [KARAR] Prompt **sabit ve kısa** (~450 karakter): görev + izinli fiiller
+  + son 3 OBSERVE + "TEK satır yaz" direktifi. LLM çok satır yazarsa ilk
+  satır alınır; boşsa `LLMPlannerError("boş plan")`.
+- [HATA] Test suite'in `_run` helper'ları (`test_cli_goal.py`,
+  `test_cli_workflow.py`) subprocess.run çağırırken `encoding` **vermiyordu**;
+  Windows Türkçe locale'da (cp1254) reader thread UTF-8 çıktıyı decode
+  edemeyip `UnicodeDecodeError` fırlatıyor, `?` karakteri koyup Türkçe
+  arayan assertion'lar sessizce düşüyordu. 5 test flaky idi. Kalıp aslında
+  DECISIONS 2026-07-24'te vardı ama CLI çıktısını **okuyan** taraf için
+  taşınmamıştı. Düzeltme: `encoding="utf-8", errors="replace"` sabit.
+- [HATA] `test_doctor_gui.py::test_restore_defaults_to_newest_and_can_pick_by_name`
+  Windows mtime granülerliğinde flaky: iki yedek aynı saniye içinde
+  oluşturulunca "en yeni" sıralaması karışıyor. 003 kapsamı dışı; Görev
+  007+ notu.
+- Kapsam: 1 modül düzenleme, 1 CLI düzenleme, 3 yeni test dosyası (16 test),
+  toplam 302 test yeşil, coverage %94.84, mypy strict + ruff temiz.
+  Artefaktlar `pipeline/tasks/003-llm-planner/`.
+
 ## 2026-07-28 (Görev 005 — GBrain FTS indeksi)
 - [KARAR] Önbellek katmanı = `.atlas/gbrain.sqlite`; vault gerçek kaynak
   olarak kalır. İndeks silinirse bilgi kaybı yok — `atlas reindex` yeniden kurar.

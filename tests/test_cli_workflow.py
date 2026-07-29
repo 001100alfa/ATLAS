@@ -13,9 +13,12 @@ def _run(*args: str, env_extra: dict[str, str] | None = None,
     env = os.environ.copy()
     if env_extra:
         env.update(env_extra)
+    # DECISIONS 2026-07-24 kalıbı: cp1254 locale'da UTF-8 çıktıyı reader thread
+    # decode edemiyor → encoding sabit + errors="replace".
     return subprocess.run(
         [sys.executable, "-m", "atlas_core.cli", *args],
         capture_output=True, text=True, env=env, cwd=cwd, timeout=300,
+        encoding="utf-8", errors="replace",
     )
 
 

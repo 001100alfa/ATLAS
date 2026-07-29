@@ -88,6 +88,35 @@ def test_run_llm_stub_denied(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     assert main(["run", "--goal-file", "tests/goals/llm_stub.yaml", "--run-id", "d"]) == 5
 
 
+def test_run_llm_claude_bin_yok(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """SPEC 003 AC10: LLM bin bulunamayınca CLI exit 7 + audit llm_error."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "claude")
+    monkeypatch.delenv("ATLAS_LLM_CLAUDE_BIN", raising=False)
+    # PATH'te claude olmadığını garantile
+    import atlas_core.orchestrator.planner as planner_mod
+    monkeypatch.setattr(planner_mod.shutil, "which", lambda _n: None)
+    assert main(["run", "--goal-file", "tests/goals/llm_claude.yaml", "--run-id", "d"]) == 7
+    audit_txt = (tmp_path / "a.jsonl").read_text(encoding="utf-8")
+    assert "llm_error" in audit_txt
+
+
+def test_run_llm_claude_runtime_hatasi(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """SPEC 003: fabrika tamam ama call hatası da exit 7 döner."""
+    _env(monkeypatch, tmp_path)
+    fake = tmp_path / "fake-claude.cmd"
+    fake.write_text("", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_LLM", "claude")
+    monkeypatch.setenv("ATLAS_LLM_CLAUDE_BIN", str(fake))
+    import atlas_core.orchestrator.planner as planner_mod
+
+    class _Proc:
+        stdout, stderr, returncode = "", "boom", 3
+
+    monkeypatch.setattr(planner_mod.subprocess, "run", lambda *a, **k: _Proc())
+    assert main(["run", "--goal-file", "tests/goals/llm_claude.yaml", "--run-id", "e"]) == 7
+
+
 def test_run_echo_demo_regresyon(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _env(monkeypatch, tmp_path)
     assert main(["run", "eski hedef", "--steps", "1", "--budget", "50", "--step-cost", "5"]) == 0

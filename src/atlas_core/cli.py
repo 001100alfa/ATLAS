@@ -35,7 +35,11 @@ from atlas_core.orchestrator.core import (
 )
 from atlas_core.orchestrator.goals import SpecError, load_goal
 from atlas_core.orchestrator.judges import make_judge
-from atlas_core.orchestrator.planner import PlannerExhaustedError, make_planner
+from atlas_core.orchestrator.planner import (
+    LLMPlannerError,
+    PlannerExhaustedError,
+    make_planner,
+)
 from atlas_core.security.audit import AuditLog, scan_secrets
 from atlas_core.workflows.engine import WorkflowEngine, WorkflowError
 from atlas_core.workflows.handlers import HandlerError, register_builtins
@@ -103,7 +107,12 @@ def _cmd_run_goal(args: argparse.Namespace) -> int:
     audit = AuditLog(_audit_path())
     budget = CallBudget(limit=goal.budget)
     last_exit: dict[str, int] = {}
-    plan = make_planner(goal)
+    try:
+        plan = make_planner(goal)  # fabrika: LLM bin yok → LLMPlannerError
+    except LLMPlannerError as exc:
+        audit.record("atlas-run", "llm_error", str(exc)[:200])
+        print(f"LLM PLANNER HATASI: {exc}", file=sys.stderr)
+        return 7
     act = make_action(goal, sandbox, last_exit)
     judge = make_judge(goal, sandbox, last_exit)
 
@@ -126,6 +135,10 @@ def _cmd_run_goal(args: argparse.Namespace) -> int:
         audit.record("atlas-run", "planner_exhausted", str(exc))
         print(f"PLAN BİTTİ: {exc}", file=sys.stderr)
         return 4
+    except LLMPlannerError as exc:
+        audit.record("atlas-run", "llm_error", str(exc)[:200])
+        print(f"LLM PLANNER HATASI: {exc}", file=sys.stderr)
+        return 7
     except BudgetExceededError as exc:
         print(f"BÜTÇE AŞIMI: {exc}", file=sys.stderr)
         return 3

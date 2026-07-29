@@ -45,6 +45,14 @@ def test_llm_stub_deterministik(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_llm_bilinmeyen_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ATLAS_LLM", "claude")
-    with pytest.raises(NotImplementedError, match="Görev 003"):
+    # SPEC 003: `claude` artık desteklenen backend; bilinmeyeni test edelim.
+    monkeypatch.setenv("ATLAS_LLM", "xyz")
+    with pytest.raises(NotImplementedError, match="Görev 003.1"):
         make_planner(_goal("llm"))
+
+
+def test_llm_acp_ve_anthropic_erteleme(monkeypatch: pytest.MonkeyPatch) -> None:
+    for backend in ("acp", "anthropic"):
+        monkeypatch.setenv("ATLAS_LLM", backend)
+        with pytest.raises(NotImplementedError, match="Görev 003.1"):
+            make_planner(_goal("llm"))
