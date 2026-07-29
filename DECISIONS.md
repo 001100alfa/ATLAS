@@ -1,6 +1,29 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 010 — Anthropic system rolü ayrımı)
+- [KARAR] `goal.llm_prompt` **anthropic** backend request gövdesinin
+  `system` üst-düzey alanına gider; `messages[0].content` sadece
+  ATLAS'ın plan sözleşmesi + görev + context + gözlem taşır. Model
+  system'i user'dan **daha güçlü** izler → kullanıcı persona kilidi
+  gerçekten kilit gibi çalışır.
+- [KARAR] `_format_prompt`'a `include_system: bool = True` **keyword-only**
+  parametre; anthropic backend `False` geçirerek llm_prompt'un
+  messages gövdesinde tekrarlanmasını engeller. Diğer backend'ler
+  değişmez (varsayılan). Sözleşme kırılmadı.
+- [KARAR] claude ve acp backend'lerinde llm_prompt **prepend** kalıbı
+  korundu — bu backend'lerin protokollerinde system rolü ayrımı yok
+  ya da farklı (claude subprocess `--system` argümanı ve ACP session-level
+  prompt sonraki görevlerde).
+- [KARAR] `_call_anthropic`'e `system: str | None = None` keyword-only;
+  None/boş → payload'a alan **hiç eklenmez** (temiz body, Anthropic
+  tolerate etse bile). `goal.llm_prompt or None` bind edilir — boş
+  string falsy düşer.
+- Kapsam: 1 modül düzenleme (planner.py — 3 fonksiyon), 1 test dosyası
+  düzenleme (003.2 anthropic testi 010 kalıbına dönüşüm + 2 yeni test).
+  Toplam 397 test yeşil (395 → +2 net). mypy strict + ruff temiz.
+  Artefaktlar `pipeline/tasks/010-anthropic-system-role/`.
+
 ## 2026-07-29 (Görev 009 — Goal.llm_model opsiyonel alanı)
 - [KARAR] `Goal.llm_model: str | None = None` — 003.2 llm_prompt kalıbı
   birebir taşındı: son sırada + default'lu, boş string → None sessiz

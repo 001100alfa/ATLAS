@@ -138,16 +138,21 @@ def _format_prompt(
     goal: Goal,
     history: list[tuple[StepKind, str]],
     context: str | None = None,
+    *,
+    include_system: bool = True,
 ) -> str:
     """LLM prompt gövdesini üretir.
 
     Varsayılan (goal.llm_prompt None): kısa sabit şablon (< 800 karakter,
     context ile ≤ 5000) — mevcut SPEC 003 kalıbı.
 
-    Özel (goal.llm_prompt str): kullanıcı promptu **başa** eklenir;
-    ATLAS'ın plan sözleşmesi (verbs + biçim + "TEK satır" direktifi)
-    aşağıya taşınır ki kullanıcı prompt'u sistemin çıktı sözleşmesini
-    bozmasın (SPEC 003.2).
+    Özel (goal.llm_prompt str + include_system=True): kullanıcı promptu
+    **başa** eklenir; ATLAS'ın plan sözleşmesi (verbs + biçim + "TEK
+    satır" direktifi) aşağıya taşınır (SPEC 003.2 kalıbı).
+
+    `include_system=False` (SPEC 010): anthropic backend gibi API-native
+    `system` alanına ayrıca ekleyen çağıranlar için — `goal.llm_prompt`
+    burada **atlanır**, gövdede kısıt + görev + context yer alır.
 
     `context` verilirse "Önceden bilinen bağlam" bloğu eklenir
     (SPEC 006 FR5). None veya boş string → blok eklenmez.
@@ -170,7 +175,7 @@ def _format_prompt(
         "Sadece plan satırını yaz, başka açıklama YOK."
     )
 
-    if goal.llm_prompt:
+    if goal.llm_prompt and include_system:
         # Kullanıcı sistem promptu üstte; görev + context + sözleşme altta.
         return (
             f"{goal.llm_prompt}\n\n"
@@ -178,7 +183,8 @@ def _format_prompt(
             f"{ctx_block}\n"
             f"{contract_block}"
         )
-    # Varsayılan sabit şablon (bit-uyumlu SPEC 003).
+    # Varsayılan sabit şablon (bit-uyumlu SPEC 003) — llm_prompt yoksa
+    # veya include_system=False ise (system alanı ayrıca ekleniyor).
     return (
         "Sen ATLAS'ın planlama alt-ajansısın. Görev:\n"
         f"{goal.goal}\n"
@@ -271,20 +277,30 @@ def _resolve_anthropic_env(goal: Goal | None = None) -> tuple[str, str, str, int
 
 
 def _call_anthropic(
-    api_key: str, url: str, model: str, prompt: str, timeout_s: int
+    api_key: str,
+    url: str,
+    model: str,
+    prompt: str,
+    timeout_s: int,
+    *,
+    system: str | None = None,
 ) -> str:
     """Anthropic Messages API — HTTPS POST, ilk satır plan döner.
+
+    SPEC 010: `system` verilirse gövdeye üst-düzey `system` alanı
+    olarak eklenir (Anthropic API sözleşmesi). None/boş → alan eklenmez.
 
     stdlib `urllib` + `json`. Hiçbir kod yolunda `api_key` stderr/log'a
     yazılmaz — yalnız request header'ına girer.
     """
-    body = json.dumps(
-        {
-            "model": model,
-            "max_tokens": _ANTHROPIC_MAX_TOKENS,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-    ).encode("utf-8")
+    payload: dict[str, Any] = {
+        "model": model,
+        "max_tokens": _ANTHROPIC_MAX_TOKENS,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    if system:
+        payload["system"] = system
+    body = json.dumps(payload).encode("utf-8")
     req = urllib_request.Request(  # noqa: S310 - url env kontrollü, https zorlanır
         url,
         data=body,
@@ -352,12 +368,21 @@ def _anthropic_planner(goal: Goal, context: str | None = None) -> Planner:
 
     SPEC 009: model önceliği `goal.llm_model` > `ATLAS_LLM_MODEL` env >
     varsayılan; `_resolve_anthropic_env(goal)` içinde çözülür.
+
+    SPEC 010: `goal.llm_prompt` set edilmişse Anthropic API'nin `system`
+    alanına yazılır; `messages[0].content` yalnız ATLAS'ın plan
+    sözleşmesi + görev + context + geçmiş taşır (`include_system=False`).
     """
     api_key, url, model, timeout_s = _resolve_anthropic_env(goal)  # fail-fast
+    system = goal.llm_prompt or None
 
     def _anthropic(_goal: str, history: list[tuple[StepKind, str]]) -> str:
-        prompt = _format_prompt(goal, history, context=context)
-        return _call_anthropic(api_key, url, model, prompt, timeout_s)
+        prompt = _format_prompt(
+            goal, history, context=context, include_system=False
+        )
+        return _call_anthropic(
+            api_key, url, model, prompt, timeout_s, system=system
+        )
 
     return _anthropic
 

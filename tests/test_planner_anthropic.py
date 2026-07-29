@@ -345,11 +345,11 @@ def test_model_override(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # ---------- Hata mesajı sırrı sızdırmaz ----------
 
-# ---------- SPEC 003.2: özel llm_prompt anthropic gövdesinde ----------
+# ---------- SPEC 010: llm_prompt anthropic `system` alanına gider ----------
 
-def test_003_2_ozel_prompt_body_de_gorunur(monkeypatch: pytest.MonkeyPatch) -> None:
-    """AC9: llm_prompt anthropic request gövdesindeki messages[0].content
-    içinde geçer."""
+def test_010_llm_prompt_system_alaninda(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC1: goal.llm_prompt anthropic body.system alanına yazılır;
+    messages[0].content'te YOKTUR."""
     _prep_key(monkeypatch)
     seen: dict[str, Any] = {}
 
@@ -362,17 +362,67 @@ def test_003_2_ozel_prompt_body_de_gorunur(monkeypatch: pytest.MonkeyPatch) -> N
         )
 
     monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
-    # llm_prompt'lu Goal
     from dataclasses import replace
     g = replace(_goal_llm(), llm_prompt="ROLE: mimarî danışman")
     p = make_planner(g)
     p("g", [])
-    content = seen["body"]["messages"][0]["content"]
-    assert content.startswith("ROLE: mimarî danışman")
-    assert "Görev: dosya yaz" in content
+    body = seen["body"]
+    # system alanı llm_prompt'u taşır
+    assert body["system"] == "ROLE: mimarî danışman"
+    # messages[0].content'te llm_prompt YOK; ATLAS varsayılan gövdesi VAR
+    content = body["messages"][0]["content"]
+    assert "ROLE:" not in content
+    assert "dosya yaz" in content  # görev metni
     assert "TEK SATIRLIK" in content
-    # Varsayılan "planlama alt-ajansısın" cümlesi YOK
-    assert "planlama alt-ajansısın" not in content
+    # include_system=False → varsayılan "planlama alt-ajansısın" cümlesi VAR
+    assert "planlama alt-ajansısın" in content
+
+
+def test_010_llm_prompt_yok_system_alani_da_yok(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC2: llm_prompt None → body'de system alanı eklenmez."""
+    _prep_key(monkeypatch)
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(req: Any, **_kw: Any) -> _FakeResponse:
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResponse(
+            json.dumps(
+                {"content": [{"type": "text", "text": "write:x.txt:1"}]}
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())  # llm_prompt=None
+    p("g", [])
+    assert "system" not in seen["body"]
+
+
+def test_010_llm_prompt_bos_system_alani_da_yok(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC2b: llm_prompt boş string → system yok."""
+    _prep_key(monkeypatch)
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(req: Any, **_kw: Any) -> _FakeResponse:
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResponse(
+            json.dumps(
+                {"content": [{"type": "text", "text": "write:x.txt:1"}]}
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    from dataclasses import replace
+    # Goal dataclass frozen, replace ile llm_prompt="" verirsek
+    # anthropic backend'de `system = goal.llm_prompt or None` boş string
+    # falsy → None (alan gönderilmez).
+    g = replace(_goal_llm(), llm_prompt="")
+    p = make_planner(g)
+    p("g", [])
+    assert "system" not in seen["body"]
 
 
 # ---------- SPEC 009: goal.llm_model önceliği ----------
