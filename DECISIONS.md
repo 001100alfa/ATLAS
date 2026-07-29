@@ -1,6 +1,152 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 030 — multi-goal batch)
+- [KARAR] `--goal-file` `nargs='+'` — N=1 çağrısı 027 davranışına
+  birebir eşit (özet tablo YOK, run-id suffix YOK). N>1 batch modu.
+  Alternatif ayrı `--goal-files` bayrağı yer değişikliği ve iki farklı
+  isim → sözleşme kalabalığı; `nargs='+'` argparse'ın idyomatik yolu.
+- [KARAR] **Fail-fast varsayılan.** Shell `set -e` ve CI job semantiği
+  ile simetri; hata erkenden bildirilir. `--continue-on-error` opt-in
+  bayrak (regresyon matrisinde "hepsini gör" için).
+- [KARAR] Run-id çakışma çözümü sıra numarası (`X_1`, `X_2`, ...
+  `X_N`) — hem `--run-id X` verilirse hem `<TS>_<i>` timestamp
+  yolunda. Alternatif hash / uuid — okunmaz, log korelasyonu zor.
+  100 goal olduğunda sıralı sayı da temiz kalır.
+- [KARAR] Exit kodu `max(rc)` — kod büyüklüğü hata ağırlığını
+  yansıtır (2 SPEC HATASI < 4 done=False < 5 denied < 7 env). CI
+  script en kötü hatayı görür. Alternatif "ilk hata": fail-fast'te
+  aynı; continue-on-error'da anlamsız çünkü kullanıcı hepsini gördü.
+- [KARAR] Timestamp bir kez alınır (batch başında), her goal için
+  `_<i>` sonek eklenir. Alternatif her goal için ayrı timestamp —
+  aynı saniye içi çakışma riski + arama tabanı bozulur.
+- [KARAR] `--dry-run` tek bayrak, tüm goal'lere uygulanır. Ayrı bir
+  "per-goal dry-run" — CLI karmaşıklığı, YAGNI. Batch dry-run'ın
+  amacı "hepsi çalışacak mı sanki" simülasyonu; per-goal ayrım
+  isteyen zaten iki ayrı çağrı yapar.
+- [KARAR] Özet tablosunda ASCII işaretler (`+`, `x`, `-`) kullanıldı
+  — UTF-8 `✓`/`✗`/`—` Windows cp1254'te bozulur mu diye risk almadım;
+  reconfigure zaten var ama görsel garantisi ASCII ile daha güvenli.
+- Kapsam: 1 modül düzenleme (cli.py: `--goal-file nargs='+'`,
+  `--continue-on-error` bayrağı, `_cmd_run` dispatch, `_cmd_run_batch`
+  ~50 satır), 1 test dosyası (+8 test). 600 test yeşil (592 → +8).
+  mypy strict + ruff + scan temiz. Artefaktlar
+  `pipeline/tasks/030-multi-goal-batch/`.
+
+## 2026-07-29 (Görev 026.2 — Windows Job Objects)
+- [KARAR] **Native Job Objects** tercih edildi (Docker/container YOK,
+  026 direktifi). Windows API, admin yetkisi gerektirmez, `KILL_ON_
+  JOB_CLOSE` ile parent (ATLAS) kapanınca job da ölür — fork bomb
+  torunları temizlenir. `psutil` gibi 3. parti bağımlılık YAGNI;
+  stdlib `ctypes` + `ctypes.wintypes` yeter.
+- [KARAR] Env sözleşmesi 026.1 ile paylaşılan (`ATLAS_SANDBOX_MEM_MB`)
+  + Windows-özel (`ATLAS_SANDBOX_MAX_PROC`). Kullanıcı sözleşmesi
+  platform-agnostik; kod yolu ayrı ama arayüz aynı.
+- [KARAR] Env varsa `subprocess.Popen + apply_job + communicate`;
+  env yoksa MEVCUT `subprocess.run` yolu (bit-uyumlu 026/026.1).
+  İki kod yolu tutmak bit-uyumluluğu garanti eder — tek yolda
+  birleştirmek encoding/timeout/exit_code semantiğinde subtle
+  regresyon riski.
+- [KARAR] Job handle **bilinçli kapatılmıyor** — ATLAS process
+  ömrü boyunca tutulur; `KILL_ON_JOB_CLOSE` GC'de handle serbest
+  bırakılınca child'ları toplar. subprocess bittikten sonra
+  handle'ın etrafta durması bellek maliyeti ihmal edilir (per-goal
+  bir HANDLE).
+- [KARAR] `CREATE_SUSPENDED` KULLANILMADI. Sebep: subprocess.Popen
+  main thread handle'ı vermez, `ResumeThread` çağrımak zor. Alt yol:
+  pid al → ANINDA Job'a ata. Race window sub-millisecond; Python
+  startup MB'lerce alloc yapmaz, MEM limit için yeter.
+- [KARAR] Struct offset'leri ctypes `_fields_` sırası ile otomatik
+  hesaplanır — 64-bit Windows layout doğru. Doğrulama: canlı test
+  (`test_0262_windows_mem_limit_patlar`) MEM_MB=64'te 500 MB
+  bytearray alloc'u 2 sn'de exit != 0. Struct yanlış olsaydı MEM
+  limit uygulanmaz, subprocess başarıyla biter → test bunu görür.
+- [KARAR] Ctypes struct isimleri Windows SDK'daki CapWords ihlali
+  (`_JOBOBJECT_EXTENDED_LIMIT_INFORMATION`) → `# noqa: N801`
+  bilinçli. Uzak API'yi yeniden adlandırmak grep-uyumu bozar.
+- [KARAR] `CPU_S` Windows'ta ele ALINMADI. Sebep: Windows
+  `JOB_OBJECT_LIMIT_PROCESS_TIME` **100 ns tick** matematiği hassas;
+  Unix `RLIMIT_CPU` saniye. İki farklı birim + çevrim = subtle bug
+  riski. 026.3 kapsamı (henüz açılmadı).
+- [HATA] İlk test yazımı `shlex.split(sys.executable + ' -c "..."')`
+  ile POSIX-mode split'e mutlak Windows yolunu verdi (`C:\Users\...`)
+  — `\` escape sanılıp path bozuldu, FileNotFoundError. Düzeltme:
+  test yardımcısı `_py_cmd()` PATH-tabanlı isim döner (`python`,
+  `python3`, `py`); env whitelist PATH'i sandbox subprocess'e taşır.
+  Kalıp: test'te yardımcı komut adı PATH'ten, mutlak yol ASLA
+  shlex POSIX'e verilmez.
+- [KARAR] Fail-safe uyarı formatı: `uyarı: 026.2 <API> başarısız
+  (WinError <kod>)` — kullanıcı GetLastError kodunu görsün;
+  Google'da tam eşleşme bulur. Sessiz başarısızlık YASAK.
+- Kapsam: 1 modül düzenleme (actions.py: +Job Objects sabitleri,
+  `_has_windows_sandbox_env`, `_apply_windows_job` ~90 satır ctypes
+  wrapper; `_shell` Windows env varsa Popen yolu), 1 test dosyası
+  (+11 test). 592 test yeşil (583 → +9 canlı Windows). mypy strict +
+  ruff + scan temiz. Artefaktlar `pipeline/tasks/026-2-windows-job/`.
+
+## 2026-07-29 (Görev 026.1 — Unix resource limits)
+- [KARAR] `try: import resource` guard — Windows'ta modül YOK;
+  `_resource = None` set edilir. `_build_preexec_fn` bunu görünce
+  None döner (double-guard). Alternatif `sys.platform` tek başına
+  yeterdi ama modül-import guard'ı ekstra CI güvencesi.
+- [KARAR] Windows'ta `subprocess.run(preexec_fn=X)` **ValueError**
+  fırlatır — bu yüzden `_build_preexec_fn` Windows'ta HER ZAMAN None
+  döner (env verilse dahi). Env sessizce yoksayılır (uyarı yok — 026
+  kalıbı, spam engeli); 026.2 aynı env'i Windows'ta Job Objects
+  ile karşılar.
+- [KARAR] Env yoksa (`CPU_S` VE `MEM_MB` her ikisi de None) →
+  `preexec_fn=None` döner — ekstra fork maliyeti YOK, bit-uyumlu 026.
+- [KARAR] `RLIMIT_NPROC` ELE ALINMADI. Fork bomb'a karşı `RLIMIT_CPU`
+  yeter (torun süreçler de aynı CPU budget'ten çeker, SIGXCPU hepsini
+  keser). NPROC eklemek per-user limit karmaşası getirir, YAGNI.
+- [KARAR] Env parse fail-safe (`abc`, `-1`, `0`, boş) → `None`
+  (yoksay). 018 kalıbıyla simetrik — kullanıcı hatalı env verdiğinde
+  ölme, varsayılana düş.
+- [KARAR] Unix canlı test CI Ubuntu leg'inde koşar (Windows leg'de
+  `@pytest.mark.skipif(sys.platform == "win32")`). Windows'ta
+  Windows-canlı testler (env verilse çalışır no-op kabul) 9 pass.
+- Kapsam: 1 modül düzenleme (actions.py: +`_resource` import guard,
+  +`_read_positive_int_env`, +`_build_preexec_fn`, `_shell` preexec_fn
+  parametresi), 1 test dosyası (+15 test). 583 test yeşil (574 → +9
+  Windows canlı, 6 Unix skip). mypy strict + ruff + scan temiz.
+  Artefaktlar `pipeline/tasks/026-1-unix-resource/`.
+
+## 2026-07-29 (Görev 018.2 — LLM ile gözlem özetleme)
+- [KARAR] `Goal.obs_summarize: bool = False` opt-in + env override
+  `ATLAS_LLM_OBS_SUMMARIZE` (1/true/yes/on). Effective flag `goal OR
+  env` — CI'da env ile global aç, YAML dokunmadan.
+- [KARAR] Hook mekanizması: `_maybe_summarize_or_trim(obs, obs_chars,
+  goal)` — kısa obs (`len <= obs_chars`) hep no-op, opt-in kapalıysa
+  `_trim_obs` (018.1), aktifse backend'e göre summarize. Yani ekstra
+  maliyet ANCAK opt-in aktif VE uzun obs varsa doğar.
+- [KARAR] **Real çağrı YALNIZ Anthropic backend'de** (bu tur). Sebep:
+  `_call_anthropic` mevcut, minimal prompt ile tekrar kullanılır;
+  yan etkiler (metrics.jsonl + usage trace) mevcut yol. Claude
+  subprocess + ACP oturumu için ayrı özet kanalı gerekir — 018.3.
+- [KARAR] Claude/ACP + opt-in → **stub summarizer'a düş + bir kez
+  stderr uyarı** ("018.3 kapsamı"). Deduplication set ile spam
+  engeli. Kullanıcı yanılıp opt-in verirse sessiz yanlış almaz;
+  uyarıyı görür, ne oluyor bilir.
+- [KARAR] Stub summarizer **deterministik** — `f"[özet: {N} char,
+  {L} satır, baş: '{40char}'...]"`. Test için LLM mock'suz doğrulama
+  yolu; aynı input → aynı output.
+- [KARAR] Anthropic özet prompt'u Türkçe + max 120 char + hataya
+  odaklan direktifi. Alternatif İngilizce daha kısa çıktı verir ama
+  ATLAS Türkçe iletişim doktrini + planner prompt zaten Türkçe.
+- [KARAR] Fail-safe: real çağrı `LLMPlannerError` fırlatırsa → stderr
+  uyarı + `_trim_obs` fallback. Planner turu ÖLMEZ. Kalıp: her ek
+  LLM çağrısı ana akışı bloklamamalı.
+- [KARAR] Cost etkisi mevcut mekanizmayla ölçülüyor — `_call_anthropic`
+  zaten `_write_metric_for_data` çağırır; özet çağrısı ayrı bir satır
+  olarak metrics.jsonl'a düşer. Kullanıcı `atlas metrics` ile ekstra
+  maliyeti görür.
+- Kapsam: 2 modül düzenleme (goals.py: `Goal.obs_summarize` alanı +
+  YAML validation; planner.py: `_effective_obs_summarize`,
+  `_stub_summarize_obs`, `_summarize_via_anthropic`,
+  `_maybe_summarize_or_trim` + `_format_prompt` dispatch), 1 yeni
+  test dosyası (+17 test). 574 test yeşil (557 → +17). mypy strict +
+  ruff + scan temiz. Artefaktlar `pipeline/tasks/018-2-obs-summarize/`.
+
 ## 2026-07-29 (Görev 029 — `atlas metrics --alert`)
 - [KARAR] **Yeni exit kodu 8** = "alert eşiği geçilemedi" (yalnız
   `atlas metrics --alert` özelinde). 6 ile birleştirmedim: 6 zaten
