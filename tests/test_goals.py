@@ -305,3 +305,46 @@ def test_009_llm_model_tip_hatasi(tmp_path: Path) -> None:
     )
     with pytest.raises(SpecError, match="llm_model string olmalı"):
         load_goal(p)
+
+
+# ---------- SPEC 015: opsiyonel prompt_cache ----------
+
+
+def test_015_prompt_cache_alan_yok_false() -> None:
+    """Alan yok → goal.prompt_cache is False (varsayılan)."""
+    goal = load_goal(FIXTURES / "hello.yaml")
+    assert goal.prompt_cache is False
+
+
+def test_015_prompt_cache_true(tmp_path: Path) -> None:
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "prompt_cache: true\n",
+        encoding="utf-8",
+    )
+    assert load_goal(p).prompt_cache is True
+
+
+def test_015_prompt_cache_false(tmp_path: Path) -> None:
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "prompt_cache: false\n",
+        encoding="utf-8",
+    )
+    assert load_goal(p).prompt_cache is False
+
+
+def test_015_prompt_cache_tip_hatasi(tmp_path: Path) -> None:
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "prompt_cache: yes-string\n",  # str, bool değil
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match="prompt_cache bool olmalı"):
+        load_goal(p)

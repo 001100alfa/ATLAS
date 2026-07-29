@@ -319,13 +319,15 @@ def _call_anthropic(
     prompt: str,
     timeout_s: int,
     *,
-    system: str | None = None,
+    system: str | list[dict[str, Any]] | None = None,
     on_usage: Callable[[int, int], None] | None = None,
 ) -> str:
     """Anthropic Messages API — HTTPS POST, ilk satır plan döner.
 
     SPEC 010: `system` verilirse gövdeye üst-düzey `system` alanı
     olarak eklenir (Anthropic API sözleşmesi). None/boş → alan eklenmez.
+    SPEC 015: `system` liste tipindeyse (bloklar formatı) doğrudan
+    payload'a bind — cache_control taşımaya izin verir.
 
     stdlib `urllib` + `json`. Hiçbir kod yolunda `api_key` stderr/log'a
     yazılmaz — yalnız request header'ına girer.
@@ -482,7 +484,21 @@ def _anthropic_planner(
     charge_tokens` bind eder.
     """
     api_key, url, model, timeout_s = _resolve_anthropic_env(goal)  # fail-fast
-    system = goal.llm_prompt or None
+    system: str | list[dict[str, Any]] | None
+    if goal.llm_prompt:
+        if goal.prompt_cache:
+            # SPEC 015: blok formatı + cache_control ephemeral (5 dk).
+            system = [
+                {
+                    "type": "text",
+                    "text": goal.llm_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        else:
+            system = goal.llm_prompt
+    else:
+        system = None
 
     def _anthropic(_goal: str, history: list[tuple[StepKind, str]]) -> str:
         prompt = _format_prompt(

@@ -56,6 +56,9 @@ class Goal:
     # SPEC 009: opsiyonel model id (şu an anthropic backend'i kullanır).
     # None → env yolu (`ATLAS_LLM_MODEL`) veya varsayılan sabit.
     llm_model: str | None = None
+    # SPEC 015: True + llm_prompt → Anthropic system alanı bloklar
+    # listesi + cache_control ephemeral (5 dk hız/maliyet indirimi).
+    prompt_cache: bool = False
 
 
 def _require(spec: dict[str, object], key: str, kind: type) -> object:
@@ -172,6 +175,13 @@ def load_goal(path: Path) -> Goal:
             f"llm_model string olmalı, gelen: {type(llm_model_raw).__name__}"
         )
 
+    # SPEC 015: opsiyonel prompt caching (bool).
+    prompt_cache_raw = raw.get("prompt_cache", False)
+    if not isinstance(prompt_cache_raw, bool):
+        raise SpecError(
+            f"prompt_cache bool olmalı, gelen: {type(prompt_cache_raw).__name__}"
+        )
+
     # Literal daraltması: yukarıda enum kontrolü yapıldı, tip güvenli.
     return Goal(
         goal=goal,
@@ -188,4 +198,5 @@ def load_goal(path: Path) -> Goal:
         context_limit=ctx_limit_raw,
         llm_prompt=llm_prompt,
         llm_model=llm_model,
+        prompt_cache=prompt_cache_raw,
     )

@@ -469,6 +469,80 @@ def test_011_fiyat_env_bozuk(
     assert "cost≈?" in capsys.readouterr().err
 
 
+# ---------- SPEC 015: prompt caching ----------
+
+def test_015_cache_kapali_system_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cache kapalı (varsayılan) → system alanı string (010 davranışı)."""
+    _prep_key(monkeypatch)
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(req: Any, **_kw: Any) -> _FakeResponse:
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResponse(
+            json.dumps(
+                {"content": [{"type": "text", "text": "write:x.txt:1"}]}
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    from dataclasses import replace
+    g = replace(_goal_llm(), llm_prompt="ROLE: mimar", prompt_cache=False)
+    p = make_planner(g)
+    p("g", [])
+    # system string olarak yazıldı
+    assert seen["body"]["system"] == "ROLE: mimar"
+
+
+def test_015_cache_acik_system_bloklar(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cache açık + llm_prompt → system bloklar listesi + cache_control."""
+    _prep_key(monkeypatch)
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(req: Any, **_kw: Any) -> _FakeResponse:
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResponse(
+            json.dumps(
+                {"content": [{"type": "text", "text": "write:x.txt:1"}]}
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    from dataclasses import replace
+    g = replace(_goal_llm(), llm_prompt="ROLE: mimar", prompt_cache=True)
+    p = make_planner(g)
+    p("g", [])
+    system = seen["body"]["system"]
+    assert isinstance(system, list)
+    assert len(system) == 1
+    assert system[0]["type"] == "text"
+    assert system[0]["text"] == "ROLE: mimar"
+    assert system[0]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_015_cache_acik_prompt_yok_system_yok(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cache açık ama llm_prompt None → system alanı gövdede YOK
+    (M4 — cache tek başına anlamsız)."""
+    _prep_key(monkeypatch)
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(req: Any, **_kw: Any) -> _FakeResponse:
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResponse(
+            json.dumps(
+                {"content": [{"type": "text", "text": "write:x.txt:1"}]}
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    from dataclasses import replace
+    g = replace(_goal_llm(), llm_prompt=None, prompt_cache=True)
+    p = make_planner(g)
+    p("g", [])
+    assert "system" not in seen["body"]
+
+
 # ---------- SPEC 014: Retry-After header ----------
 
 

@@ -1,6 +1,33 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 015 — Anthropic prompt caching)
+- [KARAR] `Goal.prompt_cache: bool = False` — 003.2 kalıbıyla
+  simetrik, yeni alan son sırada + default'lu. Eski YAML'lar hiç
+  değişmedi.
+- [KARAR] Cache tek başına anlamsız — `llm_prompt is None` iken
+  `prompt_cache=True` verilse bile system alanı **gövdeye eklenmez**.
+  Kullanıcı yanlış YAML yazsa bile Anthropic API hata döndürmez;
+  sessiz doğru davranış.
+- [KARAR] Cache TTL **yalnız ephemeral** (5 dk) — `type: "1h"` YAGNI;
+  ATLAS'ın plan turları saatlerce sürmez. 5 dk çoğu senaryoda tam.
+- [KARAR] `_call_anthropic` `system` tipi `str | list[dict] | None` —
+  aynı endpoint, tek yol. Fabrika seviyesinde form seçilir (bit veya
+  liste), çağrı seviyesinde şeffaf iletim. `payload["system"] = system`
+  Anthropic JSON serializer'ı halleder.
+- [KARAR] claude/acp backend'ler alanı yok sayar — anthropic-özel
+  optimizasyon; protokolleri farklı. `prompt_cache=True` claude'ta
+  no-op (fatura değişmez ama hata da yok).
+- [KARAR] Cache_control token indirim ücretlendirmesi bu görevde
+  DIŞI — 013 `charge_tokens` şu an `input_tokens`+`output_tokens`
+  tam sayarız; cache_read_input_tokens ayrı bir field. Görev 015.1
+  ile ayrılır.
+- Kapsam: 1 modül düzenleme (goals.py: +prompt_cache alan + load kolu),
+  1 modül düzenleme (planner.py: _call_anthropic system tip
+  genişletme + _anthropic_planner cache dallanma), 2 test dosyası
+  genişleme (+7 test). Toplam 437 test yeşil (430 → +7). mypy strict
+  + ruff temiz. Artefaktlar `pipeline/tasks/015-anthropic-cache/`.
+
 ## 2026-07-29 (Görev 014 — Retry jitter + Retry-After header)
 - [KARAR] `RetryAfterError` **`LLMPlannerError` alt sınıfı** — LSP
   uyumlu; mevcut `except LLMPlannerError:` yakalamaları hâlâ
