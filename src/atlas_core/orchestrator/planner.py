@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import shlex
 import shutil
 import subprocess
@@ -58,6 +59,18 @@ class PlannerExhaustedError(RuntimeError):
 
 class LLMPlannerError(RuntimeError):
     """LLM subprocess başarısız (komut yok, timeout, exit!=0, boş cevap)."""
+
+
+class RetryAfterError(LLMPlannerError):
+    """SPEC 014: sunucu `Retry-After` başlığı verdi (throttle/rate limit).
+
+    `retry_after_s`: sunucunun önerdiği bekleme (saniye). Retry sarmalayıcı
+    bu değeri backoff yerine kullanır (kör bekleme yerine sunucu ipucu).
+    """
+
+    def __init__(self, message: str, *, retry_after_s: float) -> None:
+        super().__init__(message)
+        self.retry_after_s = retry_after_s
 
 
 def make_planner(
@@ -343,9 +356,15 @@ def _call_anthropic(
             body_snip = exc.read().decode("utf-8", errors="replace")[:_BODY_TAIL]
         except Exception:  # noqa: BLE001 - body okunamaması alt hata; ana hata HTTP
             body_snip = "(gövde okunamadı)"
-        raise LLMPlannerError(
-            f"anthropic HTTP {exc.code}: {body_snip or '(gövde boş)'}"
-        ) from exc
+        # SPEC 014: Retry-After başlığı varsa özel istisna
+        retry_after = _parse_retry_after(exc)
+        base_msg = f"anthropic HTTP {exc.code}: {body_snip or '(gövde boş)'}"
+        if retry_after is not None:
+            raise RetryAfterError(
+                f"{base_msg} (retry_after={retry_after}s)",
+                retry_after_s=retry_after,
+            ) from exc
+        raise LLMPlannerError(base_msg) from exc
     except urllib_error.URLError as exc:
         # `socket.timeout` Py 3.10+ TimeoutError aliası; URLError'a sarılabilir.
         if isinstance(exc.reason, TimeoutError):
@@ -738,7 +757,7 @@ def _acp_planner(goal: Goal, context: str | None = None) -> Planner:
     return _acp
 
 
-# ---------- SPEC 008: retry/backoff sarmalayıcısı ----------
+# ---------- SPEC 008 + 014: retry/backoff/jitter/retry-after ----------
 
 
 def _read_retry_env() -> tuple[int, float]:
@@ -753,15 +772,49 @@ def _read_retry_env() -> tuple[int, float]:
     return max(0, retries), max(0.0, backoff)
 
 
+def _read_jitter_env() -> float:
+    """SPEC 014: `ATLAS_LLM_JITTER` üst-sınır saniye (varsayılan 0.0).
+
+    Parse hatası veya negatif → 0 (kapalı; deterministik backoff).
+    """
+    try:
+        j = float(os.environ.get("ATLAS_LLM_JITTER", "0"))
+    except ValueError:
+        return 0.0
+    return max(j, 0.0)
+
+
+def _parse_retry_after(exc: urllib_error.HTTPError) -> float | None:
+    """SPEC 014: `Retry-After` başlığından saniye çıkarır.
+
+    Yalnız int saniye kabul edilir (HTTP-Date formatı kapsam DIŞI —
+    Anthropic saniye kullanır). Yoksa/parse hatası → None.
+    """
+    headers = getattr(exc, "headers", None)
+    if headers is None:
+        return None
+    raw = headers.get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        val = float(str(raw).strip())
+    except ValueError:
+        return None
+    return val if val >= 0 else None
+
+
 def make_retrying_planner(
     inner: Planner, retries: int, backoff_s: float
 ) -> Planner:
     """LLMPlannerError için üstel-backoff'lu retry sarmalayıcı.
 
     - `retries <= 0` → `inner` aynen döner (kimlik-geçiş, no-op).
-    - Aksi hâlde: en fazla `1 + retries` deneme; hata → sleep(backoff *
-      2**attempt) → yeniden dene; son deneme raise.
-    - Yalnız `LLMPlannerError` yakalanır — diğer istisnalar sarma geçer.
+    - Aksi hâlde: en fazla `1 + retries` deneme.
+    - Bekleme: `backoff * 2**attempt + random.uniform(0, jitter)`.
+      `RetryAfterError` (SPEC 014) yakalanırsa bekleme = header saniyesi
+      (backoff yerine, jitter ilaveten değil — sunucu ipucuna saygı).
+    - Yalnız `LLMPlannerError` (ve alt sınıfı `RetryAfterError`)
+      yakalanır — diğer istisnalar sarma geçer.
     - `ATLAS_LLM_TRACE=1` env'inde her başarısız deneme stderr'a yazılır.
 
     Sözleşme değişmezliği: dönen callable `Planner` tipi
@@ -769,6 +822,7 @@ def make_retrying_planner(
     """
     if retries <= 0:
         return inner
+    jitter = _read_jitter_env()
 
     def _retrying(goal: str, history: list[tuple[StepKind, str]]) -> str:
         total = 1 + retries
@@ -785,7 +839,14 @@ def make_retrying_planner(
                         file=sys.stderr,
                     )
                 if attempt < retries:
-                    _sleep(backoff_s * (2 ** attempt))
+                    if isinstance(exc, RetryAfterError):
+                        # Sunucu ipucu: backoff yerine header saniyesi.
+                        wait = exc.retry_after_s
+                    else:
+                        wait = backoff_s * (2 ** attempt)
+                        if jitter > 0:
+                            wait += random.uniform(0, jitter)
+                    _sleep(wait)
         # Buraya asla düşmemeli (yukarıdaki return veya son hata) —
         # emniyet için son hatayı raise.
         assert last_exc is not None

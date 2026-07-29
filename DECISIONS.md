@@ -1,6 +1,31 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 014 — Retry jitter + Retry-After header)
+- [KARAR] `RetryAfterError` **`LLMPlannerError` alt sınıfı** — LSP
+  uyumlu; mevcut `except LLMPlannerError:` yakalamaları hâlâ
+  çalışır. Attribute `retry_after_s: float` özel bilgi taşır;
+  sarmalayıcı `isinstance` kontrolü ile ayırır.
+- [KARAR] Header saniyesi verildiyse **jitter eklenmez** — sunucu
+  ipucuna saygı. Alternatif "header + jitter" ilk bakışta sağlıklı
+  görünse de "Retry-After 30 sn" derse 30 sn beklemek istenir,
+  30.4 sn değil. Deterministik güven.
+- [KARAR] Header parse **sadece int saniye** — Anthropic saniye
+  kullanır; HTTP-Date formatı (RFC 7231) YAGNI. Parse hatası →
+  normal `LLMPlannerError` (backoff'a düş).
+- [KARAR] `ATLAS_LLM_JITTER` **default 0.0** (kapalı) — 008
+  davranışı bit-uyumlu, mevcut testler `random.uniform`'u hiç
+  çağırmadığı için pyright/coverage etkilenmedi. Jitter etkisi
+  test tarafında `random.uniform` monkeypatch ile deterministik.
+- [KARAR] `_parse_retry_after` `getattr(exc, "headers", None)` ile
+  savunmalı — bazı monkeypatched HTTPError'lar headers=None döner;
+  crash yerine None döner, backoff kullanılır.
+- Kapsam: 1 modül düzenleme (planner.py: +RetryAfterError,
+  +_read_jitter_env, +_parse_retry_after, HTTPError kolu, sarmalayıcı
+  ~20 sat), 2 test dosyası genişleme (+11 test). Toplam 430 test
+  yeşil (420 → +10). mypy strict + ruff temiz. Artefaktlar
+  `pipeline/tasks/014-retry-jitter-header/`.
+
 ## 2026-07-29 (Görev 010.1 — claude subprocess `--append-system-prompt`)
 - [KARAR] `goal.llm_prompt` claude subprocess'e **argv** üzerinden
   `--append-system-prompt <text>` argümanı olarak geçer; gövde

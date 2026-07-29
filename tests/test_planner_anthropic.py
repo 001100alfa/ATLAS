@@ -469,6 +469,91 @@ def test_011_fiyat_env_bozuk(
     assert "cost≈?" in capsys.readouterr().err
 
 
+# ---------- SPEC 014: Retry-After header ----------
+
+
+def _http_error_with_headers(
+    code: int, body: bytes, retry_after: str | None = None
+) -> urllib_error.HTTPError:
+    """`urllib_error.HTTPError` üretici — headers ile."""
+    from email.message import Message
+    hdrs: Message = Message()
+    if retry_after is not None:
+        hdrs["Retry-After"] = retry_after
+    return urllib_error.HTTPError(
+        url="https://api.anthropic.com/v1/messages",
+        code=code,
+        msg="throttled",
+        hdrs=hdrs,  # type: ignore[arg-type]
+        fp=io.BytesIO(body),
+    )
+
+
+def test_014_http_429_with_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
+    """429 + Retry-After → RetryAfterError (LLMPlannerError alt sınıfı)."""
+    from atlas_core.orchestrator.planner import RetryAfterError
+    _prep_key(monkeypatch)
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        raise _http_error_with_headers(429, b"rate limit", retry_after="42")
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())
+    with pytest.raises(RetryAfterError) as exc_info:
+        p("g", [])
+    assert exc_info.value.retry_after_s == 42.0
+    assert "retry_after=42" in str(exc_info.value)
+
+
+def test_014_http_429_without_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
+    """429 ama Retry-After yok → normal LLMPlannerError (RetryAfterError DEĞİL)."""
+    from atlas_core.orchestrator.planner import RetryAfterError
+    _prep_key(monkeypatch)
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        raise _http_error_with_headers(429, b"rate limit", retry_after=None)
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())
+    with pytest.raises(LLMPlannerError) as exc_info:
+        p("g", [])
+    assert not isinstance(exc_info.value, RetryAfterError)
+
+
+def test_014_retry_after_parse_hata_normal_hata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retry-After başlığı parse edilemez → normal LLMPlannerError."""
+    from atlas_core.orchestrator.planner import RetryAfterError
+    _prep_key(monkeypatch)
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        raise _http_error_with_headers(
+            429, b"rate limit", retry_after="not-a-number"
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())
+    with pytest.raises(LLMPlannerError) as exc_info:
+        p("g", [])
+    assert not isinstance(exc_info.value, RetryAfterError)
+
+
+def test_014_http_529_with_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
+    """529 (Anthropic overload) + Retry-After → RetryAfterError."""
+    from atlas_core.orchestrator.planner import RetryAfterError
+    _prep_key(monkeypatch)
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        raise _http_error_with_headers(529, b"overloaded", retry_after="10")
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())
+    with pytest.raises(RetryAfterError) as exc_info:
+        p("g", [])
+    assert exc_info.value.retry_after_s == 10.0
+
+
 # ---------- SPEC 013: on_usage callback → CallBudget.charge_tokens ----------
 
 def test_013_on_usage_cagrilir(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -10,6 +10,8 @@ from atlas_core.orchestrator import planner as planner_mod
 from atlas_core.orchestrator.planner import (
     LLMPlannerError,
     PlannerExhaustedError,
+    RetryAfterError,
+    _read_jitter_env,
     _read_retry_env,
     make_retrying_planner,
 )
@@ -200,3 +202,103 @@ def test_ac10_env_normal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATLAS_LLM_RETRIES", "3")
     monkeypatch.setenv("ATLAS_LLM_BACKOFF", "0.25")
     assert _read_retry_env() == (3, 0.25)
+
+
+# ---------- SPEC 014: jitter + RetryAfter ----------
+
+
+def test_014_jitter_env_okuma(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ATLAS_LLM_JITTER", raising=False)
+    assert _read_jitter_env() == 0.0
+    monkeypatch.setenv("ATLAS_LLM_JITTER", "0.5")
+    assert _read_jitter_env() == 0.5
+    monkeypatch.setenv("ATLAS_LLM_JITTER", "-1")
+    assert _read_jitter_env() == 0.0
+    monkeypatch.setenv("ATLAS_LLM_JITTER", "abc")
+    assert _read_jitter_env() == 0.0
+
+
+def test_014_jitter_backoff_ustune_eklenir(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ATLAS_LLM_JITTER", "0.5")
+    sleeps: list[float] = []
+    monkeypatch.setattr(planner_mod, "_sleep", lambda s: sleeps.append(s))
+    # random deterministik
+    monkeypatch.setattr(planner_mod.random, "uniform", lambda _a, _b: 0.3)
+
+    inner = _CountingPlanner([LLMPlannerError("x"), LLMPlannerError("y"), "ok"])
+    p = make_retrying_planner(inner, retries=2, backoff_s=1.0)
+    assert p("g", []) == "ok"
+    # backoff sırası: 1.0 + 0.3, 2.0 + 0.3
+    assert sleeps == pytest.approx([1.3, 2.3])
+
+
+def test_014_jitter_kapali_backoff_deterministik(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Jitter 0 → 008 davranışı bit-uyumlu."""
+    monkeypatch.delenv("ATLAS_LLM_JITTER", raising=False)
+    sleeps: list[float] = []
+    monkeypatch.setattr(planner_mod, "_sleep", lambda s: sleeps.append(s))
+    # random hiç çağrılmamalı
+    called = {"n": 0}
+
+    def spy_uniform(_a: float, _b: float) -> float:
+        called["n"] += 1
+        return 999.0
+
+    monkeypatch.setattr(planner_mod.random, "uniform", spy_uniform)
+    inner = _CountingPlanner([LLMPlannerError("x")] * 4)
+    p = make_retrying_planner(inner, retries=3, backoff_s=1.0)
+    with pytest.raises(LLMPlannerError):
+        p("g", [])
+    assert sleeps == [1.0, 2.0, 4.0]
+    assert called["n"] == 0  # jitter kapalı → random.uniform çağrılmadı
+
+
+def test_014_retry_after_error_backoff_yerine_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RetryAfterError yakalanırsa bekleme header saniyesi (backoff değil)."""
+    sleeps: list[float] = []
+    monkeypatch.setattr(planner_mod, "_sleep", lambda s: sleeps.append(s))
+    inner = _CountingPlanner([
+        RetryAfterError("throttle", retry_after_s=7.5),
+        "ok",
+    ])
+    p = make_retrying_planner(inner, retries=1, backoff_s=100.0)  # backoff büyük
+    assert p("g", []) == "ok"
+    assert sleeps == [7.5]  # header saniyesi kullanıldı
+
+
+def test_014_retry_after_jitter_yok_sayilir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Header verildiyse jitter eklenmez — sunucu ipucu tam saygı."""
+    monkeypatch.setenv("ATLAS_LLM_JITTER", "10.0")
+    sleeps: list[float] = []
+    monkeypatch.setattr(planner_mod, "_sleep", lambda s: sleeps.append(s))
+    inner = _CountingPlanner([
+        RetryAfterError("throttle", retry_after_s=3.0),
+        "ok",
+    ])
+    p = make_retrying_planner(inner, retries=1, backoff_s=1.0)
+    p("g", [])
+    assert sleeps == [3.0]  # jitter eklenmedi
+
+
+def test_014_retry_after_karisik(monkeypatch: pytest.MonkeyPatch) -> None:
+    """İlk deneme RetryAfter → header; ikinci sıradan → backoff."""
+    sleeps: list[float] = []
+    monkeypatch.setattr(planner_mod, "_sleep", lambda s: sleeps.append(s))
+    monkeypatch.delenv("ATLAS_LLM_JITTER", raising=False)
+    inner = _CountingPlanner([
+        RetryAfterError("throttle", retry_after_s=5.0),
+        LLMPlannerError("normal"),
+        LLMPlannerError("normal"),
+    ])
+    p = make_retrying_planner(inner, retries=2, backoff_s=1.0)
+    with pytest.raises(LLMPlannerError):
+        p("g", [])
+    # 1. attempt (RetryAfter): 5.0
+    # 2. attempt (normal): 1.0 * 2**1 = 2.0
+    assert sleeps == [5.0, 2.0]
