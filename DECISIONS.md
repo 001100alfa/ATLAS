@@ -1,6 +1,22 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 025 — skills/engineering/prompt SKILL.md)
+- [KARAR] **Türkçe** rehber — CLAUDE.md kuralı (Türkçe iletişim,
+  teknik terimler orijinal). Kullanıcı: ATLAS'ı çalıştıran mühendis
+  veya Claude/ACP agent'ı yönlendiren kullanıcı.
+- [KARAR] Rehber **300 satırın altında** — bir oturumda okunur.
+  Görev-tipi kalıpları + karşı örnekler + workflow adımları.
+  Nesnel ölçü: kullanıcı 5 dk'da okuyup kendi YAML'ını yazabilmeli.
+- [KARAR] SPEC referansları **her zaman biçimli**: `SPEC 015`
+  (görev numarası), `pipeline/tasks/003-2-llm-prompt/02-spec.md`
+  (dosya yolu). Kullanıcı derinliğe iner.
+- [KARAR] Kod değil, **rehber** — test/coverage YOK. Ruff/mypy
+  değişmez. Kalite ölçüsü içerik doğruluğu (SPEC'lere referans).
+- Kapsam: 1 yeni dokümantasyon dosyası (skills/engineering/prompt/SKILL.md
+  ~250 sat). Test/coverage değişmedi. Artefaktlar
+  `pipeline/tasks/025-prompt-engineering-skill/`.
+
 ## 2026-07-29 (Görev 019.1 — ACP streaming ilk newline'da kes)
 - [KARAR] Anthropic streaming (019) ile **birebir simetri** — ATLAS
   planner sözleşmesi tek satır; kalan chunk'ları beklemek anlamsız.
