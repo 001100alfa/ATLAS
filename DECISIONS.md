@@ -1,6 +1,23 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 018.1 — gözlem head+tail keep)
+- [KARAR] **Head+tail keep** — kuyruğu atma (018 davranışı) yerine
+  başı ve sonu koru, ortayı `[... N char atlandı ...]` işaretle.
+  Neden: uzun stderr'ın sonundaki hata mesajı LLM'e ulaşsın.
+- [KARAR] Varsayılan 100+100=200 = obs_chars varsayılan → 018
+  davranışı bit-uyumlu (200 char'a kırp, atlama işareti yok). Kullanıcı
+  obs_chars'ı büyütünce (örn. 500) head+tail keep otomatik aktifleşir.
+- [KARAR] LLM tabanlı özetleme (018.2) **rezerv** — ekstra LLM çağrısı
+  cost yaratır ve gecikme ekler. Head+tail keep şu an %90 senaryoyu
+  çözer; LLM özetleme ilerideki nüans (JSON semantik özet) için.
+- [KARAR] Mantıksız env (head+tail >= obs_chars) → 018 fallback.
+  Kullanıcı yanlış env yazarsa bug yerine güvenli davranış.
+- Kapsam: 1 modül düzenleme (planner.py: +_read_obs_head_tail_env,
+  +_trim_obs ~15 sat), 1 test dosyası genişleme (+8 test, 1 test
+  güncelleme). Toplam 530 test yeşil (522 → +8). mypy strict + ruff
+  temiz. Artefaktlar `pipeline/tasks/018-1-obs-headtail/`.
+
 ## 2026-07-29 (Görev 016.3 — ACP interaktif permission dialogu)
 - [KARAR] **Opt-in env** — otonom mod varsayılan; interaktif seçim
   bilinçli. `ATLAS_ACP_INTERACTIVE=1` kapalıysa 016.2 auto-karar

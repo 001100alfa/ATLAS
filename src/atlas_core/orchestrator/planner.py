@@ -173,6 +173,39 @@ def _read_obs_chars_env() -> int:
     return n
 
 
+def _read_obs_head_tail_env() -> tuple[int, int]:
+    """SPEC 018.1: `ATLAS_LLM_OBS_HEAD` + `ATLAS_LLM_OBS_TAIL` (100/100).
+
+    Parse hatası → (100, 100). Negatif → 0. head+tail=0 → 018 davranışı.
+    """
+    try:
+        h = int(os.environ.get("ATLAS_LLM_OBS_HEAD", "100"))
+    except ValueError:
+        h = 100
+    try:
+        t = int(os.environ.get("ATLAS_LLM_OBS_TAIL", "100"))
+    except ValueError:
+        t = 100
+    return max(h, 0), max(t, 0)
+
+
+def _trim_obs(obs: str, obs_chars: int) -> str:
+    """SPEC 018 + 018.1: gözlem kırpma stratejisi.
+
+    - `len(obs) <= obs_chars` → dokunma.
+    - head+tail toplamı >= obs_chars → 018 davranışı (`obs[:obs_chars]`).
+    - Aksi hâlde: head + `[... N char atlandı ...]` + tail.
+    """
+    if len(obs) <= obs_chars:
+        return obs
+    head, tail = _read_obs_head_tail_env()
+    if head + tail == 0 or head + tail >= obs_chars:
+        # 018 davranışı: kuyruğu at
+        return obs[:obs_chars]
+    skipped = len(obs) - head - tail
+    return f"{obs[:head]}\n[... {skipped} char atlandı ...]\n{obs[-tail:]}"
+
+
 def _format_prompt(
     goal: Goal,
     history: list[tuple[StepKind, str]],
@@ -200,7 +233,8 @@ def _format_prompt(
     obs = [text for kind, text in history if kind is StepKind.OBSERVE]
     tail = obs[-_MAX_HISTORY_OBSERVES:]
     obs_chars = _read_obs_chars_env()  # SPEC 018: runtime env okuma
-    obs_block = "\n".join(f"- {o[:obs_chars]}" for o in tail) if tail else "(yok)"
+    # SPEC 018.1: head+tail keep — uzun stderr'ın sonundaki hata kaybolmaz.
+    obs_block = "\n".join(f"- {_trim_obs(o, obs_chars)}" for o in tail) if tail else "(yok)"
     ctx_block = ""
     if context:
         ctx_trimmed = context.strip()[:_MAX_CONTEXT_CHARS]
