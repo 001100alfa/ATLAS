@@ -1,6 +1,45 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 003.1 — anthropic + acp LLM backend'leri)
+- [KARAR] `anthropic` backend'i **stdlib-only** kaldı: `urllib.request`
+  ile doğrudan HTTPS POST. `requests`/`httpx` bağımlılığı eklenmedi;
+  test tarafında `urlopen` monkeypatch aynı ergonomiyi verir. `x-api-key`
+  ve `anthropic-version` header sözleşmesi Anthropic Messages API v1
+  ile birebir; response `content[].type=="text"` toplanır ve ilk satır
+  alınır (claude subprocess kalıbıyla simetrik).
+- [KARAR] API key sızıntı savunması: `ANTHROPIC_API_KEY` hiçbir kod
+  yolunda stderr / audit / log'a yazılmaz. Yalnız request header'ında
+  yaşar. `test_key_asla_hata_mesajina_gecmez` bunu doğruluyor (URLError
+  fırlatıldığında bile mesajda anahtar geçmez).
+- [KARAR] `acp` backend'i **ACP-lite** — text-only + oturum-per-plan.
+  Tam protokol (tool-use, streaming, permissions) Görev 010+; şu an
+  yalnız `initialize` + `session/new` + `session/prompt` yeter.
+  Kalıcı bağlantı yok — planner sözleşmesi durumsuz kalıyor
+  (`Callable[[str, list], str]` değişmez).
+- [KARAR] ACP subprocess yaşam döngüsü: her plan çağrısı için yeni
+  `Popen`; `finally` bloğunda stdin.close → wait(2s) → hâlâ ayaktaysa
+  kill → wait(2s). **Süreç sızıntısı yasak.** `test_teardown_wait_takilirsa_kill`
+  wait TimeoutExpired atınca kill'in tetiklendiğini doğruluyor.
+- [KARAR] Windows subprocess deadlock savunması: `bufsize=1` (hat-tamponlu)
+  + `text=True` + `encoding="utf-8"` + `errors="replace"` + monotonic
+  deadline'lı `readline`. Aynı DECISIONS 2026-07-24 kalıbı (subprocess
+  UTF-8) burada da devrede.
+- [KARAR] `_format_prompt` yardımcısı üç backend (claude, anthropic,
+  acp) tarafından paylaşıldı → Görev 006 context injection tek noktada
+  bakılır; iki backend'e otomatik geçti (AC11 + AC20).
+- [KARAR] CLI dokunulmadı: her iki backend `LLMPlannerError` fırlatır
+  ve `_cmd_run_goal` mevcut yakalama noktası (Görev 003) exit 7 döner.
+  Sözleşme kırılmadan iki yeni backend geldi.
+- [KARAR] `NotImplementedError` mesajı güncellendi: `"desteklenen: stub,
+  claude, anthropic, acp"`. Bilinmeyen backend testi (`test_llm_bilinmeyen_backend`)
+  mesajın her dört adı da içerdiğini doğrular — regresyon lehçesi.
+- Kapsam: 1 modül düzenleme (planner.py 199→~430 sat), 3 yeni test
+  dosyası (35 test), 1 CLI test genişleme (+2 test), 1 YAML fixture.
+  Toplam 354 test yeşil + 1 bilinen flaky (test_doctor_gui — Görev 007
+  son adımı düzeltiyor). Coverage %93.52 (eşik %90). mypy strict + ruff
+  temiz. Artefaktlar `pipeline/tasks/003-1-llm-backends/`.
+
 ## 2026-07-29 (Görev 006 — Otomatik context injection)
 - [KARAR] `cli.py::_cmd_run_goal` başında **tek kez** GBrain.context_for
   çağrılır ve `make_planner`'a `context=` kwarg ile bind edilir. Loop

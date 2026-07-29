@@ -117,6 +117,39 @@ def test_run_llm_claude_runtime_hatasi(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert main(["run", "--goal-file", "tests/goals/llm_claude.yaml", "--run-id", "e"]) == 7
 
 
+def test_run_llm_anthropic_key_yok(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SPEC 003.1 AC21: anthropic key yok → exit 7 + audit llm_error."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "anthropic")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert (
+        main(["run", "--goal-file", "tests/goals/llm_anthropic.yaml", "--run-id", "a"])
+        == 7
+    )
+    audit_txt = (tmp_path / "a.jsonl").read_text(encoding="utf-8")
+    assert "llm_error" in audit_txt
+
+
+def test_run_llm_acp_bin_yok(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SPEC 003.1: acp bin yok → exit 7 + audit llm_error."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "acp")
+    monkeypatch.delenv("ATLAS_LLM_ACP_BIN", raising=False)
+    import atlas_core.orchestrator.planner as planner_mod
+
+    monkeypatch.setattr(planner_mod.shutil, "which", lambda _n: None)
+    assert (
+        main(["run", "--goal-file", "tests/goals/llm_claude.yaml", "--run-id", "b"])
+        == 7
+    )
+    audit_txt = (tmp_path / "a.jsonl").read_text(encoding="utf-8")
+    assert "llm_error" in audit_txt
+
+
 def test_run_echo_demo_regresyon(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _env(monkeypatch, tmp_path)
     assert main(["run", "eski hedef", "--steps", "1", "--budget", "50", "--step-cost", "5"]) == 0

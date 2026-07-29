@@ -1,0 +1,7 @@
+goal: "anthropic API ile tek adım plan"
+plan_kind: llm
+action_allowlist: [write]
+judge_kind: file_exists
+judge_arg: "yok.txt"
+budget: 20.0
+max_steps: 2
