@@ -1,11 +1,12 @@
 # DEVAM NOKTASI — ATLAS
 
-**Son çalışma:** 2026-07-29 (7. tur — 015.1+016.1+018+019+020+021)
-**Branch:** `feat/021-atlas-doctor` (main'e ff-merge onayı bekliyor)
+**Son çalışma:** 2026-07-29 (7. tur — 015.1+016.1+018+019+020+021 + merge/push/temizlik)
+**Branch:** `main` (origin/main ile senkron — `b6acd19`)
 **Working tree:** temiz
-**Durum:** 6 aşama tamamlandı, 6 lineer commit main'in üstünde
-zincirleme hazır. 486/486 test yeşil (baseline 444 → +42), coverage
-%90 üstünde, mypy strict + ruff + scan temiz.
+**Durum:** 6 aşama tamamlandı, 7 lineer commit main'e ff-merge + push
+edildi (`e4445ae..b6acd19`), 6 feature branch silindi. 486/486 test
+yeşil, coverage %90 üstünde, mypy strict + ruff + scan temiz.
+Bilinen flaky yok.
 
 ---
 
@@ -18,7 +19,8 @@ Yeni oturumda tek cümle: **"DEVAM_NOKTASI.md'yi oku ve kaldığı yerden devam 
 ## Bu turda yapılan (2026-07-29 — 7. tur)
 
 Sıra ile 6 iş tamamlandı, her biri kendi branch'inde tek commit,
-zincirleme (`015.1 → 016.1 → 018 → 019 → 020 → 021`).
+zincirleme (`015.1 → 016.1 → 018 → 019 → 020 → 021`); sonrasında
+main'e lineer ff-merge + push + temizlik.
 
 1. **Görev 015.1** — cache-hit token indirimi (`a66c0b6`)
    - `_CACHE_READ_MULT = 0.1`, `_CACHE_WRITE_MULT = 1.25` sabitleri
@@ -70,35 +72,21 @@ zincirleme (`015.1 → 016.1 → 018 → 019 → 020 → 021`).
    - Read-only, exit 0.
    - +5 test.
 
+7. **Merge + push + temizlik**
+   - `git merge --ff-only feat/021-atlas-doctor` → 7 commit lineer
+     main'e (`b6acd19`), merge commit YOK.
+   - `git push origin main` → `e4445ae..b6acd19` uzağa gitti.
+   - 6 feature branch silindi (`feat/015.1-cache-hit-discount`,
+     `feat/016.1-acp-fs-read`, `feat/018-obs-chars-env`,
+     `feat/019-anthropic-streaming`, `feat/020-run-dry-run`,
+     `feat/021-atlas-doctor`).
+
 ---
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-**Merge + push.** 6 lineer commit main'in üstünde hazır:
-
-```
-main (e4445ae) ← origin/main (senkron)
-     ↑
-     a66c0b6 feat(015.1): Anthropic cache-hit token indirimi
-     53545a8 feat(016.1): ACP fs/read_text_file minimum
-     0c5ed9d feat(018): ATLAS_LLM_OBS_CHARS env
-     50f6d3c feat(019): Anthropic streaming (opt-in)
-     eed0d09 feat(020): atlas run --dry-run rehearsal
-     3ff2acc feat(021): atlas doctor env sağlık özeti
-```
-
-Önerilen yol:
-
-```bash
-git checkout main
-git merge --ff-only feat/021-atlas-doctor   # 6 commit lineer
-git push origin main
-git branch -d feat/015.1-cache-hit-discount feat/016.1-acp-fs-read \
-             feat/018-obs-chars-env feat/019-anthropic-streaming \
-             feat/020-run-dry-run feat/021-atlas-doctor
-```
-
-Alternatif — merge etmeden yeni görev seçilebilir. Doğal devamlar:
+**Yeni görev seçimi.** Pipeline'da açık iş yok; 015.1/016.1/018/019/020/021
+kapandı. Doğal devam adayları:
 
 - **Görev 016.2 — ACP `session/request_permission`:** permission
   dialog handler (auto-allow read).
@@ -113,11 +101,42 @@ Alternatif — merge etmeden yeni görev seçilebilir. Doğal devamlar:
 - **Görev 024 — Dashboard:** `.atlas/audit.jsonl` özeti + son 10 run
   cost tablosu.
 
+Ya da başka bir öncelik varsa net söyle.
+
 ---
 
 ## Hızlı Bağlam
 
-**Env sözleşmesi (kümülatif, bu turda eklenen ★):**
+**Branch grafı:**
+```
+origin/main (b6acd19) = main (b6acd19) ← senkron
+```
+Kalan local branch'ler (bu turların dışı, önceki oturumların işi):
+`feat/paketleme-bulut-secenegi`, `feat/tasinabilir-kurulum`,
+`fix/{arsivleyici-arama, kimi-yeniden-etkinlestirme,
+ollama-kimligi-tasinabilir, surum-etiketli-yedek}`.
+
+**main'e giren 7 commit (2026-07-29 7. tur):**
+```
+b6acd19 docs: DEVAM_NOKTASI.md — 7. tur kapanis
+3ff2acc feat(021): atlas doctor env sağlık özeti
+eed0d09 feat(020): atlas run --dry-run rehearsal
+50f6d3c feat(019): Anthropic streaming (opt-in)
+0c5ed9d feat(018): ATLAS_LLM_OBS_CHARS env
+53545a8 feat(016.1): ACP fs/read_text_file minimum
+a66c0b6 feat(015.1): Anthropic cache-hit token indirimi
+```
+
+**Kalite kapıları (bu turun sonu):**
+```bash
+uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
+# 486 passed
+uv run mypy src                # 25 dosya, temiz
+uv run ruff check src tests    # temiz
+uv run atlas scan src          # sır bulunamadı
+```
+
+**Env sözleşmesi (kümülatif):**
 | Değişken | Anlam |
 |---|---|
 | `ATLAS_LLM` | `stub` \| `claude` \| `anthropic` \| `acp` \| bilinmiyor |
@@ -135,7 +154,7 @@ Alternatif — merge etmeden yeni görev seçilebilir. Doğal devamlar:
 | `ATLAS_LLM_TRACE=1` | retry stderr + anthropic usage stderr |
 | `ATLAS_LLM_PRICE_IN` | anthropic input per million USD |
 | `ATLAS_LLM_PRICE_OUT` | anthropic output per million USD |
-| `ATLAS_LLM_OBS_CHARS` ★ | **018** — gözlem char üst sınır (varsayılan 200) |
+| `ATLAS_LLM_OBS_CHARS` | gözlem char üst sınır (varsayılan 200, aralık [1, 2000]) |
 | `ATLAS_ARCHIVE_AGE_DAYS` | `--auto` yaş eşiği (varsayılan 7) |
 
 **Exit kodları (değişmedi):** 0/2/3/4/5/6/7.
@@ -172,10 +191,11 @@ Alternatif — merge etmeden yeni görev seçilebilir. Doğal devamlar:
 ## Kapanış Notları
 
 - 486 test yeşil (bu turun baseline'ı 444 → +42; oturum başı 319 → +167)
-- 6 lineer commit `feat/021-atlas-doctor` ucunda; merge stratejisi
-  user'a bağlı
+- 7 lineer commit main'e alındı, uzağa push edildi, 6 feature branch
+  silindi (kullanıcı açık onayıyla)
 - Uncommitted değişiklik yok, working tree temiz
 - Ollama / Juggler / ACP kimlikleri `.juggler/` altında (gitignored) —
   dokunulmadı
-- DECISIONS.md 2026-07-29 altında **21 giriş bloğu** birikti (bu tur
-  itibarıyla)
+- Portable bundle son sürüm: `D:\ATLAS.rar` (önceki oturum, 1.9 GB) —
+  yenilenmemedi (kapsam dışı)
+- DECISIONS.md 2026-07-29 altında **21 giriş bloğu** birikti
