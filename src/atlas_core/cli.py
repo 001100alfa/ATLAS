@@ -530,6 +530,42 @@ def _cmd_archive_all(args: argparse.Namespace) -> int:
     return 6 if failed else 0
 
 
+def _load_dotenv(path: Path) -> int:
+    """SPEC 022: `.env` dosyasını el ile parse edip `os.environ`'a yükle.
+
+    - Dosya yoksa sessiz no-op (0 döner).
+    - Her satır `KEY=VALUE`; `#` yorum; boş satır atla.
+    - `VALUE` etrafında `"..."` veya `'...'` varsa tırnak sıyrılır.
+    - Mevcut env değişkenini **override etmez** (shell env üstünde).
+
+    Döner: yüklenen değişken sayısı (test için).
+    """
+    if not path.is_file():
+        return 0
+    loaded = 0
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return 0
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        if not key:
+            continue
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+            val = val[1:-1]
+        if key not in os.environ:
+            os.environ[key] = val
+            loaded += 1
+    return loaded
+
+
 def _mask_secret(value: str, keep_prefix: int = 3, keep_suffix: int = 3) -> str:
     """API key maskele: `sk-...***abc`."""
     if not value:
@@ -833,6 +869,14 @@ def _cmd_scan(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # SPEC 022: `.env` otomatik yükleme (proje kökü veya ATLAS_DOTENV).
+    # Shell env override etmez; yalnız eksik değişkenleri doldurur.
+    dotenv_path = os.environ.get("ATLAS_DOTENV", "").strip()
+    if dotenv_path:
+        _load_dotenv(Path(dotenv_path))
+    else:
+        _load_dotenv(Path.cwd() / ".env")
+
     parser = argparse.ArgumentParser(prog="atlas", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 

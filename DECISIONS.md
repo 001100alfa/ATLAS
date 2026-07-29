@@ -1,6 +1,26 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 022 — `.env` otomatik yükleme)
+- [KARAR] **stdlib-only** manuel parser (~25 sat) — `python-dotenv`
+  bağımlılığı eklenmedi. Basit KEY=VAL yeter; multi-line, escape,
+  değişken referansı YAGNI.
+- [KARAR] **Shell env override edilmez** — dotenv sadece eksikleri
+  doldurur. Shell'de bilinçli set edilen değer kazanır (kullanıcı
+  isterse `.env`'i geçici geçersizleştirebilir).
+- [KARAR] Öncelik: `ATLAS_DOTENV` env → `Path.cwd() / ".env"` →
+  no-op. Custom yol test/CI için gerekli; default proje kökü doğal.
+- [KARAR] `main()` başında **bir kez** çağrılır — tekrar tekrar
+  disk erişimi yok. `argv` parse'ından **önce** çalışır ki komut
+  seçiminden bağımsız her komut yararlanır.
+- [KARAR] Hata yolları sessiz — dosya yoksa/okunamıyorsa 0 dönerken
+  crash olmaz. Kullanıcı `.env` yazımını yanlış yapsa da CLI çalışır
+  (uyarı yok, felsefi seçim: doctor buna bakabilir).
+- Kapsam: 1 modül düzenleme (cli.py: +_load_dotenv ~25 sat +
+  main() başında çağrı), 1 yeni test dosyası (7 test). Toplam
+  505 test yeşil (498 → +7). mypy strict + ruff temiz. Artefaktlar
+  `pipeline/tasks/022-dotenv-autoload/`.
+
 ## 2026-07-29 (Görev 021.2 — `atlas doctor --ping` canlılık kontrolü)
 - [KARAR] Ping **anthropic-özel** — claude/acp subprocess başlatmak
   pahalı ve karmaşık; anthropic HTTP ping yeter. Diğer backend'lerde
