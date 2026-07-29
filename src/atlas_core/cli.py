@@ -247,16 +247,82 @@ def _cmd_run_goal(args: argparse.Namespace) -> int:
     return 0 if result.done else 4
 
 
+def _cmd_run_batch(args: argparse.Namespace, files: list[str]) -> int:
+    """SPEC 030: `atlas run --goal-file A B C` sıralı yürütme + özet + tek exit.
+
+    Fail-fast varsayılan; `--continue-on-error` ile tümü çalışır.
+    Run-id çakışma: `--run-id X` → `X_1, X_2, ...`; yoksa `<TS>_<i>`.
+    Exit kodu: hepsi 0 → 0; aksi → en yüksek hata kodu.
+    """
+    continue_on_error = getattr(args, "continue_on_error", False)
+    dry_run = getattr(args, "dry_run", False)
+    base_run_id = args.run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    print(f"=== ATLAS batch — {len(files)} goal ===")
+    print(f"mod: {'continue-on-error' if continue_on_error else 'fail-fast'}"
+          f"{' + dry-run' if dry_run else ''}")
+    print()
+
+    results: list[tuple[str, int | None, str]] = []
+    # (dosya, exit_code veya None="atlandı", run_id_or_skip_reason)
+
+    for i, f in enumerate(files, start=1):
+        run_id_i = f"{base_run_id}_{i}"
+        print(f"--- [{i}/{len(files)}] {f}  (run_id={run_id_i}) ---")
+        goal_args = argparse.Namespace(
+            goal_file=f,
+            run_id=run_id_i,
+            dry_run=dry_run,
+        )
+        rc = _cmd_run_goal(goal_args)
+        results.append((f, rc, run_id_i))
+        print()
+        if rc != 0 and not continue_on_error:
+            # Fail-fast: kalanları "atlandı" olarak işaretle
+            for j in range(i, len(files)):
+                results.append((files[j], None, "atlandı (fail-fast)"))
+            break
+
+    # Özet tablo
+    print(f"=== ATLAS batch özeti — {len(files)} goal ===")
+    max_rc = 0
+    for idx, (f_out, rc_out, note_out) in enumerate(results, start=1):
+        stem = Path(f_out).stem
+        if rc_out is None:
+            print(f"  {idx}. {stem:<24} - {note_out}")
+        elif rc_out == 0:
+            print(f"  {idx}. {stem:<24} + done   (run_id={note_out})")
+        else:
+            print(f"  {idx}. {stem:<24} x exit={rc_out} (run_id={note_out})")
+            if rc_out > max_rc:
+                max_rc = rc_out
+    print(f"batch exit: {max_rc}")
+    return max_rc
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     """Platformun tümünü bağlayan demo: kayıtlı ajan + bütçe + audit + P-A-O-R.
 
-    `--goal-file` verilirse gerçek görev sürücüsüne (`_cmd_run_goal`) dallanır.
+    `--goal-file A B C` verilirse SPEC 030 batch (birden fazla) veya SPEC 002
+    tek görev sürücüsüne (`_cmd_run_goal`) dallanır.
     Aksi halde eski yer tutucu (echo) demo davranışı korunur (regresyon).
     """
     if args.goal_file:
-        return _cmd_run_goal(args)
+        # SPEC 030: nargs='+' liste; N == 1 → mevcut tek-dosya davranışı
+        # (bit-uyumlu); N > 1 → batch.
+        files = list(args.goal_file)
+        if len(files) == 1:
+            # Tek dosya: args.goal_file'ı str'e indirge (mevcut _cmd_run_goal
+            # `str(args.goal_file)` bekliyor).
+            single_args = argparse.Namespace(
+                goal_file=files[0],
+                run_id=args.run_id,
+                dry_run=getattr(args, "dry_run", False),
+            )
+            return _cmd_run_goal(single_args)
+        return _cmd_run_batch(args, files)
     if not args.goal:
-        print("kullanım: atlas run <hedef> | atlas run --goal-file <yaml>", file=sys.stderr)
+        print("kullanım: atlas run <hedef> | atlas run --goal-file <yaml>...", file=sys.stderr)
         return 2
     audit = AuditLog(_audit_path())
     registry = AgentRegistry()
@@ -1292,7 +1358,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_run = sub.add_parser("run", help="Bütçeli P-A-O-R döngüsü")
     p_run.add_argument("goal", nargs="?", default=None, help="echo demo için hedef metni")
-    p_run.add_argument("--goal-file", default=None, help="YAML hedef dosyası (SPEC 002)")
+    p_run.add_argument("--goal-file", nargs="+", default=None,
+                       help="YAML hedef dosyası (SPEC 002); birden fazla verilirse "
+                            "batch yürütme (SPEC 030)")
     p_run.add_argument("--run-id", default=None, help="sandbox alt dizini için sabit ad (test)")
     p_run.add_argument("--steps", type=int, default=3, help="echo demo: kaç ACT yeter")
     p_run.add_argument("--max-steps", type=int, default=8)
@@ -1300,6 +1368,8 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--step-cost", type=float, default=10.0)
     p_run.add_argument("--dry-run", action="store_true",
                        help="planner çalıştır, action stub (yıkıcı iş yok) — SPEC 020")
+    p_run.add_argument("--continue-on-error", action="store_true",
+                       help="SPEC 030: batch modunda ilk hatada durma, tümünü çalıştır")
     p_run.set_defaults(func=_cmd_run)
 
     p_rx = sub.add_parser("reindex", help="GBrain FTS indeksini yeniden kur")
