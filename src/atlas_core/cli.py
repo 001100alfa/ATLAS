@@ -40,7 +40,9 @@ from atlas_core.orchestrator.judges import make_judge
 from atlas_core.orchestrator.planner import (
     LLMPlannerError,
     PlannerExhaustedError,
+    _read_retry_env,
     make_planner,
+    make_retrying_planner,
 )
 from atlas_core.security.audit import AuditLog, scan_secrets
 from atlas_core.workflows.engine import WorkflowEngine, WorkflowError
@@ -156,11 +158,14 @@ def _cmd_run_goal(args: argparse.Namespace) -> int:
     budget = CallBudget(limit=goal.budget)
     last_exit: dict[str, int] = {}
     try:
-        plan = make_planner(goal, context=ctx)  # fabrika: LLM bin yok → LLMPlannerError
+        inner = make_planner(goal, context=ctx)  # fabrika: LLM bin yok → LLMPlannerError
     except LLMPlannerError as exc:
         audit.record("atlas-run", "llm_error", str(exc)[:200])
         print(f"LLM PLANNER HATASI: {exc}", file=sys.stderr)
         return 7
+    # SPEC 008: opsiyonel retry sarmalayıcı (env kapalıysa kimlik-geçiş).
+    retries, backoff_s = _read_retry_env()
+    plan = make_retrying_planner(inner, retries, backoff_s)
     act = make_action(goal, sandbox, last_exit)
     judge = make_judge(goal, sandbox, last_exit)
 

@@ -1,6 +1,32 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 008 — LLM retry/backoff sarmalayıcı)
+- [KARAR] Retry mantığı planner'ın **dışında** — `make_retrying_planner`
+  ayrı fabrikadır, `make_planner` sözleşmesi hiç değişmedi. Böylece
+  static planner, stub planner, üç LLM backend ve gelecek backend'ler
+  aynı sarmalayıcıyı ücretsiz kullanır; test yalıtımı temiz.
+- [KARAR] `retries <= 0` → `inner` **aynen** döner (`is inner`
+  kimlik-geçiş). Bu, "env kapalıysa hiç maliyet yok" garantisi verir
+  ve mevcut test suite bit-uyumlu kalır.
+- [KARAR] Sadece `LLMPlannerError` yakalanır; `PlannerExhaustedError`,
+  `KeyboardInterrupt`, `ValueError` sarma **geçer**. LLM'in "geçici"
+  hatasıyla static planner'ın "tükendi" durumu farklı sözleşmedir —
+  ikincisi retry ile düzelmez.
+- [KARAR] `time.sleep` yerine `planner_mod._sleep` modül-seviyesi
+  hook. Test tarafı `monkeypatch.setattr(planner_mod, "_sleep", ...)`
+  ile uykuları anında geçer. Alternatif: `time.sleep` doğrudan
+  patch'lemek → hangisi sarmalayıcı için ise belirsizlik. Modül
+  hook'u niyeti açıklar.
+- [KARAR] Env sözleşmesi: `ATLAS_LLM_RETRIES` (0 = kapalı),
+  `ATLAS_LLM_BACKOFF` (saniye taban), `ATLAS_LLM_TRACE` (`1` →
+  stderr). Negatif retry/backoff **sessizce 0'a düşürülür** —
+  kullanıcı env'i yanlış yazsa bug yerine kapalı kalır.
+- Kapsam: 1 modül düzenleme (planner.py +45 sat), 1 CLI düzenleme
+  (2 sat), 1 yeni test dosyası (15 test), 1 CLI test ekleme.
+  387 test yeşil (371 → +16). mypy strict + ruff temiz.
+  Artefaktlar `pipeline/tasks/008-retry-backoff/`.
+
 ## 2026-07-29 (Flaky düzeltmesi — test_doctor_gui mtime granülerliği)
 - [HATA] `test_restore_defaults_to_newest_and_can_pick_by_name`: iki
   yedek aynı Windows sistem-saati tick'i (~15.6 ms) içine düşünce

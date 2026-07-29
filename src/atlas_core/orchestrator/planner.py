@@ -27,6 +27,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from typing import IO, Any
@@ -46,6 +47,9 @@ _DEFAULT_ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-latest"
 _ANTHROPIC_VERSION = "2023-06-01"
 _ANTHROPIC_MAX_TOKENS = 256
+
+# SPEC 008: test için monkeypatch-able uyku hook'u (default time.sleep).
+_sleep: Callable[[float], None] = time.sleep
 
 
 class PlannerExhaustedError(RuntimeError):
@@ -606,3 +610,59 @@ def _acp_planner(goal: Goal, context: str | None = None) -> Planner:
         return _call_acp(bin_path, extra, prompt, timeout_s)
 
     return _acp
+
+
+# ---------- SPEC 008: retry/backoff sarmalayıcısı ----------
+
+
+def _read_retry_env() -> tuple[int, float]:
+    """`(retries, backoff_s)` — env'den oku, negatifleri 0'a düşür.
+
+    - `ATLAS_LLM_RETRIES` (varsayılan 0 = kapalı).
+    - `ATLAS_LLM_BACKOFF` saniye taban (varsayılan 1.0).
+    Sayısal parse hatası doğal `ValueError` — kullanıcı env'i düzeltsin.
+    """
+    retries = int(os.environ.get("ATLAS_LLM_RETRIES", "0"))
+    backoff = float(os.environ.get("ATLAS_LLM_BACKOFF", "1.0"))
+    return max(0, retries), max(0.0, backoff)
+
+
+def make_retrying_planner(
+    inner: Planner, retries: int, backoff_s: float
+) -> Planner:
+    """LLMPlannerError için üstel-backoff'lu retry sarmalayıcı.
+
+    - `retries <= 0` → `inner` aynen döner (kimlik-geçiş, no-op).
+    - Aksi hâlde: en fazla `1 + retries` deneme; hata → sleep(backoff *
+      2**attempt) → yeniden dene; son deneme raise.
+    - Yalnız `LLMPlannerError` yakalanır — diğer istisnalar sarma geçer.
+    - `ATLAS_LLM_TRACE=1` env'inde her başarısız deneme stderr'a yazılır.
+
+    Sözleşme değişmezliği: dönen callable `Planner` tipi
+    (`(goal, history) -> str`).
+    """
+    if retries <= 0:
+        return inner
+
+    def _retrying(goal: str, history: list[tuple[StepKind, str]]) -> str:
+        total = 1 + retries
+        last_exc: LLMPlannerError | None = None
+        for attempt in range(total):
+            try:
+                return inner(goal, history)
+            except LLMPlannerError as exc:
+                last_exc = exc
+                if os.environ.get("ATLAS_LLM_TRACE") == "1":
+                    print(
+                        f"[retry] deneme {attempt + 1}/{total} başarısız: "
+                        f"{str(exc)[:_BODY_TAIL]}",
+                        file=sys.stderr,
+                    )
+                if attempt < retries:
+                    _sleep(backoff_s * (2 ** attempt))
+        # Buraya asla düşmemeli (yukarıdaki return veya son hata) —
+        # emniyet için son hatayı raise.
+        assert last_exc is not None
+        raise last_exc
+
+    return _retrying

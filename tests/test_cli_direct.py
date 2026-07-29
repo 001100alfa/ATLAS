@@ -132,6 +132,38 @@ def test_run_llm_anthropic_key_yok(
     assert "llm_error" in audit_txt
 
 
+def test_008_retry_env_uc_deneme_hepsi_basarisiz(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SPEC 008 AC11: retries=2 (env) + sürekli LLMPlannerError → 3 deneme, exit 7."""
+    _env(monkeypatch, tmp_path)
+    fake = tmp_path / "fake-claude.cmd"
+    fake.write_text("", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_LLM", "claude")
+    monkeypatch.setenv("ATLAS_LLM_CLAUDE_BIN", str(fake))
+    monkeypatch.setenv("ATLAS_LLM_RETRIES", "2")
+    monkeypatch.setenv("ATLAS_LLM_BACKOFF", "0")  # test hızı
+    import atlas_core.orchestrator.planner as planner_mod
+
+    calls = {"n": 0}
+
+    class _Proc:
+        stdout, stderr, returncode = "", "boom", 3
+
+    def fake_run(*_a: object, **_kw: object) -> _Proc:
+        calls["n"] += 1
+        return _Proc()
+
+    monkeypatch.setattr(planner_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(planner_mod, "_sleep", lambda _s: None)
+    assert (
+        main(["run", "--goal-file", "tests/goals/llm_claude.yaml", "--run-id", "r"])
+        == 7
+    )
+    # 1 initial + 2 retry = 3 subprocess çağrısı
+    assert calls["n"] == 3
+
+
 def test_run_llm_acp_bin_yok(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
