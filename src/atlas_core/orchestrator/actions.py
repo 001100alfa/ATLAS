@@ -16,6 +16,7 @@ Güvenlik ilkeleri:
 
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 from collections.abc import Callable
@@ -27,6 +28,46 @@ from atlas_core.orchestrator.goals import Goal
 Action = Callable[[str], tuple[str, float]]
 
 SHELL_TIMEOUT_S: float = 10.0
+
+# SPEC 026: shell subprocess'e verilecek env whitelist. ATLAS/LLM/API
+# key gibi hassas env'ler burada YOK — sandbox'a sızmaz.
+_SANDBOX_ENV_WHITELIST: frozenset[str] = frozenset({
+    "PATH", "HOME", "USER", "USERPROFILE", "USERNAME",
+    "TEMP", "TMP", "TMPDIR",
+    "LANG", "LC_ALL", "LC_CTYPE",
+    "SYSTEMROOT", "COMSPEC", "WINDIR",  # Windows
+    "SHELL",  # Unix
+})
+
+
+def _scrub_env() -> dict[str, str]:
+    """SPEC 026: sandbox subprocess'i için whitelist env döner.
+
+    - `_SANDBOX_ENV_WHITELIST` içindeki değişkenler `os.environ`'dan geçer.
+    - `ATLAS_SANDBOX_PATH` env verildiyse PATH override edilir.
+    - Diğerleri (ANTHROPIC_API_KEY vs.) YOK.
+    """
+    env: dict[str, str] = {}
+    for k in _SANDBOX_ENV_WHITELIST:
+        v = os.environ.get(k)
+        if v is not None:
+            env[k] = v
+    override_path = os.environ.get("ATLAS_SANDBOX_PATH", "").strip()
+    if override_path:
+        env["PATH"] = override_path
+    return env
+
+
+def _read_sandbox_timeout() -> float:
+    """SPEC 026: `ATLAS_SANDBOX_TIMEOUT` saniye (varsayılan 10.0).
+
+    Parse hatası veya negatif → varsayılan.
+    """
+    try:
+        v = float(os.environ.get("ATLAS_SANDBOX_TIMEOUT", str(SHELL_TIMEOUT_S)))
+    except ValueError:
+        return SHELL_TIMEOUT_S
+    return v if v > 0 else SHELL_TIMEOUT_S
 
 
 class ActionDeniedError(RuntimeError):
@@ -111,6 +152,9 @@ def make_action(
         cmd = ":".join(args).strip()
         if regex is None or not regex.fullmatch(cmd):
             raise ActionDeniedError(f"shell allowlist ihlali: {cmd!r}")
+        # SPEC 026: whitelist env + configurable timeout.
+        env = _scrub_env()
+        timeout_s = _read_sandbox_timeout()
         try:
             proc = subprocess.run(  # noqa: S603 - shell=False, arg listesi
                 shlex.split(cmd),
@@ -118,18 +162,26 @@ def make_action(
                 cwd=sandbox,
                 capture_output=True,
                 text=True,
-                timeout=SHELL_TIMEOUT_S,
+                timeout=timeout_s,
                 encoding="utf-8",
                 errors="replace",
+                env=env,
             )
         except subprocess.TimeoutExpired as exc:
             exit_map["shell"] = -1
-            raise ActionDeniedError(f"shell timeout ({SHELL_TIMEOUT_S}s): {cmd!r}") from exc
+            raise ActionDeniedError(
+                f"shell timeout ({timeout_s}s): {cmd!r}"
+            ) from exc
         except FileNotFoundError as exc:
             exit_map["shell"] = -1
             raise ActionDeniedError(f"shell komutu bulunamadi: {cmd!r}") from exc
         exit_map["shell"] = proc.returncode
-        return f"exit={proc.returncode} out={proc.stdout.strip()[:200]}"
+        # SPEC 026 M4: stdout + stderr birleşik observation.
+        out = proc.stdout.strip()[:200]
+        err = proc.stderr.strip()[:200]
+        if err:
+            return f"exit={proc.returncode} out={out} err={err}"
+        return f"exit={proc.returncode} out={out}"
 
     def action(plan: str) -> tuple[str, float]:
         verb, args = _parse_plan(plan)

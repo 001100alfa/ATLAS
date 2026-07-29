@@ -1,6 +1,33 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 026 — sandbox iyileştirme, Docker YOK)
+- [KARAR] **Docker YASAK** (kullanıcı direktifi). Portable stdlib-only
+  yol: env whitelist, PATH kısıt, timeout env, stderr yakalama.
+  Çoğu tehdit modelini (API key sızıntısı, runtime aşımı) kapsar;
+  fork bomb / OOM için Unix `resource` (026.1) ve Windows Job Objects
+  (026.2) opt-in olarak sonraki görevlere ayrıldı.
+- [KARAR] **Env whitelist** — hassas env (ANTHROPIC_API_KEY,
+  ATLAS_LLM_*) sandbox subprocess'e sızmaz. Whitelist minimum:
+  PATH, HOME/USERPROFILE, TEMP, LANG, SYSTEMROOT + Unix eşdeğerleri.
+  Yeni env ihtiyacı doğarsa liste genişler (belirtilen kullanım).
+- [KARAR] `ATLAS_SANDBOX_PATH` override — kullanıcı sandbox'ın
+  PATH'ini iyice daraltmak isterse (sadece `/usr/bin`) verir. Yoksa
+  mevcut PATH geçer (kullanıcı deneyimini bozmamak için).
+- [KARAR] Timeout **env-ayarlı** — sabit 10s bazı görevlerde yetmez
+  (uzun build). `ATLAS_SANDBOX_TIMEOUT` fail-safe parse.
+- [KARAR] **stderr yakalama** — observation'da `err=<ilk 200>`.
+  Neden: shell komutu başarısız olsa stdout boş, stderr'de hata
+  var; LLM planında bu bilgi yoksa geçen adımda niye başarısız
+  olduğunu anlayamaz.
+- [KARAR] Env yoksa **bit-uyumlu** — mevcut 20 test yeşil kaldı;
+  yeni parametreler sadece `env=` kwarg değişikliği.
+- Kapsam: 1 modül düzenleme (actions.py: +_SANDBOX_ENV_WHITELIST,
+  +_scrub_env, +_read_sandbox_timeout, _shell env/timeout/stderr
+  uygulaması ~30 sat), 1 test dosyası genişleme (+6 test). Toplam
+  539 test yeşil (533 → +6). mypy strict + ruff temiz. `atlas scan
+  src` sır yok. Artefaktlar `pipeline/tasks/026-sandbox-hardening/`.
+
 ## 2026-07-29 (Görev 025 — skills/engineering/prompt SKILL.md)
 - [KARAR] **Türkçe** rehber — CLAUDE.md kuralı (Türkçe iletişim,
   teknik terimler orijinal). Kullanıcı: ATLAS'ı çalıştıran mühendis

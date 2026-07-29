@@ -107,3 +107,93 @@ def test_shell_bilinmeyen_komut(tmp_path: Path) -> None:
     act = make_action(_goal({"shell"}, shell_regex=r"^definitely_not_a_command .*"), tmp_path)
     with pytest.raises(ActionDeniedError, match="bulunamadi"):
         act("shell:definitely_not_a_command foo")
+
+
+# ---------- SPEC 026: sandbox iyileştirme ----------
+
+
+def test_026_env_scrub_api_key_sizmaz(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Shell subprocess'e ANTHROPIC_API_KEY sızmamalı."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-SUPER-SECRET-DONT-LEAK")
+    exe = sys.executable.replace("\\", "/")
+    regex = rf"^{Path(exe).name} -c .*$"
+    act = make_action(_goal({"shell"}, shell_regex=regex), tmp_path)
+    obs, _ = act(
+        f"shell:{Path(exe).name} -c \""
+        "import os; print(os.environ.get('ANTHROPIC_API_KEY', 'YOK'))\""
+    )
+    # Subprocess'te env yok — output 'YOK' olmalı, sızmamalı
+    assert "SUPER-SECRET" not in obs
+    assert "YOK" in obs
+
+
+def test_026_env_scrub_path_var(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PATH sandbox'a geçer (whitelist)."""
+    exe = sys.executable.replace("\\", "/")
+    regex = rf"^{Path(exe).name} -c .*$"
+    act = make_action(_goal({"shell"}, shell_regex=regex), tmp_path)
+    obs, _ = act(
+        f"shell:{Path(exe).name} -c \""
+        "import os; print('has-path' if os.environ.get('PATH') else 'no-path')\""
+    )
+    assert "has-path" in obs
+
+
+def test_026_atlas_sandbox_path_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ATLAS_SANDBOX_PATH env verilirse PATH o olur."""
+    monkeypatch.setenv("ATLAS_SANDBOX_PATH", "/custom/only")
+    exe = sys.executable.replace("\\", "/")
+    regex = rf"^{Path(exe).name} -c .*$"
+    act = make_action(_goal({"shell"}, shell_regex=regex), tmp_path)
+    obs, _ = act(
+        f"shell:{Path(exe).name} -c \""
+        "import os; print(os.environ.get('PATH', 'YOK'))\""
+    )
+    assert "/custom/only" in obs
+
+
+def test_026_timeout_env_okuma(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ATLAS_SANDBOX_TIMEOUT env okunur (fail-safe parse hatası)."""
+    from atlas_core.orchestrator.actions import _read_sandbox_timeout
+    monkeypatch.delenv("ATLAS_SANDBOX_TIMEOUT", raising=False)
+    assert _read_sandbox_timeout() == 10.0
+    monkeypatch.setenv("ATLAS_SANDBOX_TIMEOUT", "3.5")
+    assert _read_sandbox_timeout() == 3.5
+    monkeypatch.setenv("ATLAS_SANDBOX_TIMEOUT", "abc")
+    assert _read_sandbox_timeout() == 10.0
+    monkeypatch.setenv("ATLAS_SANDBOX_TIMEOUT", "-1")
+    assert _read_sandbox_timeout() == 10.0
+
+
+def test_026_stderr_observation_da(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """stderr ilk 200 char observation'a `err=<...>` olarak ekleniyor."""
+    exe = sys.executable.replace("\\", "/")
+    regex = rf"^{Path(exe).name} -c .*$"
+    act = make_action(_goal({"shell"}, shell_regex=regex), tmp_path)
+    obs, _ = act(
+        f"shell:{Path(exe).name} -c \""
+        "import sys; sys.stderr.write('bir hata'); print('out')\""
+    )
+    assert "err=bir hata" in obs
+    assert "out=out" in obs
+
+
+def test_026_scrub_env_whitelist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_scrub_env whitelist dışını atlar."""
+    from atlas_core.orchestrator.actions import _scrub_env
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+    monkeypatch.setenv("PATH", "/usr/bin")
+    env = _scrub_env()
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "PATH" in env
+    assert env["PATH"] == "/usr/bin"
