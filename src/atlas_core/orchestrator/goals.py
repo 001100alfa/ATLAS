@@ -63,6 +63,12 @@ class Goal:
     # newline'da kes, algılanan gecikme düşer. Non-streaming davranışı
     # varsayılan (bit-uyumlu).
     stream: bool = False
+    # SPEC 018.2: True → uzun gözlemler (len > obs_chars) LLM'e
+    # tek satırda özetletilir; kısa gözlem no-op. Global override:
+    # `ATLAS_LLM_OBS_SUMMARIZE=1`. Backend'e göre davranış:
+    # anthropic → real çağrı; stub/claude/acp → deterministik stub
+    # (real çağrı 018.3 kapsamı).
+    obs_summarize: bool = False
 
 
 def _require(spec: dict[str, object], key: str, kind: type) -> object:
@@ -193,6 +199,13 @@ def load_goal(path: Path) -> Goal:
             f"stream bool olmalı, gelen: {type(stream_raw).__name__}"
         )
 
+    # SPEC 018.2: opsiyonel gözlem özetleme (bool).
+    obs_summarize_raw = raw.get("obs_summarize", False)
+    if not isinstance(obs_summarize_raw, bool):
+        raise SpecError(
+            f"obs_summarize bool olmalı, gelen: {type(obs_summarize_raw).__name__}"
+        )
+
     # Literal daraltması: yukarıda enum kontrolü yapıldı, tip güvenli.
     return Goal(
         goal=goal,
@@ -211,4 +224,5 @@ def load_goal(path: Path) -> Goal:
         llm_model=llm_model,
         prompt_cache=prompt_cache_raw,
         stream=stream_raw,
+        obs_summarize=obs_summarize_raw,
     )

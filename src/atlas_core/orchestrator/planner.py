@@ -206,6 +206,112 @@ def _trim_obs(obs: str, obs_chars: int) -> str:
     return f"{obs[:head]}\n[... {skipped} char atlandı ...]\n{obs[-tail:]}"
 
 
+# ─────────────────────────────────────────────────────────────────────
+# SPEC 018.2: LLM ile gözlem özetleme
+# ─────────────────────────────────────────────────────────────────────
+
+_TRUTHY_ENV_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
+_OBS_SUMMARIZE_MAX_INPUT = 2000   # özet promptuna giren obs üst sınırı
+_OBS_SUMMARIZE_MAX_OUTPUT = 120   # döndürülen özet üst sınırı
+# Uyarı deduplication: aynı backend için stderr'e bir kez bas.
+_OBS_SUMMARIZE_WARNED: set[str] = set()
+
+
+def _reset_obs_summarize_warnings() -> None:
+    """Test yardımcısı — uyarı setini sıfırla."""
+    _OBS_SUMMARIZE_WARNED.clear()
+
+
+def _read_env_flag(name: str) -> bool:
+    """Env değişkeni truthy mi (`1`/`true`/`yes`/`on`, case-insensitive)."""
+    return os.environ.get(name, "").strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _effective_obs_summarize(goal: Goal) -> bool:
+    """SPEC 018.2: goal.obs_summarize VEYA env override."""
+    return goal.obs_summarize or _read_env_flag("ATLAS_LLM_OBS_SUMMARIZE")
+
+
+def _stub_summarize_obs(obs: str) -> str:
+    """SPEC 018.2 stub özet — deterministik, LLM çağrısı YOK.
+
+    Aynı input → aynı output. Test ve stub/claude/acp fallback için.
+    """
+    n_char = len(obs)
+    n_line = obs.count("\n") + 1 if obs else 0
+    head = obs.strip().splitlines()[0][:40] if obs.strip() else ""
+    return f"[özet: {n_char} char, {n_line} satır, baş: {head!r}...]"
+
+
+def _summarize_via_anthropic(obs: str, goal: Goal) -> str:
+    """SPEC 018.2 real özet — Anthropic Messages API üstünden.
+
+    `_call_anthropic`'i minimal bir prompt ile tekrar kullanır. Yan
+    etkileri (metrics.jsonl kaydı, usage trace) korunur — ekstra
+    çağrı ekstra token olarak metrik dosyasında görünür.
+
+    Hata → `LLMPlannerError` (üst katman fail-safe'e düşer).
+    """
+    api_key, url, model, timeout_s = _resolve_anthropic_env(goal)
+    prompt = (
+        "Aşağıdaki komut çıktısını Türkçe TEK cümlede, en fazla 120 "
+        "karakterde özetle. Hata varsa hataya odaklan.\n\n"
+        f"Çıktı:\n{obs[:_OBS_SUMMARIZE_MAX_INPUT]}"
+    )
+    text = _call_anthropic(
+        api_key=api_key,
+        url=url,
+        model=model,
+        prompt=prompt,
+        timeout_s=timeout_s,
+        # System yok, cache yok, stream yok — minimal.
+    )
+    # İlk satır + kırpma (fail-safe: `_call_anthropic` zaten ilk satır dönüyor)
+    line = text.splitlines()[0].strip() if text else ""
+    if not line:
+        raise LLMPlannerError("anthropic boş özet döndürdü")
+    if len(line) > _OBS_SUMMARIZE_MAX_OUTPUT:
+        line = line[: _OBS_SUMMARIZE_MAX_OUTPUT - 1] + "…"
+    return f"[özet: {line}]"
+
+
+def _maybe_summarize_or_trim(obs: str, obs_chars: int, goal: Goal) -> str:
+    """SPEC 018.2: dispatch — özetle ya da 018.1 kırp.
+
+    - `len(obs) <= obs_chars` → dokunma (ekstra maliyet yok).
+    - `_effective_obs_summarize(goal)` False → `_trim_obs`.
+    - Backend `anthropic` → real özet; hata → `_trim_obs` fallback.
+    - Backend stub/claude/acp → stub özet (bir kez uyarı — 018.3 kapsamı).
+    """
+    if len(obs) <= obs_chars:
+        return obs
+    if not _effective_obs_summarize(goal):
+        return _trim_obs(obs, obs_chars)
+
+    backend = os.environ.get("ATLAS_LLM", "stub")
+    if backend == "anthropic":
+        try:
+            return _summarize_via_anthropic(obs, goal)
+        except LLMPlannerError as exc:
+            print(
+                f"uyarı: obs_summarize anthropic çağrısı başarısız "
+                f"(kırpmaya düşülüyor): {exc}",
+                file=sys.stderr,
+            )
+            return _trim_obs(obs, obs_chars)
+
+    # stub → sessiz stub (test ve varsayılan yol)
+    # claude/acp → bir kez stderr uyarısı + stub'a düş (018.3)
+    if backend in ("claude", "acp") and backend not in _OBS_SUMMARIZE_WARNED:
+        _OBS_SUMMARIZE_WARNED.add(backend)
+        print(
+            f"uyarı: obs_summarize {backend!r} backend'de gerçek çağrı "
+            "YAPMAZ — stub özet döner (018.3 kapsamı).",
+            file=sys.stderr,
+        )
+    return _stub_summarize_obs(obs)
+
+
 def _format_prompt(
     goal: Goal,
     history: list[tuple[StepKind, str]],
@@ -234,7 +340,11 @@ def _format_prompt(
     tail = obs[-_MAX_HISTORY_OBSERVES:]
     obs_chars = _read_obs_chars_env()  # SPEC 018: runtime env okuma
     # SPEC 018.1: head+tail keep — uzun stderr'ın sonundaki hata kaybolmaz.
-    obs_block = "\n".join(f"- {_trim_obs(o, obs_chars)}" for o in tail) if tail else "(yok)"
+    # SPEC 018.2: opt-in → LLM özet (backend'e göre); kısa obs no-op.
+    obs_block = (
+        "\n".join(f"- {_maybe_summarize_or_trim(o, obs_chars, goal)}" for o in tail)
+        if tail else "(yok)"
+    )
     ctx_block = ""
     if context:
         ctx_trimmed = context.strip()[:_MAX_CONTEXT_CHARS]
