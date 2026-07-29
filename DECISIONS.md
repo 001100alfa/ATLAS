@@ -1,6 +1,28 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 007 — atlas archive CLI komutu)
+- [KARAR] Yıkıcı işlem **dry-run varsayılan**; `--apply` bilinçli seçim.
+  CLAUDE.md kuralı ("yıkıcı işlem öncesi onay iste") CLI yüzeyinde
+  varsayılan davranışa gömüldü.
+- [KARAR] Özet öncelik zinciri: `--summary` argümanı → `09-ship.md`'nin
+  ilk paragrafı → fallback `"<task> arşivlendi"`. SHIP aşaması pipeline
+  gate'i gereği zaten yazılmış olduğundan doğal kaynak; `_read_ship_summary`
+  H1 satırlarını atlar ve ilk boş-satır'da keser.
+- [KARAR] Yeni exit kodu YOK. `SPEC HATASI` (klasör yok) → mevcut 2;
+  arşiv/tarfile/vault hatası → mevcut 6 (workflow-handler ile aynı
+  semantik: "arşiv işi kırıldı"). Kullanıcıya iki koddan seçim yaptırmadık.
+- [KARAR] Audit sözleşmesi: `--apply` başarılı → `("atlas-archive",
+  "archive", "<task>")`; hata → `("atlas-archive", "error", "<mesaj>")`.
+  Dry-run **audit'e yazmaz** — yıkıcı olmadığı için gereksiz gürültü.
+- [KARAR] `--tasks-root` ve `--archive-root` override argümanları
+  eklendi. Sadece test için değil; portable kurulumlarda `pipeline/tasks`
+  farklı bir yolda olabilir. Varsayılanlar CLAUDE.md ile uyumlu.
+- Kapsam: 1 modül düzenleme (cli.py — +_cmd_archive + _read_ship_summary
+  + parser), 1 test dosyası genişleme (+6 test). Toplam 370 test yeşil,
+  coverage %93.44, mypy strict + ruff temiz. Artefaktlar
+  `pipeline/tasks/007-archive-cli/`.
+
 ## 2026-07-29 (Görev 003.2 — Goal.llm_prompt opsiyonel alanı)
 - [KARAR] `Goal.llm_prompt: str | None = None` — SPEC 006 kalıbı:
   yeni alan **son sırada + default'lu**; eski `Goal(...)` positional

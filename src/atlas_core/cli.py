@@ -23,7 +23,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from atlas_core.memory.archive import archive_task
 from atlas_core.memory.gbrain import GBrain
+from atlas_core.memory.vault import Vault
 from atlas_core.orchestrator.actions import ActionDeniedError, make_action
 from atlas_core.orchestrator.core import (
     AgentRegistry,
@@ -301,6 +303,78 @@ def _cmd_audit_verify(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _read_ship_summary(task_dir: Path) -> str:
+    """SPEC 007 FR6: 09-ship.md'nin ilk paragrafını okur, yoksa fallback.
+
+    Fallback: `"<task> arşivlendi"`.
+    """
+    ship = task_dir / "09-ship.md"
+    if not ship.is_file():
+        return f"{task_dir.name} arşivlendi"
+    try:
+        raw = ship.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return f"{task_dir.name} arşivlendi"
+    # H1 (# ...) satırlarını atla; ilk boş satıra kadar olan bloğu al.
+    lines = raw.splitlines()[:50]
+    body: list[str] = []
+    seen_content = False
+    for ln in lines:
+        if ln.startswith("#"):
+            continue
+        stripped = ln.strip()
+        if not stripped:
+            if seen_content:
+                break
+            continue
+        seen_content = True
+        body.append(stripped)
+    text = " ".join(body).strip()
+    return text or f"{task_dir.name} arşivlendi"
+
+
+def _cmd_archive(args: argparse.Namespace) -> int:
+    """SPEC 007: `atlas archive <task> [--apply] [--summary TEXT]`.
+
+    Dry-run varsayılan (yıkıcı işlem). `--apply` ile gerçek arşivleme:
+    tar.gz + vault notu + klasör silme + audit kaydı.
+    """
+    tasks_root = Path(args.tasks_root)
+    archive_root = Path(args.archive_root)
+    task_dir = tasks_root / args.task
+    if not task_dir.is_dir():
+        print(f"SPEC HATASI: görev klasörü yok: {task_dir}", file=sys.stderr)
+        return 2
+
+    tar_target = archive_root / f"{args.task}-{datetime.now().date().isoformat()}.tar.gz"
+    vault_root = _vault_root()
+    vault_note = vault_root / "tasks" / f"task-{args.task}.md"
+
+    if not args.apply:
+        print("[dry-run] arşivleme planı:")
+        print(f"  kaynak: {task_dir}")
+        print(f"  hedef:  {tar_target}")
+        print(f"  vault:  {vault_note}")
+        print(f"Uygulamak için: atlas archive {args.task} --apply")
+        return 0
+
+    summary = args.summary or _read_ship_summary(task_dir)
+    audit = AuditLog(_audit_path())
+    try:
+        vault = Vault(vault_root)
+        tar_path = archive_task(task_dir, archive_root, vault, summary)
+    except (OSError, FileNotFoundError) as exc:
+        audit.record("atlas-archive", "error", str(exc)[:200])
+        print(f"ARŞİV HATASI: {exc}", file=sys.stderr)
+        return 6
+
+    audit.record("atlas-archive", "archive", args.task)
+    print(f"arşivlendi: {tar_path}")
+    print(f"vault:      {vault_note}")
+    print(f"kaldırıldı: {task_dir}")
+    return 0
+
+
 def _cmd_scan(args: argparse.Namespace) -> int:
     target = Path(args.path)
     files = [target] if target.is_file() else sorted(target.rglob("*"))
@@ -370,6 +444,18 @@ def main(argv: list[str] | None = None) -> int:
     p_scan = sub.add_parser("scan", help="Sır taraması (dosya/dizin)")
     p_scan.add_argument("path")
     p_scan.set_defaults(func=_cmd_scan)
+
+    p_arc = sub.add_parser("archive", help="Tamamlanmış görevi arşive taşı")
+    p_arc.add_argument("task", help="pipeline/tasks/ altındaki klasör adı")
+    p_arc.add_argument("--apply", action="store_true",
+                       help="dry-run yerine gerçek taşımayı çalıştır (yıkıcı)")
+    p_arc.add_argument("--summary", default=None,
+                       help="vault notunun gövdesi (yoksa 09-ship.md okunur)")
+    p_arc.add_argument("--tasks-root", default="pipeline/tasks",
+                       help="görevlerin bulunduğu kök dizin")
+    p_arc.add_argument("--archive-root", default="archive",
+                       help="tar.gz'lerin yazılacağı kök dizin")
+    p_arc.set_defaults(func=_cmd_archive)
 
     args = parser.parse_args(argv)
     # Windows konsolu (cp1254) Türkçe/üstsimge çıktıyı bozabilir; UTF-8'e sabitle.

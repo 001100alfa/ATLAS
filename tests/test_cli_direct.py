@@ -319,3 +319,145 @@ def test_006_baglam_var_ise_sayilir(
     out = capsys.readouterr().out
     # "N not enjekte edildi" veya "Bağlam: yok" (FTS bulamazsa) — ikisi de geçerli
     assert ("enjekte edildi" in out) or ("Bağlam: yok" in out)
+
+
+# ---------- SPEC 007: atlas archive ----------
+
+
+def _mk_fake_task(root: Path, name: str, *, with_ship: bool = True) -> Path:
+    """Sahte tamamlanmış görev klasörü — 007 testleri için ortak yardımcı."""
+    d = root / "pipeline" / "tasks" / name
+    d.mkdir(parents=True)
+    (d / "00-need.md").write_text(f"# {name}\n\nihtiyaç.\n", encoding="utf-8")
+    (d / "02-spec.md").write_text(f"# {name} SPEC\n\ndetaylar.\n", encoding="utf-8")
+    if with_ship:
+        (d / "09-ship.md").write_text(
+            f"# {name} — Ship\n\n"
+            "## Sonuç\n"
+            "Görev başarıyla tamamlandı ve teslim edildi.\n"
+            "İlgili modül genişledi, testler yeşil.\n"
+            "\n"
+            "## Dosyalar\n"
+            "- src/foo.py\n",
+            encoding="utf-8",
+        )
+    return d
+
+
+def test_007_archive_dry_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AC1: dry-run yıkıcı işlem yapmaz; çıktı 'dry-run' etiketi taşır."""
+    _env(monkeypatch, tmp_path)
+    d = _mk_fake_task(tmp_path, "003-llm-planner")
+    rc = main([
+        "archive", "003-llm-planner",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[dry-run]" in out
+    assert "003-llm-planner" in out
+    # Klasör hâlâ duruyor
+    assert d.is_dir()
+    # Arşiv dosyası yok
+    assert not (tmp_path / "archive").exists() or not any(
+        (tmp_path / "archive").iterdir()
+    )
+    # Audit yazılmadı (yıkıcı değil)
+    audit = tmp_path / "a.jsonl"
+    assert not audit.exists() or "archive" not in audit.read_text(encoding="utf-8")
+
+
+def test_007_archive_apply(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AC2 + AC7: --apply gerçek arşiv + audit kaydı."""
+    _env(monkeypatch, tmp_path)
+    d = _mk_fake_task(tmp_path, "003-llm-planner")
+    rc = main([
+        "archive", "003-llm-planner", "--apply",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "arşivlendi:" in out
+    # tar.gz oluştu
+    tar_files = list((tmp_path / "archive").glob("003-llm-planner-*.tar.gz"))
+    assert len(tar_files) == 1
+    # Görev klasörü kaldı? kaldırılmalı.
+    assert not d.exists()
+    # Vault notu var
+    note = tmp_path / "v" / "tasks" / "task-003-llm-planner.md"
+    assert note.is_file()
+    # Audit yazıldı
+    audit_txt = (tmp_path / "a.jsonl").read_text(encoding="utf-8")
+    assert "atlas-archive" in audit_txt
+    assert "archive" in audit_txt
+    assert "003-llm-planner" in audit_txt
+
+
+def test_007_archive_klasor_yok(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AC3: klasör yok → exit 2 + stderr mesajı."""
+    _env(monkeypatch, tmp_path)
+    (tmp_path / "pipeline" / "tasks").mkdir(parents=True)
+    rc = main([
+        "archive", "yok-boyle",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "görev klasörü yok" in err
+
+
+def test_007_archive_ship_summary_okunur(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """AC4: 09-ship.md'nin ilk paragrafı vault notunda geçer."""
+    _env(monkeypatch, tmp_path)
+    _mk_fake_task(tmp_path, "999-demo")
+    main([
+        "archive", "999-demo", "--apply",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    note = (tmp_path / "v" / "tasks" / "task-999-demo.md").read_text(encoding="utf-8")
+    assert "Görev başarıyla tamamlandı" in note
+
+
+def test_007_archive_summary_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """AC5: --summary verilirse ship.md yok sayılır."""
+    _env(monkeypatch, tmp_path)
+    _mk_fake_task(tmp_path, "888-demo")
+    main([
+        "archive", "888-demo", "--apply",
+        "--summary", "el ile yazılmış özet",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    note = (tmp_path / "v" / "tasks" / "task-888-demo.md").read_text(encoding="utf-8")
+    assert "el ile yazılmış özet" in note
+    # Ship.md'nin sabit metni burada geçmemeli
+    assert "Görev başarıyla tamamlandı" not in note
+
+
+def test_007_archive_ship_yok_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """AC6: ship.md yok + summary yok → fallback '<task> arşivlendi'."""
+    _env(monkeypatch, tmp_path)
+    _mk_fake_task(tmp_path, "777-demo", with_ship=False)
+    main([
+        "archive", "777-demo", "--apply",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    note = (tmp_path / "v" / "tasks" / "task-777-demo.md").read_text(encoding="utf-8")
+    assert "777-demo arşivlendi" in note
