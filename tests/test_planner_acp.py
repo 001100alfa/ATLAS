@@ -491,6 +491,185 @@ def test_016_bilinmeyen_session_update_yok_sayilir(
     assert p("g", []) == "write:x.txt:1"  # bilinmeyen notif atlandı
 
 
+# ---------- SPEC 016.1: fs/read_text_file minimum ----------
+
+
+def _client_request(method: str, params: dict[str, Any], req_id: int = 100) -> str:
+    """Agent → client JSON-RPC request (method + id)."""
+    return json.dumps(
+        {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
+    ) + "\n"
+
+
+def test_016_1_fs_read_happy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Happy path: agent fs/read_text_file, client gerçek içerik döner."""
+    monkeypatch.chdir(tmp_path)  # proje kökü = tmp_path
+    _prep_bin(monkeypatch, tmp_path)
+    target = tmp_path / "notlar.md"
+    target.write_text("içerik satırı 1\nsatır 2\n", encoding="utf-8")
+
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _client_request("fs/read_text_file", {"path": str(target)}, req_id=100),
+        # sonra agent normal cevap üretsin
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    assert p("g", []) == "write:x.txt:1"
+
+    msgs = fake.stdin_messages()
+    # 3 istek (initialize, session/new, session/prompt) + 1 cevap (id=100)
+    responses = [m for m in msgs if m.get("id") == 100]
+    assert len(responses) == 1
+    result = responses[0]["result"]
+    assert "içerik satırı" in result["content"]
+
+
+def test_016_1_fs_read_yol_traversal_red(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Yol proje kökü dışına çıkarsa permission denied."""
+    monkeypatch.chdir(tmp_path)
+    _prep_bin(monkeypatch, tmp_path)
+
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _client_request(
+            "fs/read_text_file",
+            {"path": str(tmp_path.parent / "otherfile.txt")},
+            req_id=100,
+        ),
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    p("g", [])
+
+    msgs = fake.stdin_messages()
+    responses = [m for m in msgs if m.get("id") == 100]
+    assert len(responses) == 1
+    err = responses[0]["error"]
+    assert err["code"] == -32000
+    assert "permission denied" in err["message"]
+
+
+def test_016_1_fs_read_dosya_yok(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Dosya yoksa file not found error."""
+    monkeypatch.chdir(tmp_path)
+    _prep_bin(monkeypatch, tmp_path)
+
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _client_request(
+            "fs/read_text_file",
+            {"path": str(tmp_path / "yok.md")},
+            req_id=100,
+        ),
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    p("g", [])
+
+    msgs = fake.stdin_messages()
+    err = next(m for m in msgs if m.get("id") == 100)["error"]
+    assert err["code"] == -32000
+    assert "file not found" in err["message"]
+
+
+def test_016_1_fs_write_red(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Yazma metodu red edilir: -32000 not supported."""
+    monkeypatch.chdir(tmp_path)
+    _prep_bin(monkeypatch, tmp_path)
+
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _client_request(
+            "fs/write_text_file",
+            {"path": str(tmp_path / "x.txt"), "content": "z"},
+            req_id=100,
+        ),
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    p("g", [])
+
+    msgs = fake.stdin_messages()
+    err = next(m for m in msgs if m.get("id") == 100)["error"]
+    assert err["code"] == -32000
+    assert "not supported" in err["message"]
+    assert "fs/write_text_file" in err["message"]
+
+
+def test_016_1_bilinmeyen_method_32601(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Bilinmeyen method: JSON-RPC -32601 Method not found."""
+    monkeypatch.chdir(tmp_path)
+    _prep_bin(monkeypatch, tmp_path)
+
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _client_request("banana/split", {}, req_id=100),
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    p("g", [])
+
+    msgs = fake.stdin_messages()
+    err = next(m for m in msgs if m.get("id") == 100)["error"]
+    assert err["code"] == -32601
+    assert "banana/split" in err["message"]
+
+
+def test_016_1_tool_call_notif_hala_red(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SPEC 016 tool_call notification hala LLMPlannerError — 016.1 request
+    yolu ile karışmaz."""
+    _prep_bin(monkeypatch, tmp_path)
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _notif_tool_call("s1", "read_file"),  # id YOK → notification → 016 red
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    with pytest.raises(LLMPlannerError, match=r"tool-use şu an desteklenmiyor"):
+        p("g", [])
+
+
 # ---------- SPEC 003.2: özel llm_prompt acp session/prompt gövdesinde ----------
 
 def test_003_2_ozel_prompt_prompt_de_gorunur(

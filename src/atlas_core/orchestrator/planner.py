@@ -31,6 +31,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import IO, Any
 from urllib import error as urllib_error
 from urllib import request as urllib_request
@@ -688,7 +689,12 @@ def _call_acp(bin_path: str, extra: list[str], prompt: str, timeout_s: int) -> s
             if not isinstance(msg, dict):
                 continue
 
-            # notification: session/update
+            # SPEC 016.1: request from agent (method + id) — cevap ver.
+            if msg.get("method") is not None and msg.get("id") is not None:
+                _acp_handle_client_request(proc.stdin, msg)
+                continue
+
+            # notification: session/update (method varsa ama id yok)
             if msg.get("method") == "session/update":
                 params = msg.get("params")
                 if isinstance(params, dict):
@@ -734,6 +740,124 @@ def _call_acp(bin_path: str, extra: list[str], prompt: str, timeout_s: int) -> s
     if not first_line:
         raise LLMPlannerError("acp boş plan cevabı döndürdü (ilk satır boş)")
     return first_line
+
+
+# SPEC 016.1: ACP client-provided methods. Read-only fs.read yeter;
+# write/shell reddedilir; bilinmeyen -32601 Method not found.
+_ACP_READ_METHODS = frozenset({"fs/read_text_file"})
+_ACP_WRITE_METHODS = frozenset(
+    {
+        "fs/write_text_file",
+        "terminal/create",
+        "terminal/output",
+        "terminal/wait_for_exit",
+        "terminal/kill",
+        "terminal/release",
+    }
+)
+
+
+def _acp_handle_client_request(stdin: IO[str], msg: dict[str, Any]) -> None:
+    """Agent'ın gönderdiği client-method request'ine JSON-RPC cevap yaz.
+
+    - `fs/read_text_file`: proje kökü altında güvenli okuma.
+    - Yazma/shell: `-32000 not supported`.
+    - Diğer: `-32601 Method not found`.
+    """
+    method = str(msg.get("method"))
+    req_id = msg.get("id")
+    if method in _ACP_READ_METHODS:
+        _acp_send(stdin, _acp_fs_read_response(req_id, msg.get("params", {})))
+        return
+    if method in _ACP_WRITE_METHODS:
+        _acp_send(
+            stdin,
+            {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32000,
+                    "message": f"acp client method not supported: {method}",
+                },
+            },
+        )
+        return
+    _acp_send(
+        stdin,
+        {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32601, "message": f"Method not found: {method}"},
+        },
+    )
+
+
+def _acp_fs_read_response(
+    req_id: Any, params: dict[str, Any]
+) -> dict[str, Any]:
+    """`fs/read_text_file` JSON-RPC yanıtı.
+
+    - `params.path`: mutlak yol, proje kökü altında olmalı.
+    - `params.line` (opsiyonel, 1-tabanlı) + `params.limit` (opsiyonel).
+    - Hata → JSON-RPC error obj.
+    """
+    path_raw = params.get("path")
+    if not isinstance(path_raw, str) or not path_raw:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "invalid params.path"},
+        }
+    try:
+        target = _resolve_project_path(path_raw)
+    except ValueError as exc:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": f"permission denied: {exc}"},
+        }
+    if not target.is_file():
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": f"file not found: {path_raw}"},
+        }
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": f"read failed: {exc}"},
+        }
+    line_raw = params.get("line")
+    limit_raw = params.get("limit")
+    if isinstance(line_raw, int) and line_raw > 0:
+        lines = text.splitlines()
+        start = line_raw - 1
+        if isinstance(limit_raw, int) and limit_raw > 0:
+            lines = lines[start : start + limit_raw]
+        else:
+            lines = lines[start:]
+        text = "\n".join(lines)
+    return {"jsonrpc": "2.0", "id": req_id, "result": {"content": text}}
+
+
+def _resolve_project_path(path_str: str) -> Path:
+    """Proje kökü altındaki dosya yolunu güvenli çöz — traversal engelli.
+
+    Kök: `os.getcwd()`. Path kök altında değilse `ValueError`.
+    """
+    root = Path(os.getcwd()).resolve()
+    p = Path(path_str)
+    if not p.is_absolute():
+        p = root / p
+    resolved = p.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"outside project root: {path_str}") from exc
+    return resolved
 
 
 def _acp_expect_response(

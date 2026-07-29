@@ -1,6 +1,38 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 016.1 — ACP `fs/read_text_file` minimum destek)
+- [KARAR] Request/notification ayrımı **`id` alanı**: request `id`+`method`
+  var; notification sadece `method`. `_call_acp` dispatcher ilk kolda
+  request'e cevap yazar, sonra 016 notification kollarına düşer.
+  Böylece 016 tool_call sert red davranışı 016.1'in request yolundan
+  etkilenmez — regresyon güvencesi ayrı test.
+- [KARAR] **Yalnız read-only** `fs/read_text_file`. Yazma/shell
+  metotları `-32000 not supported`. Neden: agent'ın plan üretimi için
+  kod okuma yeter (klasör keşfi, mevcut dosyaları anlama); yazma
+  planlayıcı sözleşmesi dışında (ATLAS'ın Action katmanı yapar).
+  Terminal desteği güvenlik burden'ı büyük (sandbox, timeout, kill);
+  YAGNI.
+- [KARAR] Proje kökü = `os.getcwd()` — override YOK. ACP sözleşmesinde
+  agent zaten `cwd` alır (`session/new.params.cwd`); ATLAS bunu
+  set ederken kendi cwd'sini bildirdi. Traversal denetimi
+  `Path.resolve().relative_to(root.resolve())`. `..` bileşenleri ve
+  symlink'ler çözülür, kök dışı kaçış engellenir.
+- [KARAR] `params.line` **1-tabanlı** (ACP sözleşmesi); ATLAS Python
+  `splitlines()` 0-tabanlı — `line - 1` dönüşümü açık. `limit`
+  verilmezse `line`'dan itibaren tümü.
+- [KARAR] Bilinmeyen method **JSON-RPC standart** `-32601 Method not
+  found`. Custom kod (`-32000`) yalnız yazma reddi için — hata
+  ayrımı temiz: "method yok" vs "method var ama izin yok".
+- [KARAR] Client-provided handler'lar planner sözleşmesini kirletmiyor
+  — `_call_acp` içinde yerel yardımcılar. Alt-modüle çıkarma
+  (`_acp_client_handlers.py`) YAGNI; yaklaşık 100 sat.
+- Kapsam: 1 modül düzenleme (planner.py: +Path import, +_ACP_*_METHODS
+  sabitleri, +_acp_handle_client_request + _acp_fs_read_response +
+  _resolve_project_path ~100 sat, _call_acp dispatcher küçük değişim),
+  1 test dosyası genişleme (+6 test). Toplam 460 test yeşil (454 → +6).
+  mypy strict + ruff temiz. Artefaktlar `pipeline/tasks/016-1-acp-fs-read/`.
+
 ## 2026-07-29 (Görev 015.1 — cache-hit token indirimi)
 - [KARAR] Anthropic tarife çarpanları **modül sabitleri**:
   `_CACHE_READ_MULT = 0.1`, `_CACHE_WRITE_MULT = 1.25`. Kamu tarife.
