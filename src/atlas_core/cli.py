@@ -559,8 +559,101 @@ def _archive_goal_yaml(goal_file: Path, run_id: str) -> Path | None:
         return None
 
 
+def _extract_goal_from_yaml(path: Path, max_len: int = 60) -> str:
+    """SPEC 028: YAML'ın ilk `^goal:` satırından hedef metni çıkar.
+
+    Bulunamazsa `""` döner. Uzunsa `max_len` char'da keser + `…`.
+    Hata sessiz — listelemeyi bloklamaz.
+    """
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line.startswith("goal:"):
+            continue
+        goal = line[len("goal:"):].strip()
+        # YAML'da tırnaklı olabilir
+        if len(goal) >= 2 and goal[0] == goal[-1] and goal[0] in ("'", '"'):
+            goal = goal[1:-1]
+        if len(goal) > max_len:
+            goal = goal[: max_len - 1] + "…"
+        return goal
+    return ""
+
+
+def _collect_replay_runs(limit: int) -> list[dict[str, Any]]:
+    """SPEC 028: `.atlas/runs/*.yaml` mtime desc → liste.
+
+    Her kayıt `{run_id, mtime (YYYY-MM-DD HH:MM:SS), goal}`.
+    """
+    import datetime as _dt
+
+    runs_dir = _runs_dir()
+    if not runs_dir.is_dir():
+        return []
+    yamls = [p for p in runs_dir.iterdir() if p.is_file() and p.suffix == ".yaml"]
+    yamls.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    yamls = yamls[:limit]
+    out: list[dict[str, Any]] = []
+    for p in yamls:
+        try:
+            mtime_s = _dt.datetime.fromtimestamp(p.stat().st_mtime).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+        except (OSError, OverflowError, ValueError):
+            mtime_s = "?"
+        out.append({
+            "run_id": p.stem,
+            "mtime": mtime_s,
+            "goal": _extract_goal_from_yaml(p),
+        })
+    return out
+
+
+def _cmd_replay_list(args: argparse.Namespace) -> int:
+    """SPEC 028: `atlas replay --list` — kayıtlı run'ları göster."""
+    import json as _json
+
+    runs = _collect_replay_runs(args.limit)
+    if args.json:
+        print(_json.dumps(runs, ensure_ascii=False))
+        return 0
+
+    if not runs:
+        print("(hiç kayıt yok)")
+        return 0
+
+    print(f"=== ATLAS replay — kayıtlı {len(runs)} run ===")
+    print()
+    print(f"  {'#':<3} {'run_id':<32} {'mtime':<20} {'goal':<60}")
+    for i, r in enumerate(runs, start=1):
+        print(
+            f"  {i:<3} {r['run_id'][:32]:<32} "
+            f"{r['mtime']:<20} {r['goal'][:60]:<60}"
+        )
+    return 0
+
+
 def _cmd_replay(args: argparse.Namespace) -> int:
-    """SPEC 027: `atlas replay <run-id>` — arşivlenmiş YAML'ı çalıştır."""
+    """SPEC 027 + 028: `atlas replay [<run-id>|--list]`.
+
+    `--list` → mevcut run'ları listele (`_cmd_replay_list`).
+    Aksi → 027 davranışı: kopyayı bulup çalıştır.
+    """
+    # SPEC 028: --list dallanması
+    if getattr(args, "list", False):
+        return _cmd_replay_list(args)
+
+    # SPEC 028: --list yok VE run_id yok → açık hata
+    if not args.run_id:
+        print(
+            "SPEC HATASI: run-id ya da --list gerekli",
+            file=sys.stderr,
+        )
+        return 2
+
     yaml_path = _runs_dir() / f"{args.run_id}.yaml"
     if not yaml_path.is_file():
         print(
@@ -1230,11 +1323,19 @@ def main(argv: list[str] | None = None) -> int:
     p_dash.add_argument("--json", action="store_true")
     p_dash.set_defaults(func=_cmd_dashboard)
 
-    p_rep = sub.add_parser("replay", help="Bir run'ı yeniden çalıştır (SPEC 027)")
-    p_rep.add_argument("run_id", help="run-id (`.atlas/runs/<id>.yaml`)")
+    p_rep = sub.add_parser("replay",
+                           help="Bir run'ı yeniden çalıştır ya da listele (SPEC 027/028)")
+    p_rep.add_argument("run_id", nargs="?", default=None,
+                       help="run-id (`.atlas/runs/<id>.yaml`); --list ile birlikte gereksiz")
     p_rep.add_argument("--new-run-id", default=None,
                        help="replay'in yeni run-id'si (varsayılan yeni timestamp)")
     p_rep.add_argument("--dry-run", action="store_true")
+    p_rep.add_argument("--list", action="store_true",
+                       help="SPEC 028: kayıtlı run'ları mtime desc sırayla listele")
+    p_rep.add_argument("--json", action="store_true",
+                       help="SPEC 028: --list JSON çıktısı")
+    p_rep.add_argument("--limit", type=int, default=20,
+                       help="SPEC 028: --list son N kaydı verir (varsayılan 20)")
     p_rep.set_defaults(func=_cmd_replay)
 
     p_met = sub.add_parser("metrics", help="LLM çağrı metrikleri özeti (SPEC 023)")
