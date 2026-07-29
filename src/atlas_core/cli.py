@@ -61,6 +61,19 @@ def _audit_path() -> Path:
     return Path(os.environ.get("ATLAS_AUDIT", ".atlas/audit.jsonl"))
 
 
+def _read_llm_prices() -> tuple[float, float]:
+    """SPEC 013: `(price_in, price_out)` per million USD — env'den.
+
+    Parse hatası → `(0.0, 0.0)` (fail-safe, 011 kalıbıyla simetrik).
+    """
+    try:
+        pin = float(os.environ.get("ATLAS_LLM_PRICE_IN", "0") or "0")
+        pout = float(os.environ.get("ATLAS_LLM_PRICE_OUT", "0") or "0")
+    except ValueError:
+        return 0.0, 0.0
+    return max(pin, 0.0), max(pout, 0.0)
+
+
 def _cmd_context(args: argparse.Namespace) -> int:
     brain = GBrain(_vault_root())
     print(brain.context_for(args.topic, limit=args.limit))
@@ -157,8 +170,17 @@ def _cmd_run_goal(args: argparse.Namespace) -> int:
     audit = AuditLog(_audit_path())
     budget = CallBudget(limit=goal.budget)
     last_exit: dict[str, int] = {}
+    # SPEC 013: anthropic backend usage → CallBudget.charge_tokens
+    # (fiyat env yoksa no-op; charge_tokens içindeki fail-safe).
+    price_in, price_out = _read_llm_prices()
+
+    def _on_usage(in_tok: int, out_tok: int) -> None:
+        budget.charge_tokens(in_tok, out_tok, price_in, price_out)
+
     try:
-        inner = make_planner(goal, context=ctx)  # fabrika: LLM bin yok → LLMPlannerError
+        inner = make_planner(
+            goal, context=ctx, on_usage=_on_usage
+        )  # fabrika: LLM bin yok → LLMPlannerError
     except LLMPlannerError as exc:
         audit.record("atlas-run", "llm_error", str(exc)[:200])
         print(f"LLM PLANNER HATASI: {exc}", file=sys.stderr)

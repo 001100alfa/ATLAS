@@ -1,6 +1,37 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 013 — CallBudget'a token maliyeti entegrasyonu)
+- [KARAR] `charge_tokens` **ayrı method** — `charge()` sözleşmesi
+  dokunulmadı. Ayrı yol, "token akışını takip et ama kredi denklemini
+  bozma" ilkesini korur. Aynı `spent` alanı biriktirir; run_loop
+  görünür değil (mevcut budget.charge çağrısı aynen çalışır).
+- [KARAR] Callback stili (`on_usage: Callable[[int,int], None] | None`)
+  seçildi — planner sözleşmesi (`(str, list) -> str`) genişletilmedi.
+  Alternatif ("planner tuple döndürsün") her çağrı yerini kırardı.
+  Fabrika-seviyesi bind (`_anthropic_planner(..., on_usage=budget.
+  charge_tokens)`) test yalıtımını temiz tutar.
+- [KARAR] Fiyat 0/negatif → **no-op** (011 fail-safe kalıbı). Env
+  yoksa/hatalıysa `_read_llm_prices()` `(0.0, 0.0)` döner; `charge_tokens`
+  cost hesaplamaz, bütçe hiç değişmez. Geriye uyumluluk garantisi:
+  fiyat set edilmemiş kurulumlar hâlâ Görev 002+003 gibi çalışır.
+- [KARAR] `_extract_usage(data)` yardımcısı 011 trace ve 013 charge
+  arasında paylaşıldı — usage parse tek yerde, ikizleşme yok.
+- [KARAR] BudgetExceededError callback'ten **saracak yok** — planner
+  yakalar ama `LLMPlannerError`'a çevirmez, olduğu gibi run_loop
+  yukarısına iletir. run_loop `except` bloklarında BudgetExceededError
+  zaten normal karşılanır (SPEC 002 exit 3). Callback throw = plan
+  başarılıydı ama bütçe dolu — semantik doğru.
+- [KARAR] claude/acp backend'ler `on_usage` parametresini **yok sayar**
+  (make_planner sadece anthropic dallanmasına iletir). Protokoller
+  native usage taşımıyor; kapsam DIŞI.
+- Kapsam: 1 modül düzenleme (core.py CallBudget +25 sat), 1 modül
+  düzenleme (planner.py +25 sat: _extract_usage, callback), 1 CLI
+  düzenleme (+15 sat: _read_llm_prices, on_usage bind). 1 yeni test
+  dosyası (9 test), 1 backend test dosyası genişleme (+3 test).
+  Toplam 419 test yeşil (407 → +12). mypy strict + ruff temiz.
+  Artefaktlar `pipeline/tasks/013-callbudget-tokens/`.
+
 ## 2026-07-29 (Görev 012 — atlas archive --all toplu arşivleme)
 - [KARAR] Aday seçimi `pipeline/tasks/*/09-ship.md` glob — SHIP aşaması
   geçmiş görevler zaten "arşive uygun" gate'ini geçmiş demektir. `00-need`

@@ -60,7 +60,12 @@ class LLMPlannerError(RuntimeError):
     """LLM subprocess başarısız (komut yok, timeout, exit!=0, boş cevap)."""
 
 
-def make_planner(goal: Goal, context: str | None = None) -> Planner:
+def make_planner(
+    goal: Goal,
+    context: str | None = None,
+    *,
+    on_usage: Callable[[int, int], None] | None = None,
+) -> Planner:
     """Goal.plan_kind + ATLAS_LLM'e göre uygun planner closure'u üretir.
 
     - `static`: plan_steps'i sırayla döndürür; tükenirse
@@ -95,7 +100,7 @@ def make_planner(goal: Goal, context: str | None = None) -> Planner:
         if backend == "claude":
             return _claude_planner(goal, context=context)
         if backend == "anthropic":
-            return _anthropic_planner(goal, context=context)
+            return _anthropic_planner(goal, context=context, on_usage=on_usage)
         if backend == "acp":
             return _acp_planner(goal, context=context)
         raise NotImplementedError(
@@ -284,6 +289,7 @@ def _call_anthropic(
     timeout_s: int,
     *,
     system: str | None = None,
+    on_usage: Callable[[int, int], None] | None = None,
 ) -> str:
     """Anthropic Messages API — HTTPS POST, ilk satır plan döner.
 
@@ -362,16 +368,20 @@ def _call_anthropic(
         raise LLMPlannerError("anthropic boş plan cevabı döndürdü (ilk satır boş)")
     # SPEC 011: report-only token usage trace (yan etki, sözleşme değişmez).
     _emit_anthropic_usage_trace(data)
+    # SPEC 013: opsiyonel callback ile CallBudget.charge_tokens beslenir.
+    if on_usage is not None:
+        _in, _out = _extract_usage(data)
+        try:
+            on_usage(_in, _out)
+        except Exception:
+            # Bütçe aşımı vs. burada yakalanmaz — yukarıya raise et
+            # (LLMPlannerError değil BudgetExceededError için de).
+            raise
     return first_line
 
 
-def _emit_anthropic_usage_trace(data: Any) -> None:
-    """`ATLAS_LLM_TRACE=1` açıkken usage bilgisini stderr'a yaz.
-
-    Kapalıysa yalın no-op — çağrı yolunda yan etki yok.
-    """
-    if os.environ.get("ATLAS_LLM_TRACE") != "1":
-        return
+def _extract_usage(data: Any) -> tuple[int, int]:
+    """`usage.input_tokens` + `output_tokens` yakala; yoksa (0, 0)."""
     usage = data.get("usage") if isinstance(data, dict) else None
     in_tok = 0
     out_tok = 0
@@ -382,6 +392,17 @@ def _emit_anthropic_usage_trace(data: Any) -> None:
             in_tok = in_raw
         if isinstance(out_raw, int):
             out_tok = out_raw
+    return in_tok, out_tok
+
+
+def _emit_anthropic_usage_trace(data: Any) -> None:
+    """`ATLAS_LLM_TRACE=1` açıkken usage bilgisini stderr'a yaz.
+
+    Kapalıysa yalın no-op — çağrı yolunda yan etki yok.
+    """
+    if os.environ.get("ATLAS_LLM_TRACE") != "1":
+        return
+    in_tok, out_tok = _extract_usage(data)
     cost_txt = _fmt_cost(in_tok, out_tok)
     print(
         f"[llm] anthropic tokens: in={in_tok} out={out_tok} cost≈{cost_txt}",
@@ -404,7 +425,12 @@ def _fmt_cost(in_tok: int, out_tok: int) -> str:
     return f"${cost:.6f}"
 
 
-def _anthropic_planner(goal: Goal, context: str | None = None) -> Planner:
+def _anthropic_planner(
+    goal: Goal,
+    context: str | None = None,
+    *,
+    on_usage: Callable[[int, int], None] | None = None,
+) -> Planner:
     """Fabrika: env'i erken çözer (fail-fast), closure her turda çağırır.
 
     SPEC 009: model önceliği `goal.llm_model` > `ATLAS_LLM_MODEL` env >
@@ -413,6 +439,10 @@ def _anthropic_planner(goal: Goal, context: str | None = None) -> Planner:
     SPEC 010: `goal.llm_prompt` set edilmişse Anthropic API'nin `system`
     alanına yazılır; `messages[0].content` yalnız ATLAS'ın plan
     sözleşmesi + görev + context + geçmiş taşır (`include_system=False`).
+
+    SPEC 013: `on_usage` verilirse her başarılı call sonrası
+    `(input_tokens, output_tokens)` ile çağrılır — CLI `CallBudget.
+    charge_tokens` bind eder.
     """
     api_key, url, model, timeout_s = _resolve_anthropic_env(goal)  # fail-fast
     system = goal.llm_prompt or None
@@ -422,7 +452,8 @@ def _anthropic_planner(goal: Goal, context: str | None = None) -> Planner:
             goal, history, context=context, include_system=False
         )
         return _call_anthropic(
-            api_key, url, model, prompt, timeout_s, system=system
+            api_key, url, model, prompt, timeout_s,
+            system=system, on_usage=on_usage,
         )
 
     return _anthropic

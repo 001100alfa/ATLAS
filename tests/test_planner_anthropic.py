@@ -469,6 +469,76 @@ def test_011_fiyat_env_bozuk(
     assert "cost≈?" in capsys.readouterr().err
 
 
+# ---------- SPEC 013: on_usage callback → CallBudget.charge_tokens ----------
+
+def test_013_on_usage_cagrilir(monkeypatch: pytest.MonkeyPatch) -> None:
+    """M4: response usage varsa on_usage(in, out) çağrılır."""
+    _prep_key(monkeypatch)
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        return _FakeResponse(
+            json.dumps(
+                {
+                    "content": [{"type": "text", "text": "write:x.txt:1"}],
+                    "usage": {"input_tokens": 123, "output_tokens": 45},
+                }
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    captured: list[tuple[int, int]] = []
+    p = make_planner(_goal_llm(), on_usage=lambda i, o: captured.append((i, o)))
+    p("g", [])
+    assert captured == [(123, 45)]
+
+
+def test_013_on_usage_none_no_op(monkeypatch: pytest.MonkeyPatch) -> None:
+    """on_usage=None (varsayılan) → callback çağrısı yok, planner çalışır."""
+    _prep_key(monkeypatch)
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        return _FakeResponse(
+            json.dumps(
+                {
+                    "content": [{"type": "text", "text": "write:x.txt:1"}],
+                    "usage": {"input_tokens": 100, "output_tokens": 50},
+                }
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())  # on_usage None
+    assert p("g", []) == "write:x.txt:1"  # normal çalışır
+
+
+def test_013_on_usage_butce_asim_planner_asagi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """on_usage bütçe aşımı fırlatırsa planner tam onu iletir
+    (LLMPlannerError sarmalaması YOK)."""
+    from atlas_core.orchestrator.core import BudgetExceededError
+    _prep_key(monkeypatch)
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        return _FakeResponse(
+            json.dumps(
+                {
+                    "content": [{"type": "text", "text": "write:x.txt:1"}],
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                }
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+
+    def raiser(_i: int, _o: int) -> None:
+        raise BudgetExceededError("token aşımı")
+
+    p = make_planner(_goal_llm(), on_usage=raiser)
+    with pytest.raises(BudgetExceededError, match="token aşımı"):
+        p("g", [])
+
+
 # ---------- Hata mesajı sırrı sızdırmaz ----------
 
 # ---------- SPEC 010: llm_prompt anthropic `system` alanına gider ----------

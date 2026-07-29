@@ -56,7 +56,11 @@ class AgentRegistry:
 
 @dataclass(slots=True)
 class CallBudget:
-    """Bütçeli çağrı katmanı: her eylem burada muhasebeleşir."""
+    """Bütçeli çağrı katmanı: her eylem burada muhasebeleşir.
+
+    SPEC 013: `charge_tokens` LLM token maliyetini kredi cinsinden
+    ekler; fiyat 0 → no-op (env'sizken bütçe hiç değişmez).
+    """
 
     limit: float
     spent: float = 0.0
@@ -69,6 +73,29 @@ class CallBudget:
                 f"Bütçe aşımı: {what} ({self.spent + cost:.1f} > {self.limit:.1f})"
             )
         self.spent += cost
+
+    def charge_tokens(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        price_in: float,
+        price_out: float,
+    ) -> None:
+        """SPEC 013: LLM token maliyeti bütçeye ekler (per million USD).
+
+        Cost = `in * price_in / 1e6 + out * price_out / 1e6`. Fiyat
+        0/negatif → no-op (bütçe hiç değişmez, 011 fail-safe kalıbı).
+        Bütçe aşarsa `BudgetExceededError`.
+        """
+        if price_in <= 0 and price_out <= 0:
+            return  # no-op: fiyat env'i yoksa/hatalıysa bütçe hiç değişmez
+        cost = (
+            input_tokens * max(price_in, 0.0) / 1_000_000
+            + output_tokens * max(price_out, 0.0) / 1_000_000
+        )
+        if cost <= 0:
+            return
+        self.charge(cost, f"llm tokens (in={input_tokens} out={output_tokens})")
 
 
 @dataclass(slots=True)
