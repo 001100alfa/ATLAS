@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -194,8 +195,18 @@ def _cmd_run_goal(args: argparse.Namespace) -> int:
     # SPEC 008: opsiyonel retry sarmalayıcı (env kapalıysa kimlik-geçiş).
     retries, backoff_s = _read_retry_env()
     plan = make_retrying_planner(inner, retries, backoff_s)
-    act = make_action(goal, sandbox, last_exit)
-    judge = make_judge(goal, sandbox, last_exit)
+    # SPEC 020: --dry-run → action stub + judge single-step done.
+    dry_run = getattr(args, "dry_run", False)
+    act: Callable[[str], tuple[str, float]]
+    judge: Callable[[list[tuple[StepKind, str]]], bool]
+    if dry_run:
+        print("MOD: dry-run — action yürütme kapalı")
+        audit.record("atlas-run", "dry_run", goal.goal[:200])
+        act = lambda p: (f"[dry-run] eylem yürütülmedi: {p}", 0.0)  # noqa: E731
+        judge = lambda _history: True  # noqa: E731
+    else:
+        act = make_action(goal, sandbox, last_exit)
+        judge = make_judge(goal, sandbox, last_exit)
 
     try:
         result = run_loop(
@@ -568,6 +579,8 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--max-steps", type=int, default=8)
     p_run.add_argument("--budget", type=float, default=100.0)
     p_run.add_argument("--step-cost", type=float, default=10.0)
+    p_run.add_argument("--dry-run", action="store_true",
+                       help="planner çalıştır, action stub (yıkıcı iş yok) — SPEC 020")
     p_run.set_defaults(func=_cmd_run)
 
     p_rx = sub.add_parser("reindex", help="GBrain FTS indeksini yeniden kur")

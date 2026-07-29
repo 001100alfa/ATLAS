@@ -1,6 +1,41 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 020 — `atlas run --dry-run` rehearsal)
+- [KARAR] **Tek adım rehearsal** — action stub'landı + judge sabit
+  True. Alternatif "N adım simüle et" bilinmiyor bir gelecek (planner
+  ne üretir?); kullanıcı için tek adım yeter: prompt/YAML doğru mu?
+  Cost gerçek mi? Tam koşuyu istiyorsa `--dry-run` çıkarır. YAGNI
+  minimum.
+- [KARAR] Planner **gerçek** — LLM gerçek fiyata çağrılır, cost
+  audit'e yazılır, retry çalışır. Amaç "yıkıcı iş yok" değil
+  "sistem yıkımı yok"; kullanıcı **fiyatı görsün** ki YAML/prompt
+  optimizasyonu yapabilsin. Cost simülasyonu (fake usage) kandırıcı
+  olur.
+- [KARAR] Action stub'ı **lambda** olarak yazıldı (`# noqa: E731`)
+  — inline, minimum kod. `def _act(...)` fonksiyon adı yerine
+  intent daha net. `run_loop` sözleşmesi (`Action = Callable[[str],
+  tuple[str, float]]`) sağlanıyor.
+- [KARAR] Judge sabit True → run_loop ilk adımdan sonra `done=True`
+  bulur; `max_steps` beklenmez. Tek plan → tek observe → dur.
+  Kullanıcı planı görür, işim biter.
+- [KARAR] Audit'e ayrıca `("atlas-run", "dry_run", <goal>)` marker —
+  kullanıcı sonradan denetim zincirinde "bu run gerçek miydi
+  dry-run mıydı?" ayırabilsin. Aksi hâlde dry-run kayıtları normal
+  koşularla karışır.
+- [KARAR] LLM hata yolları (LLMPlannerError exit 7) `--dry-run`
+  ile bypass edilmez — planner fabrikası ilk çağrıda LLM'e ulaşmaya
+  çalışır; bin yoksa/key yoksa yine hata alınır. Bu **doğru davranış**:
+  dry-run "gerçek plan üretiminin" simülasyonu; LLM kurulumu yoksa
+  test etmenin anlamı yok.
+- [KARAR] mypy Callable variable annotation — inline lambda + reassign
+  tip daralması için gerekli (`act: Callable[...]; act = lambda ...`).
+  `collections.abc.Callable` import edildi (stdlib idiomatic).
+- Kapsam: 1 modül düzenleme (cli.py: +Callable import + _cmd_run_goal
+  dry-run dallanma ~15 sat + parser --dry-run flag), 1 test dosyası
+  genişleme (+4 test). Toplam 481 test yeşil (477 → +4). mypy strict
+  + ruff temiz. Artefaktlar `pipeline/tasks/020-run-dry-run/`.
+
 ## 2026-07-29 (Görev 019 — Anthropic streaming, opt-in)
 - [KARAR] Opt-in `Goal.stream: bool = False` — non-streaming yol
   varsayılan; 011/013/015.1 test suite'i bit-uyumlu. Streaming'i

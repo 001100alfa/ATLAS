@@ -707,3 +707,85 @@ def test_017_auto_yoksa_012_davranisi(
     out = capsys.readouterr().out
     assert "adayları: 1 görev" in out  # "auto" başlıkta YOK
     assert "003-taze" in out
+
+
+# ---------- SPEC 020: --dry-run ----------
+
+
+def test_020_dry_run_stub_llm_stub_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--dry-run: planner çağrılır (stub backend), action stub, exit 0."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "stub")  # LLMPlannerError yolu değil
+    rc = main([
+        "run", "--goal-file", "tests/goals/llm_stub.yaml",
+        "--run-id", "d", "--dry-run",
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "MOD: dry-run" in out
+    # Audit'te dry_run kayıt
+    audit_txt = (tmp_path / "a.jsonl").read_text(encoding="utf-8")
+    assert "dry_run" in audit_txt
+
+
+def test_020_dry_run_action_stub_dosya_yaratmaz(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """--dry-run: gerçek 'write' action çalıştırmaz — dosya yok."""
+    _env(monkeypatch, tmp_path)
+    # static görev: write plan
+    y = tmp_path / "static.yaml"
+    y.write_text(
+        "goal: dosya yaz\nplan_kind: static\n"
+        "plan_steps: [\"write:kanit.txt:merhaba\"]\n"
+        "action_allowlist: [write]\njudge_kind: file_exists\n"
+        "judge_arg: kanit.txt\nbudget: 20\nmax_steps: 2\n",
+        encoding="utf-8",
+    )
+    rc = main([
+        "run", "--goal-file", str(y), "--run-id", "e", "--dry-run",
+    ])
+    assert rc == 0
+    # Sandbox içinde kanit.txt YOK — action gerçekten çalışmadı
+    sandbox = tmp_path / "sb" / f"{y.stem}-e"
+    assert not (sandbox / "kanit.txt").exists()
+
+
+def test_020_dry_run_yoksa_normal_yol(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """--dry-run yoksa: SPEC 002 normal davranış (regresyon)."""
+    _env(monkeypatch, tmp_path)
+    y = tmp_path / "static.yaml"
+    y.write_text(
+        "goal: dosya yaz\nplan_kind: static\n"
+        "plan_steps: [\"write:kanit.txt:merhaba\"]\n"
+        "action_allowlist: [write]\njudge_kind: file_exists\n"
+        "judge_arg: kanit.txt\nbudget: 20\nmax_steps: 2\n",
+        encoding="utf-8",
+    )
+    rc = main([
+        "run", "--goal-file", str(y), "--run-id", "f",  # --dry-run YOK
+    ])
+    assert rc == 0
+    sandbox = tmp_path / "sb" / f"{y.stem}-f"
+    # Dosya YAZILMIŞ
+    assert (sandbox / "kanit.txt").is_file()
+
+
+def test_020_dry_run_llm_hata_exit_7(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """--dry-run LLM hata yolunu bypass ETMEZ — exit 7 hâlâ çalışır."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "anthropic")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert (
+        main([
+            "run", "--goal-file", "tests/goals/llm_anthropic.yaml",
+            "--run-id", "g", "--dry-run",
+        ])
+        == 7
+    )
