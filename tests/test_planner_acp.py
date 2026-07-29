@@ -791,6 +791,70 @@ def test_016_2_options_yoksa_fallback(
     assert resp["result"]["outcome"]["optionId"] == "allow_once"
 
 
+# ---------- SPEC 019.1: streaming ilk newline'da kes ----------
+
+
+def test_019_1_iki_chunk_arasinda_newline_erken_cik(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """İkinci chunk'ta `\\n` gelirse döngü kesilir; sonraki chunk okunmaz."""
+    _prep_bin(monkeypatch, tmp_path)
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _notif_agent_chunk("s1", "write:x.txt:"),
+        _notif_agent_chunk("s1", "1\n"),  # newline burada → break
+        # Bu chunk okunmamalı (erken çık):
+        _notif_agent_chunk("s1", "OKUNMAMALI"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    assert p("g", []) == "write:x.txt:1"
+    # Süreç kill/wait çağrıldı (finally teardown)
+    assert fake._wait_called >= 1
+
+
+def test_019_1_bos_newline_devam(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """İlk chunk sadece `\\n` (boş satır) → beklemez, sonraki chunk okunur."""
+    _prep_bin(monkeypatch, tmp_path)
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _notif_agent_chunk("s1", "\n"),  # sadece newline
+        _notif_agent_chunk("s1", "write:x.txt:1\n"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    # İlk satır boş → devam et; ikinci chunk plan verir
+    assert p("g", []) == "write:x.txt:1"
+
+
+def test_019_1_tek_satir_newline_yok_stop_ile_biter(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Tek satırlı yanıt + `\\n` yok → stopReason ile normal biter (mevcut yol)."""
+    _prep_bin(monkeypatch, tmp_path)
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _notif_agent_chunk("s1", "write:x.txt:1"),  # newline YOK
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    assert p("g", []) == "write:x.txt:1"
+
+
 # ---------- SPEC 016.3: interaktif permission ----------
 
 

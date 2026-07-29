@@ -896,6 +896,12 @@ def _call_acp(bin_path: str, extra: list[str], prompt: str, timeout_s: int) -> s
                                 t = chunk.get("text")
                                 if isinstance(t, str):
                                     collected.append(t)
+                                    # SPEC 019.1: ilk newline'da erken çık.
+                                    joined = "".join(collected)
+                                    if "\n" in joined:
+                                        first = joined.splitlines()[0].strip()
+                                        if first:
+                                            break  # dış while döngüsünden çık
                 continue
 
             # response

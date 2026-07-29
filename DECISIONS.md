@@ -1,6 +1,23 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 019.1 — ACP streaming ilk newline'da kes)
+- [KARAR] Anthropic streaming (019) ile **birebir simetri** — ATLAS
+  planner sözleşmesi tek satır; kalan chunk'ları beklemek anlamsız.
+  `text_delta` (Anthropic) ≡ `agent_message_chunk` (ACP); ikisinde
+  de "biriktir + ilk `\n` = break" mantığı.
+- [KARAR] İlk satır **boşsa** (`"\n"` sadece geldiyse `first == ""`)
+  break etme, devam et. Bazı agent'lar boş satırla başlayabilir;
+  anlamlı content beklemeli.
+- [KARAR] `break` iç iç `if`'lerden çıkıp **`while True`** döngüsünü
+  keser — Python semantik. Testte üçüncü chunk okunmadığı doğrulanır
+  (fake stdout'ta "OKUNMAMALI" kayıtlı; birleşik metinde yok).
+- [KARAR] Süreç kill (`finally _acp_teardown`) korundu — erken
+  çıkışta da tetiklenir; sızıntı yok.
+- Kapsam: 1 modül düzenleme (planner.py: _call_acp inline break ~5 sat),
+  1 test dosyası genişleme (+3 test). Toplam 533 test yeşil (530 → +3).
+  mypy strict + ruff temiz. Artefaktlar `pipeline/tasks/019-1-acp-streaming/`.
+
 ## 2026-07-29 (Görev 018.1 — gözlem head+tail keep)
 - [KARAR] **Head+tail keep** — kuyruğu atma (018 davranışı) yerine
   başı ve sonu koru, ortayı `[... N char atlandı ...]` işaretle.
