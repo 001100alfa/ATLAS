@@ -945,11 +945,14 @@ def _acp_handle_client_request(stdin: IO[str], msg: dict[str, Any]) -> None:
 def _acp_permission_response(
     req_id: Any, params: dict[str, Any]
 ) -> dict[str, Any]:
-    """SPEC 016.2: tool tipine göre otomatik permission kararı.
+    """SPEC 016.2 + 016.3: tool tipine göre permission kararı.
 
     - Read-only tool → `allow_once` seç.
     - Write/shell tool → `reject`.
     - Bilinmeyen → `reject` (savunmalı).
+
+    SPEC 016.3: `ATLAS_ACP_INTERACTIVE=1` env'inde kullanıcıya
+    stdin'den y/n sordurur; boş/hata → auto-karara düşer.
 
     Yanıt formatı:
     `{"outcome":{"outcome":"selected","optionId":"<X>"}}`.
@@ -972,6 +975,12 @@ def _acp_permission_response(
     else:
         # Write/shell + bilinmeyen → reject (savunmalı varsayılan)
         decision = "reject"
+
+    # SPEC 016.3: interaktif override
+    if os.environ.get("ATLAS_ACP_INTERACTIVE") == "1":
+        override = _prompt_acp_permission(tool_name, decision)
+        if override is not None:
+            decision = override
 
     # `params.options` içinden eşleşen optionId seç, yoksa fallback sabit.
     options = params.get("options") if isinstance(params, dict) else None
@@ -1000,6 +1009,34 @@ def _acp_permission_response(
             "outcome": {"outcome": "selected", "optionId": chosen},
         },
     }
+
+
+def _prompt_acp_permission(tool_name: str, default: str) -> str | None:
+    """SPEC 016.3: kullanıcıya y/n sordur; boş/hata → None (fallback).
+
+    - `y`, `yes`, `allow_once`, `allow` → `allow_once`
+    - `n`, `no`, `reject` → `reject`
+    - Boş → None (auto-karar kullanılır)
+    - EOF / KeyboardInterrupt / OSError → None
+    """
+    try:
+        prompt_text = (
+            f"[acp permission] tool={tool_name!r} default={default}. "
+            "Karar? (y/n/boş): "
+        )
+        sys.stderr.write(prompt_text)
+        sys.stderr.flush()
+        line = sys.stdin.readline()
+    except (EOFError, KeyboardInterrupt, OSError):
+        return None
+    ans = line.strip().lower()
+    if not ans:
+        return None
+    if ans in ("y", "yes", "allow_once", "allow"):
+        return "allow_once"
+    if ans in ("n", "no", "reject"):
+        return "reject"
+    return None  # bilinmeyen cevap → auto-karara düş
 
 
 def _acp_fs_read_response(

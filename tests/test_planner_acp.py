@@ -791,6 +791,119 @@ def test_016_2_options_yoksa_fallback(
     assert resp["result"]["outcome"]["optionId"] == "allow_once"
 
 
+# ---------- SPEC 016.3: interaktif permission ----------
+
+
+def test_016_3_interactive_env_kapali_auto(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Env kapalı → 016.2 auto-karar (bit-uyumlu regresyon)."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ATLAS_ACP_INTERACTIVE", raising=False)
+    _prep_bin(monkeypatch, tmp_path)
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _perm_request("fs/read_text_file", options=[
+            {"optionId": "allow_once", "kind": "allow_once"},
+            {"optionId": "reject", "kind": "reject"},
+        ]),
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+    p = make_planner(_goal_llm())
+    p("g", [])
+    resp = next(
+        m for m in fake.stdin_messages() if m.get("id") == 200
+    )
+    assert resp["result"]["outcome"]["optionId"] == "allow_once"
+
+
+def test_016_3_interactive_kullanici_y_kabul(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Env açık + kullanıcı 'y' → allow_once (write tool default reject'i override)."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ATLAS_ACP_INTERACTIVE", "1")
+    _prep_bin(monkeypatch, tmp_path)
+    # stdin monkeypatch → "y"
+    import io
+    monkeypatch.setattr(planner_mod.sys, "stdin", io.StringIO("y\n"))
+
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _perm_request("fs/write_text_file", options=None),
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+    p = make_planner(_goal_llm())
+    p("g", [])
+    resp = next(
+        m for m in fake.stdin_messages() if m.get("id") == 200
+    )
+    assert resp["result"]["outcome"]["optionId"] == "allow_once"
+
+
+def test_016_3_interactive_kullanici_n_red(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Env açık + 'n' → reject (read tool default allow'u override)."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ATLAS_ACP_INTERACTIVE", "1")
+    _prep_bin(monkeypatch, tmp_path)
+    import io
+    monkeypatch.setattr(planner_mod.sys, "stdin", io.StringIO("n\n"))
+
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _perm_request("fs/read_text_file", options=None),
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+    p = make_planner(_goal_llm())
+    p("g", [])
+    resp = next(
+        m for m in fake.stdin_messages() if m.get("id") == 200
+    )
+    assert resp["result"]["outcome"]["optionId"] == "reject"
+
+
+def test_016_3_interactive_bos_cevap_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Env açık + boş satır → default (auto-karar) kullanılır."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ATLAS_ACP_INTERACTIVE", "1")
+    _prep_bin(monkeypatch, tmp_path)
+    import io
+    monkeypatch.setattr(planner_mod.sys, "stdin", io.StringIO("\n"))
+
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _perm_request("fs/read_text_file", options=None),
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+    p = make_planner(_goal_llm())
+    p("g", [])
+    resp = next(
+        m for m in fake.stdin_messages() if m.get("id") == 200
+    )
+    # boş cevap → auto-karar (read → allow_once)
+    assert resp["result"]["outcome"]["optionId"] == "allow_once"
+
+
 # ---------- SPEC 003.2: özel llm_prompt acp session/prompt gövdesinde ----------
 
 def test_003_2_ozel_prompt_prompt_de_gorunur(

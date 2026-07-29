@@ -1,6 +1,23 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 016.3 — ACP interaktif permission dialogu)
+- [KARAR] **Opt-in env** — otonom mod varsayılan; interaktif seçim
+  bilinçli. `ATLAS_ACP_INTERACTIVE=1` kapalıysa 016.2 auto-karar
+  bit-uyumlu (mevcut testler yeşil).
+- [KARAR] Prompt **stderr'a** (`sys.stderr.write` + `flush`), yanıt
+  **stdin'den** (`sys.stdin.readline`). stdout ATLAS plan çıktısını
+  taşır; permission dialogu onu kirletmemeli.
+- [KARAR] Fail-safe: EOF/KeyboardInterrupt/OSError → None → auto-karar.
+  Kullanıcı Ctrl+C basarsa süreç kırılmasın; ATLAS güvenli karar verir.
+- [KARAR] Boş satır → default (yanıt beklenmez), bilinmeyen cevap
+  → default. Kullanıcı Enter'a bassa ATLAS karar verir; yanlış yazsa
+  yine karar verir. Yalnız net y/n override eder.
+- Kapsam: 1 modül düzenleme (planner.py: +_prompt_acp_permission ~20
+  sat, _acp_permission_response dallanma), 1 test dosyası genişleme
+  (+4 test). Toplam 522 test yeşil (518 → +4). mypy strict + ruff
+  temiz. Artefaktlar `pipeline/tasks/016-3-acp-interactive/`.
+
 ## 2026-07-29 (Görev 024 — `atlas dashboard` özet)
 - [KARAR] Run tespiti **heuristic** — audit `plan`/`dry_run` başlangıç,
   `done`/`denied`/`max_steps`/`llm_error` bitiş. Alternatif "run
