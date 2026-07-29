@@ -1,11 +1,12 @@
 # DEVAM NOKTASI — ATLAS
 
-**Son çalışma:** 2026-07-29 (9. tur — 016.3+018.1+019.1+025+026+027)
-**Branch:** `feat/027-atlas-replay` (main'e ff-merge onayı bekliyor)
+**Son çalışma:** 2026-07-29 (9. tur — 016.3+018.1+019.1+025+026+027 + merge/push/temizlik)
+**Branch:** `main` (origin/main ile senkron — `d5f6a79`)
 **Working tree:** temiz
-**Durum:** 6 aşama tamamlandı, 6 lineer commit main'in üstünde
-zincirleme hazır. 545/545 test yeşil (baseline 518 → +27), coverage
-%90 üstünde, mypy strict + ruff + scan temiz.
+**Durum:** 6 aşama tamamlandı, 7 lineer commit main'e ff-merge + push
+edildi (`c48882b..d5f6a79`), 6 feature branch silindi. 545/545 test
+yeşil, coverage %90 üstünde, mypy strict + ruff + scan temiz.
+Bilinen flaky yok.
 
 ---
 
@@ -17,8 +18,9 @@ Yeni oturumda tek cümle: **"DEVAM_NOKTASI.md'yi oku ve kaldığı yerden devam 
 
 ## Bu turda yapılan (2026-07-29 — 9. tur)
 
-Sıra ile 6 iş tamamlandı, zincirleme (`016.3 → 018.1 → 019.1 → 025 →
-026 → 027`).
+Sıra ile 6 iş tamamlandı, her biri kendi branch'inde tek commit,
+zincirleme (`016.3 → 018.1 → 019.1 → 025 → 026 → 027`); sonrasında
+main'e lineer ff-merge + push + temizlik.
 
 1. **Görev 016.3** — ACP interaktif permission (`c147ed5`)
    - `ATLAS_ACP_INTERACTIVE=1` env → stdin y/n prompt.
@@ -59,35 +61,20 @@ Sıra ile 6 iş tamamlandı, zincirleme (`016.3 → 018.1 → 019.1 → 025 →
      desc + zip runs).
    - +6 test.
 
+7. **Merge + push + temizlik**
+   - `git merge --ff-only feat/027-atlas-replay` → 7 commit lineer
+     main'e (`d5f6a79`), merge commit YOK.
+   - `git push origin main` → `c48882b..d5f6a79` uzağa gitti.
+   - 6 feature branch silindi (`feat/016.3-acp-interactive`,
+     `feat/018.1-obs-headtail`, `feat/019.1-acp-streaming`,
+     `feat/025-prompt-engineering-skill`, `feat/026-sandbox-hardening`,
+     `feat/027-atlas-replay`).
+
 ---
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-**Merge + push.** 6 lineer commit main'in üstünde hazır:
-
-```
-main (c48882b) ← origin/main (senkron)
-     ↑
-     c147ed5 feat(016.3): ACP interaktif permission
-     3d0805b feat(018.1): gözlem head+tail keep
-     11c9634 feat(019.1): ACP streaming ilk newline'da kes
-     903137d feat(025): skills/engineering/prompt SKILL.md
-     52047a3 feat(026): sandbox iyileştirme (Docker YOK)
-     5ef9606 feat(027): atlas replay + YAML kopya
-```
-
-Önerilen yol:
-
-```bash
-git checkout main
-git merge --ff-only feat/027-atlas-replay   # 6 commit lineer
-git push origin main
-git branch -d feat/016.3-acp-interactive feat/018.1-obs-headtail \
-             feat/019.1-acp-streaming feat/025-prompt-engineering-skill \
-             feat/026-sandbox-hardening feat/027-atlas-replay
-```
-
-Alternatif — yeni görev seçilebilir. Doğal devamlar:
+**Yeni görev seçimi.** Pipeline'da açık iş yok. Doğal devam adayları:
 
 - **Görev 018.2 — LLM ile gerçek gözlem özetleme:** opt-in
   `Goal.obs_summarize`, ekstra LLM çağrısı.
@@ -100,11 +87,48 @@ Alternatif — yeni görev seçilebilir. Doğal devamlar:
 - **Görev 030 — Multi-goal batch:** `atlas run --goal-file A.yaml
   B.yaml C.yaml` — sıralı çalıştırma.
 
+Ya da başka bir öncelik varsa net söyle.
+
 ---
 
 ## Hızlı Bağlam
 
-**Env sözleşmesi (kümülatif, bu turda eklenenler ★):**
+**Branch grafı:**
+```
+origin/main (d5f6a79) = main (d5f6a79) ← senkron
+```
+Kalan local branch'ler (bu turların dışı, önceki oturumların işi):
+`feat/paketleme-bulut-secenegi`, `feat/tasinabilir-kurulum`,
+`fix/{arsivleyici-arama, kimi-yeniden-etkinlestirme,
+ollama-kimligi-tasinabilir, surum-etiketli-yedek}`.
+
+**main'e giren 7 commit (2026-07-29 9. tur):**
+```
+d5f6a79 docs: DEVAM_NOKTASI.md — 9. tur kapanis
+5ef9606 feat(027): atlas replay + YAML kopya arsivi + dashboard run_id kolonu
+52047a3 feat(026): sandbox iyilestirme (Docker YOK)
+903137d feat(025): skills/engineering/prompt SKILL.md
+11c9634 feat(019.1): ACP streaming ilk newline'da kes
+3d0805b feat(018.1): gozlem head+tail keep
+c147ed5 feat(016.3): ACP interaktif permission
+```
+
+**Kalite kapıları (bu turun sonu):**
+```bash
+uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
+# 545 passed
+uv run mypy src                # temiz
+uv run ruff check src tests    # temiz
+uv run atlas scan src          # sır bulunamadı
+```
+
+**Yeni CLI komutu (bu turda):**
+- `atlas replay <run-id> [--new-run-id X] [--dry-run]` (027)
+
+**Yeni skill (bu turda):**
+- `skills/engineering/prompt/SKILL.md` (025)
+
+**Env sözleşmesi (kümülatif, bu turda eklenen ★):**
 | Değişken | Anlam |
 |---|---|
 | `ATLAS_LLM` | `stub` \| `claude` \| `anthropic` \| `acp` |
@@ -135,14 +159,9 @@ Alternatif — yeni görev seçilebilir. Doğal devamlar:
 
 **Exit kodları (değişmedi):** 0/2/3/4/5/6/7.
 
-**Yeni CLI komutları (bu turda):**
-- `atlas replay <run-id> [--new-run-id X] [--dry-run]` (027)
-
-**Yeni skill:**
-- `skills/engineering/prompt/SKILL.md` (025)
-
 **Kritik sözleşme değişmezlikleri (bu turda korundu):**
-- `orchestrator/core.py`, `orchestrator/goals.py`, `AuditLog` — dokunulmadı.
+- `orchestrator/core.py`, `orchestrator/goals.py`, `AuditLog` —
+  dokunulmadı.
 - `orchestrator/planner.py::{Planner, make_planner, LLMPlannerError,
   RetryAfterError}` — imzalar korundu.
 - `orchestrator/actions.py::{make_action, Action, ActionDeniedError}` —
@@ -151,6 +170,12 @@ Alternatif — yeni görev seçilebilir. Doğal devamlar:
   `atlas replay` eklendi.
 
 **Bilinen flaky:** yok.
+
+**Docker YASAK (kullanıcı direktifi 026'da):** portable stdlib-only
+sandbox iyileştirmesi tercih edildi. Docker/container yerine env
+whitelist + PATH kısıt + timeout + `shell=False` + `_jail` uyumu.
+Fork bomb / OOM için Unix `resource` (026.1) ve Windows Job Objects
+(026.2) opt-in olarak ayrıldı.
 
 **Görev-öncesi zorunlu okuma sırası:**
 1. `DECISIONS.md` — 2026-07-29 altında **33 giriş bloğu**
@@ -164,10 +189,13 @@ Alternatif — yeni görev seçilebilir. Doğal devamlar:
 ## Kapanış Notları
 
 - 545 test yeşil (bu turun baseline'ı 518 → +27; oturum başı 319 → +226)
-- 6 lineer commit `feat/027-atlas-replay` ucunda; merge stratejisi
-  user'a bağlı
+- 7 lineer commit main'e alındı, uzağa push edildi, 6 feature branch
+  silindi (kullanıcı açık onayıyla)
 - Uncommitted değişiklik yok, working tree temiz
-- Docker YASAK (kullanıcı direktifi 026'da) — portable stdlib-only
-  sandbox iyileştirmesi
-- Ollama / Juggler / ACP kimlikleri `.juggler/` altında — dokunulmadı
+- Docker YASAK (026 kullanıcı direktifi tutuldu) — portable stdlib-only
+  yaklaşım
+- Ollama / Juggler / ACP kimlikleri `.juggler/` altında (gitignored) —
+  dokunulmadı
+- Portable bundle son sürüm: `D:\ATLAS.rar` (önceki oturum, 1.9 GB) —
+  yenilenmemedi (kapsam dışı)
 - DECISIONS.md 2026-07-29 altında **33 giriş bloğu** birikti
