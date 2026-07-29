@@ -235,6 +235,44 @@ def test_restore_defaults_to_newest_and_can_pick_by_name(tmp_path: Path, monkeyp
     assert fixes.run_instant("juggler-restore", tmp_path, {"name": "yok-boyle"})["ok"] is False
 
 
+def test_list_backups_ayni_mtime_de_deterministik(tmp_path: Path, monkeypatch):
+    """SPEC 007 son adım: Windows mtime granülerliği yarışını kır.
+
+    İki yedek DENEMEDİ değişkeni: her ikisinin de aynı mtime_ns'sini
+    zorlayıp, sıralamanın name tiebreaker'ıyla belirlenimci olduğunu
+    doğrula (v0.5.0 > v0.4.2 lexicographic → newest = v0.5.0).
+    """
+    exe = tmp_path / "tools" / "juggler" / checks._exe("juggler")
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"a")
+    monkeypatch.setattr(versions, "local_versions", lambda _r=None: {"juggler": "v0.4.2"})
+    fixes.run_instant("juggler-backup", tmp_path)
+    exe.write_bytes(b"b")
+    monkeypatch.setattr(versions, "local_versions", lambda _r=None: {"juggler": "v0.5.0"})
+    fixes.run_instant("juggler-backup", tmp_path)
+
+    # İki backup exe'sinin mtime_ns'sini eşitle → beraberlik senaryosu
+    import os
+    root = tmp_path / ".atlas" / "doctor"
+    dirs = sorted(root.iterdir())
+    assert len(dirs) == 2
+    common_ns = int(dirs[0].joinpath(exe.name).stat().st_mtime_ns)
+    for d in dirs:
+        p = d / exe.name
+        # atime, mtime — ns hassasiyet
+        os.utime(p, ns=(common_ns, common_ns))
+
+    backups = checks.list_backups(tmp_path)
+    assert len(backups) == 2
+    # Beraberlikte name tiebreaker: v0.5.0 > v0.4.2 desc → ilk olmalı.
+    assert backups[0]["name"] == "juggler-backup-v0.5.0"
+    assert backups[1]["name"] == "juggler-backup-v0.4.2"
+    # 10 çağrı — hep aynı sıra (belirlenimci)
+    for _ in range(10):
+        again = checks.list_backups(tmp_path)
+        assert [b["name"] for b in again] == [b["name"] for b in backups]
+
+
 def test_restore_without_backup_fails_cleanly(tmp_path: Path):
     res = fixes.run_instant("juggler-restore", tmp_path)
     assert res["ok"] is False

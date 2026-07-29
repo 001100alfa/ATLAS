@@ -190,7 +190,15 @@ def backup_tag(version: str | None, exe: Path | None = None) -> str:
 
 
 def list_backups(root: Path) -> list[dict]:
-    """Alınmış yedekler — en yeni önce. Eski sürümsüz klasör de listeye girer."""
+    """Alınmış yedekler — en yeni önce. Eski sürümsüz klasör de listeye girer.
+
+    Sıralama anahtarı `(st_mtime_ns, name)` desc: Windows sistem saati
+    ~15 ms tick'ler (`time.perf_counter` ayrık) — iki hızlı yedek aynı
+    saniye içine düştüğünde float `st_mtime` beraberliği "en yeni"yi
+    belirsizleştiriyordu (bilinen flaky, DECISIONS 2026-07-29). `_ns`
+    100 ns hassasiyet verir; kalan çok nadir beraberlikte klasör adı
+    (versiyon etiketli) belirlenimci tiebreaker olur.
+    """
     out: list[dict] = []
     d = backups_root(root)
     if not d.is_dir():
@@ -203,15 +211,19 @@ def list_backups(root: Path) -> list[dict]:
             continue  # yarım kalmış klasör yedek sayılmaz
         note = child / "VERSION.txt"
         version = note.read_text(encoding="utf-8").splitlines()[0].strip() if note.is_file() else ""
+        st = exe.stat()
         out.append(
             {
                 "name": child.name,
                 "path": str(child),
                 "version": version or "bilinmiyor",
-                "mtime": exe.stat().st_mtime,
+                "mtime": st.st_mtime,
+                "mtime_ns": st.st_mtime_ns,
             }
         )
-    out.sort(key=lambda b: b["mtime"], reverse=True)
+    # Beraberlikte name asc → reverse=True ile name desc; sürüm etiketli
+    # klasörler için "v0.5.0 > v0.4.2" beklenen sırayı verir.
+    out.sort(key=lambda b: (b["mtime_ns"], b["name"]), reverse=True)
     return out
 
 

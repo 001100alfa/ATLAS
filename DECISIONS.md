@@ -1,6 +1,28 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Flaky düzeltmesi — test_doctor_gui mtime granülerliği)
+- [HATA] `test_restore_defaults_to_newest_and_can_pick_by_name`: iki
+  yedek aynı Windows sistem-saati tick'i (~15.6 ms) içine düşünce
+  `Path.stat().st_mtime` (float saniye) beraberliği "en yeni"yi
+  belirsizleştiriyordu. `list_backups`'ın sort'u `key=st_mtime, reverse=True`
+  idi; beraberlikte sıralama Python `sort` stabilliğine ve `iterdir()`
+  dönüş sırasına bırakılıyordu — Windows FS bunda belirlenimci değil.
+- [KARAR] `list_backups` sort anahtarı `(st_mtime_ns, name)` desc'e
+  yükseltildi: `_ns` NTFS 100 ns hassasiyet verir; kalan çok nadir
+  beraberlikte klasör adı (versiyon etiketli) tiebreaker olur —
+  `juggler-backup-v0.5.0` > `juggler-backup-v0.4.2` lexicographic
+  desc → "yeni sürüm önce" hem yaygın hem beklenen.
+- [KARAR] Regresyon savunması: `test_list_backups_ayni_mtime_de_deterministik`
+  iki yedeğin `st_mtime_ns`'sini `os.utime(..., ns=(c, c))` ile
+  **zorla eşitleyip** sıralamanın 10 çağrı boyunca belirlenimci
+  kaldığını doğruluyor. Beraberlik senaryosunu artık gerçek Windows
+  tick'ine bırakmıyoruz.
+- Kapsam: 1 modül düzenleme (`tools/doctor_gui/checks.py::list_backups`
+  — sort anahtarı + `mtime_ns` alanı), 1 test dosyası genişleme
+  (+1 test). Toplam 371 test yeşil, mypy strict + ruff temiz.
+  Flaky retry gereksinimi kalktı.
+
 ## 2026-07-29 (Görev 007 — atlas archive CLI komutu)
 - [KARAR] Yıkıcı işlem **dry-run varsayılan**; `--apply` bilinçli seçim.
   CLAUDE.md kuralı ("yıkıcı işlem öncesi onay iste") CLI yüzeyinde
