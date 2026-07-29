@@ -408,36 +408,70 @@ def _cmd_archive(args: argparse.Namespace) -> int:
     return 0
 
 
-def _iter_archive_candidates(tasks_root: Path) -> list[Path]:
-    """SPEC 012 M2: `09-ship.md` dosyası olan görev klasörleri (sıralı)."""
+def _iter_archive_candidates(
+    tasks_root: Path, age_days: float | None = None
+) -> list[Path]:
+    """SPEC 012 M2 + SPEC 017: `09-ship.md` dosyası olan görev klasörleri.
+
+    `age_days` verilirse (SPEC 017): ship.md mtime'ı `age_days` günden
+    eski olanlar seçilir; taze görevler atlanır. `None` → 012 davranışı
+    (tümü).
+    """
     if not tasks_root.is_dir():
         return []
+    now = datetime.now().timestamp()
+    threshold = now - (age_days * 86400) if age_days is not None else None
     out: list[Path] = []
     for child in sorted(tasks_root.iterdir()):
         if not child.is_dir():
             continue
-        if (child / "09-ship.md").is_file():
-            out.append(child)
+        ship = child / "09-ship.md"
+        if not ship.is_file():
+            continue
+        if threshold is not None and ship.stat().st_mtime > threshold:
+            continue  # ship.md hâlâ taze → atla
+        out.append(child)
     return out
 
 
+def _read_archive_age_env() -> float:
+    """SPEC 017: `ATLAS_ARCHIVE_AGE_DAYS` env (varsayılan 7).
+
+    Parse hatası → 7 (fail-safe).
+    """
+    try:
+        v = float(os.environ.get("ATLAS_ARCHIVE_AGE_DAYS", "7") or "7")
+    except ValueError:
+        return 7.0
+    return max(v, 0.0)
+
+
 def _cmd_archive_all(args: argparse.Namespace) -> int:
-    """SPEC 012: `atlas archive --all [--apply --yes]` — toplu arşiv.
+    """SPEC 012 + 017: `atlas archive --all [--auto] [--apply --yes]`.
 
     Aday: `pipeline/tasks/*/09-ship.md` olanlar (tamamlanmış).
+    `--auto` (SPEC 017) verilirse ship.md mtime'ı
+    `ATLAS_ARCHIVE_AGE_DAYS` (varsayılan 7) günden eski olanlar seçilir.
     `--apply` **yalnız** `--yes` ile birlikte gerçek toplu iş yapar.
     Fail-fast: ilk hata → dur, raporla.
     """
     tasks_root = Path(args.tasks_root)
     archive_root = Path(args.archive_root)
-    candidates = _iter_archive_candidates(tasks_root)
+    age_days: float | None = None
+    if getattr(args, "auto", False):
+        age_days = _read_archive_age_env()
+    candidates = _iter_archive_candidates(tasks_root, age_days=age_days)
 
     if not args.apply:
-        print(f"[dry-run] toplu arşivleme adayları: {len(candidates)} görev")
+        age_suffix = f" (auto, >{age_days:g} gün)" if age_days is not None else ""
+        print(f"[dry-run] toplu arşivleme adayları{age_suffix}: {len(candidates)} görev")
         for d in candidates:
             print(f"  - {d.name}")
         if candidates:
-            print("Uygulamak için: atlas archive --all --apply --yes")
+            hint = "atlas archive --all --apply --yes"
+            if age_days is not None:
+                hint = "atlas archive --all --auto --apply --yes"
+            print(f"Uygulamak için: {hint}")
         return 0
 
     if not getattr(args, "yes", False):
@@ -553,6 +587,9 @@ def main(argv: list[str] | None = None) -> int:
                        help="pipeline/tasks/ altındaki klasör adı (--all yoksa zorunlu)")
     p_arc.add_argument("--all", action="store_true",
                        help="09-ship.md dosyası olan tüm görevleri sıraya al (SPEC 012)")
+    p_arc.add_argument("--auto", action="store_true",
+                       help="--all ile birlikte: yalnız ATLAS_ARCHIVE_AGE_DAYS "
+                            "(varsayılan 7) günden eski ship.md'li görevler (SPEC 017)")
     p_arc.add_argument("--yes", action="store_true",
                        help="--all --apply için ikinci onay (çift kapı)")
     p_arc.add_argument("--apply", action="store_true",

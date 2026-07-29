@@ -619,3 +619,91 @@ def test_012_all_bos_liste(
     ])
     assert rc == 0
     assert "0 görev" in capsys.readouterr().out
+
+
+# ---------- SPEC 017: --auto yaş filtresi ----------
+
+
+def _age_ship_mtime(root: Path, name: str, days_old: float) -> None:
+    """Verilen görevin 09-ship.md dosyasının mtime'ını N gün önceye çek."""
+    import os as os_mod
+    ship = root / "pipeline" / "tasks" / name / "09-ship.md"
+    old_ts = (
+        __import__("datetime").datetime.now().timestamp() - days_old * 86400
+    )
+    os_mod.utime(ship, (old_ts, old_ts))
+
+
+def test_017_auto_taze_atlanir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--auto varsayılan 7 gün eşiği; taze ship.md atlanır."""
+    _env(monkeypatch, tmp_path)
+    _mk_fake_task(tmp_path, "003-taze")  # şimdi oluştu, mtime bugün
+    rc = main([
+        "archive", "--all", "--auto",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "adayları (auto, >7 gün): 0 görev" in out
+    assert "003-taze" not in out
+
+
+def test_017_auto_eski_secilir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """10 gün eski ship.md → --auto (7 gün) → aday."""
+    _env(monkeypatch, tmp_path)
+    _mk_fake_task(tmp_path, "003-eski")
+    _mk_fake_task(tmp_path, "004-taze")
+    _age_ship_mtime(tmp_path, "003-eski", days_old=10)
+
+    rc = main([
+        "archive", "--all", "--auto",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "1 görev" in out
+    assert "003-eski" in out
+    assert "004-taze" not in out
+
+
+def test_017_env_esik_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ATLAS_ARCHIVE_AGE_DAYS=1 → 2 gün eski görev aday."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_ARCHIVE_AGE_DAYS", "1")
+    _mk_fake_task(tmp_path, "003-iki-gun")
+    _age_ship_mtime(tmp_path, "003-iki-gun", days_old=2)
+
+    rc = main([
+        "archive", "--all", "--auto",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "adayları (auto, >1 gün): 1 görev" in out
+    assert "003-iki-gun" in out
+
+
+def test_017_auto_yoksa_012_davranisi(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--auto olmadan --all → 012 davranışı (yaş yok, hepsi aday)."""
+    _env(monkeypatch, tmp_path)
+    _mk_fake_task(tmp_path, "003-taze")
+    rc = main([
+        "archive", "--all",  # --auto yok
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "adayları: 1 görev" in out  # "auto" başlıkta YOK
+    assert "003-taze" in out

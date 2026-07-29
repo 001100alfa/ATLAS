@@ -1,6 +1,37 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 017 — `atlas archive --auto` yaş filtresi)
+- [KARAR] Yaş ölçüsü **`09-ship.md` dosyasının st_mtime**'ı — task
+  klasörünün oluşum tarihi değil. SHIP zamanı "görev bitti" işareti;
+  klasör oluşum tarihi görevin başlangıcı olabilir. Kullanıcı SHIP
+  yazdıysa arşive uygunluğu ilan etmiş demektir; N gün sonra otomatik
+  taşıma mantıklı.
+- [KARAR] Varsayılan **7 gün** — bir hafta yeterli "soğuma" süresi.
+  Kullanıcı SHIP sonrası son bir hafta içinde geri dönüp düzeltmek
+  isteyebilir; 7 gün sonra istikrar sağlanmış sayılır. `ATLAS_ARCHIVE_AGE_DAYS`
+  env override — kullanıcı 30/90 gün istese ayarlayabilir.
+- [KARAR] `--auto` `--all` ile birlikte anlamlı — tek görev yolunda
+  yaş kavramı zaten kullanıcı seçimiyle atlanır. `argparse` `--auto`'yu
+  bağımsız kabul eder ama `_cmd_archive_all` sadece `--all` dallanmasında
+  `age_days` bakar; tek görev yolu `--auto`'yu **yok sayar** (uyarı yok,
+  gereksiz gürültü).
+- [KARAR] Dry-run başlığında yaş bilgisi görünür (`adayları (auto, >7
+  gün): N görev`) — kullanıcı hangi eşiğin uygulandığını hemen görür.
+  `--auto` yokken başlık eskisi gibi (`adayları: N görev`) — 012
+  regresyonu yok.
+- [KARAR] `_iter_archive_candidates` yeni parametre **default=None**
+  → 012 davranışı korundu; test suite dokunulmadan yeşil. Küçük
+  refactor, geniş uyum.
+- [KARAR] Cron/hook script'i **belge olarak** verildi (ship.md
+  kullanım örneği), ATLAS-içi zamanlayıcı yazılmadı — sistem
+  zamanlayıcıları yeterli, ayrı process yönetimi YAGNI.
+- Kapsam: 1 modül düzenleme (cli.py: +_read_archive_age_env,
+  _iter_archive_candidates age_days paramı, _cmd_archive_all --auto
+  dallanma, parser --auto flag — ~25 sat), 1 test dosyası genişleme
+  (+4 test). Toplam 444 test yeşil (440 → +4). mypy strict + ruff
+  temiz. Artefaktlar `pipeline/tasks/017-archive-auto/`.
+
 ## 2026-07-29 (Görev 016 — ACP `tool_call` açık red)
 - [KARAR] Agent tool_call'ı **sessizce yok saymak** yerine
   **açık red** — kullanıcı fake plan sonucu görmesin, yanlış
