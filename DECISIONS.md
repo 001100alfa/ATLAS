@@ -1,6 +1,23 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 018 — gözlem uzunluk kırpma env)
+- [KARAR] Env **runtime** okunur — `_format_prompt` her çağrıda
+  `_read_obs_chars_env()`. Cache'lemek performans için mikro-iyileştirme
+  ama env değişikliği anında etkili olmalı (kullanıcı `export ATLAS_LLM_OBS_CHARS=500`
+  yapıp yeniden çalıştırınca fark hemen görülebilmeli).
+- [KARAR] Aralık üst sınırı **2000** — sistem prompt + context (4000) +
+  gözlem × 3 = ~10k char güvenli. Üst sınır yoksa kullanıcı `100000`
+  yazıp prompt token limit'ini aşabilir. 2000 hem büyük stderr'a
+  hem token bütçesine dost.
+- [KARAR] Fail-safe fallback varsayılana — kullanıcı yanlış env yazarsa
+  bug yerine 200 (`_DEFAULT_OBS_CHARS`) kullanılır; hata mesajı yok
+  (env okuma tolere).
+- Kapsam: 1 modül düzenleme (planner.py: +2 sabit, +_read_obs_chars_env
+  yardımcı, _format_prompt runtime kullanım — ~15 sat), 1 yeni test
+  dosyası (9 test). Toplam 469 test yeşil (460 → +9). mypy strict +
+  ruff temiz. Artefaktlar `pipeline/tasks/018-obs-chars-env/`.
+
 ## 2026-07-29 (Görev 016.1 — ACP `fs/read_text_file` minimum destek)
 - [KARAR] Request/notification ayrımı **`id` alanı**: request `id`+`method`
   var; notification sadece `method`. `_call_acp` dispatcher ilk kolda

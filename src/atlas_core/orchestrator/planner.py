@@ -42,6 +42,8 @@ from atlas_core.orchestrator.goals import Goal
 Planner = Callable[[str, list[tuple[StepKind, str]]], str]
 
 _MAX_HISTORY_OBSERVES = 3
+_DEFAULT_OBS_CHARS = 200
+_MAX_OBS_CHARS = 2000
 _DEFAULT_TIMEOUT_S = 60
 _STDERR_TAIL = 200
 _BODY_TAIL = 200
@@ -157,6 +159,20 @@ def _resolve_claude_bin() -> str:
 _MAX_CONTEXT_CHARS = 4000  # SPEC 006: prompt şişmesin — üst emniyet
 
 
+def _read_obs_chars_env() -> int:
+    """SPEC 018: `ATLAS_LLM_OBS_CHARS` (varsayılan 200, aralık [1, 2000]).
+
+    Parse hatası veya aralık dışı → varsayılan (fail-safe).
+    """
+    try:
+        n = int(os.environ.get("ATLAS_LLM_OBS_CHARS", str(_DEFAULT_OBS_CHARS)))
+    except ValueError:
+        return _DEFAULT_OBS_CHARS
+    if n <= 0 or n > _MAX_OBS_CHARS:
+        return _DEFAULT_OBS_CHARS
+    return n
+
+
 def _format_prompt(
     goal: Goal,
     history: list[tuple[StepKind, str]],
@@ -183,7 +199,8 @@ def _format_prompt(
     verbs = ", ".join(sorted(goal.action_allowlist)) or "(hiç)"
     obs = [text for kind, text in history if kind is StepKind.OBSERVE]
     tail = obs[-_MAX_HISTORY_OBSERVES:]
-    obs_block = "\n".join(f"- {o[:200]}" for o in tail) if tail else "(yok)"
+    obs_chars = _read_obs_chars_env()  # SPEC 018: runtime env okuma
+    obs_block = "\n".join(f"- {o[:obs_chars]}" for o in tail) if tail else "(yok)"
     ctx_block = ""
     if context:
         ctx_trimmed = context.strip()[:_MAX_CONTEXT_CHARS]
