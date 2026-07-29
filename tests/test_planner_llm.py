@@ -318,3 +318,46 @@ def test_006_uzun_context_kirpilir(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     plan("goal", [])
     # _MAX_CONTEXT_CHARS = 4000 emniyeti
     assert seen["input"].count("x") <= 4100  # + biraz overhead
+
+
+# ---------- SPEC 003.2: özel llm_prompt claude backend'e akar ----------
+
+
+def _goal_llm_with_prompt(prompt: str) -> Goal:
+    return Goal(
+        goal="dosya yaz",
+        plan_kind="llm",
+        plan_steps=(),
+        action_allowlist=frozenset({"write"}),
+        shell_allow_regex=None,
+        judge_kind="file_exists",
+        judge_arg="out.txt",
+        budget=20.0,
+        max_steps=3,
+        costs={"read": 1.0, "write": 2.0, "shell": 5.0},
+        llm_prompt=prompt,
+    )
+
+
+def test_003_2_ozel_prompt_claude_stdin_de_gorunur(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """AC8: özel prompt claude subprocess'in stdin'inde başta görünür."""
+    _prep_bin(monkeypatch, tmp_path)
+    seen: dict[str, str] = {}
+
+    def fake_run(*_args: Any, **kwargs: Any) -> _FakeProc:
+        seen["input"] = kwargs.get("input", "")
+        return _FakeProc(stdout="write:x.txt:1\n", returncode=0)
+
+    monkeypatch.setattr(planner_mod.subprocess, "run", fake_run)
+    plan = make_planner(_goal_llm_with_prompt("Sen kıdemli mühendissin."))
+    plan("goal", [])
+    inp = seen["input"]
+    # Özel prompt başta
+    assert inp.startswith("Sen kıdemli mühendissin.")
+    # Görev + sözleşme hâlâ var (kısıt satırı sonda)
+    assert "Görev: dosya yaz" in inp
+    assert "TEK SATIRLIK" in inp
+    # ATLAS'ın varsayılan "planlama alt-ajansısın" cümlesi YOK
+    assert "planlama alt-ajansısın" not in inp

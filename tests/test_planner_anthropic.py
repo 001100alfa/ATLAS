@@ -345,6 +345,36 @@ def test_model_override(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # ---------- Hata mesajı sırrı sızdırmaz ----------
 
+# ---------- SPEC 003.2: özel llm_prompt anthropic gövdesinde ----------
+
+def test_003_2_ozel_prompt_body_de_gorunur(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC9: llm_prompt anthropic request gövdesindeki messages[0].content
+    içinde geçer."""
+    _prep_key(monkeypatch)
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(req: Any, **_kw: Any) -> _FakeResponse:
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResponse(
+            json.dumps(
+                {"content": [{"type": "text", "text": "write:x.txt:1"}]}
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    # llm_prompt'lu Goal
+    from dataclasses import replace
+    g = replace(_goal_llm(), llm_prompt="ROLE: mimarî danışman")
+    p = make_planner(g)
+    p("g", [])
+    content = seen["body"]["messages"][0]["content"]
+    assert content.startswith("ROLE: mimarî danışman")
+    assert "Görev: dosya yaz" in content
+    assert "TEK SATIRLIK" in content
+    # Varsayılan "planlama alt-ajansısın" cümlesi YOK
+    assert "planlama alt-ajansısın" not in content
+
+
 def test_key_asla_hata_mesajina_gecmez(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATLAS_LLM", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-SUPER-SECRET-abcdef")

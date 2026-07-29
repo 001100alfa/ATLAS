@@ -50,6 +50,9 @@ class Goal:
     # Eski YAML'lar (bu alanlar yok) default davranışla çalışır.
     inject_context: bool = True
     context_limit: int = 5
+    # SPEC 003.2: opsiyonel özel sistem promptu. None → mevcut sabit
+    # şablon (bit-uyumlu); str → prompt'un başına eklenir (planner içinde).
+    llm_prompt: str | None = None
 
 
 def _require(spec: dict[str, object], key: str, kind: type) -> object:
@@ -142,6 +145,18 @@ def load_goal(path: Path) -> Goal:
             f"context_limit 1..{_MAX_CONTEXT_LIMIT} aralığında olmalı, gelen: {ctx_limit_raw}"
         )
 
+    # SPEC 003.2: opsiyonel özel prompt (str veya None; boş string → None).
+    llm_prompt_raw = raw.get("llm_prompt")
+    llm_prompt: str | None
+    if llm_prompt_raw is None:
+        llm_prompt = None
+    elif isinstance(llm_prompt_raw, str):
+        llm_prompt = llm_prompt_raw if llm_prompt_raw else None
+    else:
+        raise SpecError(
+            f"llm_prompt string olmalı, gelen: {type(llm_prompt_raw).__name__}"
+        )
+
     # Literal daraltması: yukarıda enum kontrolü yapıldı, tip güvenli.
     return Goal(
         goal=goal,
@@ -156,4 +171,5 @@ def load_goal(path: Path) -> Goal:
         costs=costs,
         inject_context=inject_ctx_raw,
         context_limit=ctx_limit_raw,
+        llm_prompt=llm_prompt,
     )

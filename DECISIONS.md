@@ -1,6 +1,30 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 003.2 — Goal.llm_prompt opsiyonel alanı)
+- [KARAR] `Goal.llm_prompt: str | None = None` — SPEC 006 kalıbı:
+  yeni alan **son sırada + default'lu**; eski `Goal(...)` positional
+  çağrıları ve eski YAML'lar hiç değişmeden çalışır.
+- [KARAR] Boş string (`""`) → `None` — kullanıcı yanlışlıkla
+  `llm_prompt:` yazıp değer vermezse veya `""` bırakırsa **sessiz
+  fallback**. SpecError patlatmıyoruz çünkü kullanıcı niyeti belirsiz
+  ve mevcut sabit prompt her zaman iş görür.
+- [KARAR] Prompt sıralaması: kullanıcı promptu **başta**, ATLAS'ın plan
+  sözleşmesi (verbs + biçim + "TEK SATIRLIK yaz" direktifi) **sonda**.
+  Kullanıcı sistem rolünü tanımlarken çıktı sözleşmesini bozamasın —
+  LLM sonda gördüğü direktifi daha güçlü izler.
+- [KARAR] Merkezî değişiklik `_format_prompt`'ta; üç backend (claude,
+  anthropic, acp) yeniden derlenmeden aynı davranır. Test tarafında
+  her backend için ayrı doğrulama (`dataclasses.replace(goal,
+  llm_prompt=...)`) — üç kanal da özel promptu ilettiğini gösteriyor.
+- [KARAR] Rol ayrımı (system vs user, anthropic API'de) **ertelendi**
+  (Görev 010+). Şu an tek "user" mesajı yeter; sistem promptu YAML
+  kullanıcısından tek gövde olarak akıyor. Anthropic'te bu yaklaşım
+  "assistant persona" için çalışır ama tam sistem-rol kilidi vermez.
+- Kapsam: 2 modül düzenleme, 4 test dosyası genişleme (+9 test),
+  1 YAML fixture. Toplam 364 test yeşil, coverage %90 üstü, mypy
+  strict + ruff temiz. Artefaktlar `pipeline/tasks/003-2-llm-prompt/`.
+
 ## 2026-07-29 (Görev 003.1 — anthropic + acp LLM backend'leri)
 - [KARAR] `anthropic` backend'i **stdlib-only** kaldı: `urllib.request`
   ile doğrudan HTTPS POST. `requests`/`httpx` bağımlılığı eklenmedi;

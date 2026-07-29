@@ -185,3 +185,69 @@ def test_006_context_limit_bool_reddedilir(tmp_path: Path) -> None:
     )
     with pytest.raises(SpecError, match="context_limit"):
         load_goal(p)
+
+
+# ---------- SPEC 003.2: opsiyonel llm_prompt ----------
+
+
+def test_003_2_llm_prompt_alan_yok_none(tmp_path: Path) -> None:
+    """AC1: llm_prompt anahtarı yok → goal.llm_prompt is None."""
+    goal = load_goal(FIXTURES / "hello.yaml")
+    assert goal.llm_prompt is None
+
+
+def test_003_2_llm_prompt_null_none(tmp_path: Path) -> None:
+    """AC2: llm_prompt: null → None."""
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "llm_prompt: null\n",
+        encoding="utf-8",
+    )
+    assert load_goal(p).llm_prompt is None
+
+
+def test_003_2_llm_prompt_bos_string_none(tmp_path: Path) -> None:
+    """AC3: llm_prompt: "" → None (sessiz fallback)."""
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        'llm_prompt: ""\n',
+        encoding="utf-8",
+    )
+    assert load_goal(p).llm_prompt is None
+
+
+def test_003_2_llm_prompt_gecerli_string() -> None:
+    """AC4: llm_prompt: "Sen ATLAS'ın..." → aynen string."""
+    goal = load_goal(FIXTURES / "llm_custom_prompt.yaml")
+    assert isinstance(goal.llm_prompt, str)
+    assert "kıdemli mühendis planlayıcısısın" in goal.llm_prompt
+    assert "EN 1993" in goal.llm_prompt
+
+
+def test_003_2_llm_prompt_tip_hatasi_int(tmp_path: Path) -> None:
+    """AC5: llm_prompt: 42 → SpecError."""
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "llm_prompt: 42\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match="llm_prompt string olmalı"):
+        load_goal(p)
+
+
+def test_003_2_llm_prompt_tip_hatasi_liste(tmp_path: Path) -> None:
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "llm_prompt: [a, b]\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match="llm_prompt string olmalı"):
+        load_goal(p)

@@ -135,10 +135,18 @@ def _format_prompt(
     history: list[tuple[StepKind, str]],
     context: str | None = None,
 ) -> str:
-    """Sabit, kısa prompt (< 800 karakter, context ile ≤ 5000).
+    """LLM prompt gövdesini üretir.
 
-    `context` verilirse görev satırından hemen sonra "Önceden bilinen bağlam"
-    bloğu eklenir (SPEC 006 FR5). None veya boş string → blok eklenmez.
+    Varsayılan (goal.llm_prompt None): kısa sabit şablon (< 800 karakter,
+    context ile ≤ 5000) — mevcut SPEC 003 kalıbı.
+
+    Özel (goal.llm_prompt str): kullanıcı promptu **başa** eklenir;
+    ATLAS'ın plan sözleşmesi (verbs + biçim + "TEK satır" direktifi)
+    aşağıya taşınır ki kullanıcı prompt'u sistemin çıktı sözleşmesini
+    bozmasın (SPEC 003.2).
+
+    `context` verilirse "Önceden bilinen bağlam" bloğu eklenir
+    (SPEC 006 FR5). None veya boş string → blok eklenmez.
     """
     verbs = ", ".join(sorted(goal.action_allowlist)) or "(hiç)"
     obs = [text for kind, text in history if kind is StepKind.OBSERVE]
@@ -149,15 +157,29 @@ def _format_prompt(
         ctx_trimmed = context.strip()[:_MAX_CONTEXT_CHARS]
         if ctx_trimmed:
             ctx_block = f"\nÖnceden bilinen bağlam (GBrain):\n{ctx_trimmed}\n"
-    return (
-        "Sen ATLAS'ın planlama alt-ajansısın. Görev:\n"
-        f"{goal.goal}\n"
-        f"{ctx_block}\n"
+
+    contract_block = (
         f"Sözleşme: TEK SATIRLIK plan komutu üret. İzin verilen fiiller: {verbs}.\n"
         'Biçim: fiil:arg1[:arg2]. Örnek: "write:notes.txt:merhaba" veya '
         '"shell:echo ok".\n\n'
         f"Son <=3 gözlem (varsa):\n{obs_block}\n\n"
         "Sadece plan satırını yaz, başka açıklama YOK."
+    )
+
+    if goal.llm_prompt:
+        # Kullanıcı sistem promptu üstte; görev + context + sözleşme altta.
+        return (
+            f"{goal.llm_prompt}\n\n"
+            f"Görev: {goal.goal}\n"
+            f"{ctx_block}\n"
+            f"{contract_block}"
+        )
+    # Varsayılan sabit şablon (bit-uyumlu SPEC 003).
+    return (
+        "Sen ATLAS'ın planlama alt-ajansısın. Görev:\n"
+        f"{goal.goal}\n"
+        f"{ctx_block}\n"
+        f"{contract_block}"
     )
 
 

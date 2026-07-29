@@ -388,6 +388,34 @@ def test_teardown_wait_takilirsa_kill(
     assert fake.kill_called is True
 
 
+# ---------- SPEC 003.2: özel llm_prompt acp session/prompt gövdesinde ----------
+
+def test_003_2_ozel_prompt_prompt_de_gorunur(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """AC10: llm_prompt acp session/prompt request'inde prompt[0].text'te geçer."""
+    _prep_bin(monkeypatch, tmp_path)
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    from dataclasses import replace
+    g = replace(_goal_llm(), llm_prompt="ROLE: yapı mühendisi")
+    p = make_planner(g)
+    p("g", [])
+    msgs = fake.stdin_messages()
+    prompt_text = msgs[2]["params"]["prompt"][0]["text"]
+    assert prompt_text.startswith("ROLE: yapı mühendisi")
+    assert "Görev: dosya yaz" in prompt_text
+    assert "TEK SATIRLIK" in prompt_text
+    assert "planlama alt-ajansısın" not in prompt_text
+
+
 # ---------- Ek: ATLAS_LLM_ACP_ARGS ekstra argv ----------
 
 def test_extra_argv(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
