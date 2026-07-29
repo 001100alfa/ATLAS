@@ -1,12 +1,11 @@
 # DEVAM NOKTASI — ATLAS
 
-**Son çalışma:** 2026-07-29 (8. tur — 016.2+021.1+021.2+022+023+024 + merge/push/temizlik)
-**Branch:** `main` (origin/main ile senkron — `4553d0a`)
+**Son çalışma:** 2026-07-29 (9. tur — 016.3+018.1+019.1+025+026+027)
+**Branch:** `feat/027-atlas-replay` (main'e ff-merge onayı bekliyor)
 **Working tree:** temiz
-**Durum:** 6 aşama tamamlandı, 7 lineer commit main'e ff-merge + push
-edildi (`71d644e..4553d0a`), 6 feature branch silindi. 518/518 test
-yeşil, coverage %90 üstünde, mypy strict + ruff + scan temiz.
-Bilinen flaky yok.
+**Durum:** 6 aşama tamamlandı, 6 lineer commit main'in üstünde
+zincirleme hazır. 545/545 test yeşil (baseline 518 → +27), coverage
+%90 üstünde, mypy strict + ruff + scan temiz.
 
 ---
 
@@ -16,177 +15,159 @@ Yeni oturumda tek cümle: **"DEVAM_NOKTASI.md'yi oku ve kaldığı yerden devam 
 
 ---
 
-## Bu turda yapılan (2026-07-29 — 8. tur)
+## Bu turda yapılan (2026-07-29 — 9. tur)
 
-Sıra ile 6 iş tamamlandı, her biri kendi branch'inde tek commit,
-zincirleme (`016.2 → 021.1 → 021.2 → 022 → 023 → 024`); sonrasında
-main'e lineer ff-merge + push + temizlik.
+Sıra ile 6 iş tamamlandı, zincirleme (`016.3 → 018.1 → 019.1 → 025 →
+026 → 027`).
 
-1. **Görev 016.2** — ACP `session/request_permission` (`0b534f7`)
-   - `_acp_handle_client_request` dallanma; `_acp_permission_response`
-     ~50 sat.
-   - Read tool → `allow_once`; write/bilinmeyen → `reject` (savunmalı).
-   - `params.options` içinden eşleşen optionId; yoksa sabit fallback.
+1. **Görev 016.3** — ACP interaktif permission (`c147ed5`)
+   - `ATLAS_ACP_INTERACTIVE=1` env → stdin y/n prompt.
+   - Fail-safe: EOF/KeyboardInterrupt → 016.2 auto-karar.
    - +4 test.
 
-2. **Görev 021.1** — `atlas doctor --json` (`9f0f5bf`)
-   - `_collect_doctor_report()` veri toplama refactor'ü — sunumdan
-     ayrık.
-   - `--json` → tek satır JSON (alan isimleri env değişkeni adları).
-   - `warnings` string listesi. API key mask JSON'da da uygulanır.
-   - +4 test.
+2. **Görev 018.1** — gözlem head+tail keep (`3d0805b`)
+   - `ATLAS_LLM_OBS_HEAD` + `ATLAS_LLM_OBS_TAIL` (varsayılan 100/100).
+   - Uzun stderr'ın sonundaki hata mesajı kaybolmaz.
+   - Mantıksız env fallback → 018 davranışı.
+   - +8 test.
 
-3. **Görev 021.2** — `atlas doctor --ping` (`78716cf`)
-   - Anthropic'e minimum "hello" request (max_tokens=8, timeout 10s
-     sabit).
-   - Insan formatta `[Ping]` bölümü; JSON'da `ping` alanı.
-   - Hata warnings + exit 0 (021 kalıbı).
-   - +4 test.
+3. **Görev 019.1** — ACP streaming ilk newline'da kes (`11c9634`)
+   - Anthropic streaming (019) ile birebir simetri.
+   - Boş newline devam, süreç kill korunur.
+   - +3 test.
 
-4. **Görev 022** — `.env` otomatik yükleme (`904a551`)
-   - `_load_dotenv()` stdlib manuel parser ~25 sat.
-   - Shell env override edilmez (dotenv sadece eksikleri doldurur).
-   - `ATLAS_DOTENV` env yolu override.
-   - +7 test.
+4. **Görev 025** — Prompt engineering skill (`903137d`)
+   - `skills/engineering/prompt/SKILL.md` ~250 sat Türkçe rehber.
+   - Görev-tipi kalıpları (kod, test, DXF, EN 1993) + karşı örnekler
+     + cost workflow.
+   - Test/coverage yok — dokümantasyon.
 
-5. **Görev 023** — cache-hit metrikleri (`9fbbafd`)
-   - `.atlas/metrics.jsonl` her anthropic çağrısı sonrası append
-     (`{ts, in, out, cache_c, cache_r, cost}`); yazım hatası sessiz.
-   - `atlas metrics [--limit N] [--json]` — toplam tokens +
-     cache-hit oranı % + tahmini cost.
-   - Streaming (019) yolu da metric yazar.
-   - +7 test.
-
-6. **Görev 024** — `atlas dashboard` (`f8db09c`)
-   - `.atlas/audit.jsonl` heuristik run tespiti (plan/dry_run
-     başlangıç, done/max_steps/denied/llm_error bitiş).
-   - `.atlas/metrics.jsonl`'dan zaman aralığındaki cost eşleşmesi.
-   - İlk satır: denetim zincir sağlığı (`AuditLog.verify`).
+5. **Görev 026** — Sandbox iyileştirme (Docker YOK) (`52047a3`)
+   - `_scrub_env` whitelist — API key sızmaz.
+   - `ATLAS_SANDBOX_PATH` PATH override.
+   - `ATLAS_SANDBOX_TIMEOUT` timeout env-ayarlı.
+   - stderr observation'da `err=<...>`.
+   - Docker yasak, portable stdlib-only. Unix `resource` / Windows Job
+     opt-in 026.1/026.2.
    - +6 test.
 
-7. **Merge + push + temizlik**
-   - `git merge --ff-only feat/024-dashboard` → 7 commit lineer
-     main'e (`4553d0a`), merge commit YOK.
-   - `git push origin main` → `71d644e..4553d0a` uzağa gitti.
-   - 6 feature branch silindi (`feat/016.2-acp-permission`,
-     `feat/021.1-doctor-json`, `feat/021.2-doctor-ping`,
-     `feat/022-dotenv-autoload`, `feat/023-cache-metrics`,
-     `feat/024-dashboard`).
+6. **Görev 027** — atlas replay (`5ef9606`)
+   - YAML kopya `.atlas/runs/<goal-id>.yaml`.
+   - `atlas replay <run-id> [--new-run-id X]`.
+   - `ATLAS_RUNS_DIR` env yol override.
+   - Dashboard tablosuna `run_id` kolonu (`.atlas/runs/*.yaml` mtime
+     desc + zip runs).
+   - +6 test.
 
 ---
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-**Yeni görev seçimi.** Pipeline'da açık iş yok. Doğal devam adayları:
+**Merge + push.** 6 lineer commit main'in üstünde hazır:
 
-- **Görev 016.3 — ACP interaktif permission dialogu:** opt-in
-  `ATLAS_ACP_INTERACTIVE=1`.
-- **Görev 018.1 — LLM ile gözlem özetleme:** uzun stderr → 3 satır özet.
-- **Görev 019.1 — ACP streaming:** ACP session_prompt yanıtları
-  streaming.
-- **Görev 025 — Prompt engineering skill:** pipeline/tasks üzerine
-  yaygın prompt kalıpları toplayan skill.
-- **Görev 026 — Docker/podman sandbox:** shell action'ı container'da
-  çalıştır.
-- **Görev 027 — `atlas replay <run-id>`:** dashboard'daki bir run'ı
-  aynı prompt ile yeniden çalıştır (test/regresyon).
+```
+main (c48882b) ← origin/main (senkron)
+     ↑
+     c147ed5 feat(016.3): ACP interaktif permission
+     3d0805b feat(018.1): gözlem head+tail keep
+     11c9634 feat(019.1): ACP streaming ilk newline'da kes
+     903137d feat(025): skills/engineering/prompt SKILL.md
+     52047a3 feat(026): sandbox iyileştirme (Docker YOK)
+     5ef9606 feat(027): atlas replay + YAML kopya
+```
 
-Ya da başka bir öncelik varsa net söyle.
+Önerilen yol:
+
+```bash
+git checkout main
+git merge --ff-only feat/027-atlas-replay   # 6 commit lineer
+git push origin main
+git branch -d feat/016.3-acp-interactive feat/018.1-obs-headtail \
+             feat/019.1-acp-streaming feat/025-prompt-engineering-skill \
+             feat/026-sandbox-hardening feat/027-atlas-replay
+```
+
+Alternatif — yeni görev seçilebilir. Doğal devamlar:
+
+- **Görev 018.2 — LLM ile gerçek gözlem özetleme:** opt-in
+  `Goal.obs_summarize`, ekstra LLM çağrısı.
+- **Görev 026.1 — Unix `resource` limits:** RLIMIT_CPU, RLIMIT_AS
+  opt-in.
+- **Görev 026.2 — Windows Job Objects:** memory + process limits.
+- **Görev 028 — `atlas replay --list`:** kayıtlı run'ları listeler.
+- **Görev 029 — Cache-hit alarm:** `atlas metrics --alert 20`:
+  cache-hit < %X ise stderr uyarı + exit != 0.
+- **Görev 030 — Multi-goal batch:** `atlas run --goal-file A.yaml
+  B.yaml C.yaml` — sıralı çalıştırma.
 
 ---
 
 ## Hızlı Bağlam
 
-**Branch grafı:**
-```
-origin/main (4553d0a) = main (4553d0a) ← senkron
-```
-Kalan local branch'ler (bu turların dışı, önceki oturumların işi):
-`feat/paketleme-bulut-secenegi`, `feat/tasinabilir-kurulum`,
-`fix/{arsivleyici-arama, kimi-yeniden-etkinlestirme,
-ollama-kimligi-tasinabilir, surum-etiketli-yedek}`.
-
-**main'e giren 7 commit (2026-07-29 8. tur):**
-```
-4553d0a docs: DEVAM_NOKTASI.md — 8. tur kapanis
-f8db09c feat(024): atlas dashboard
-9fbbafd feat(023): cache-hit metrikleri
-904a551 feat(022): .env otomatik yukleme
-78716cf feat(021.2): atlas doctor --ping
-9f0f5bf feat(021.1): atlas doctor --json
-0b534f7 feat(016.2): ACP session/request_permission
-```
-
-**Kalite kapıları (bu turun sonu):**
-```bash
-uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
-# 518 passed
-uv run mypy src                # temiz
-uv run ruff check src tests    # temiz
-uv run atlas scan src          # sır bulunamadı
-```
-
-**Yeni CLI komutları (bu turda):**
-- `atlas doctor --json` (021.1)
-- `atlas doctor --ping` (021.2)
-- `atlas metrics [--limit N] [--json]` (023)
-- `atlas dashboard [--limit N] [--json]` (024)
-
-**Env sözleşmesi (kümülatif):**
+**Env sözleşmesi (kümülatif, bu turda eklenenler ★):**
 | Değişken | Anlam |
 |---|---|
 | `ATLAS_LLM` | `stub` \| `claude` \| `anthropic` \| `acp` |
 | `ATLAS_LLM_TIMEOUT` | ortak timeout (varsayılan 60 sn) |
 | `ATLAS_LLM_CLAUDE_BIN` | claude override |
 | `ANTHROPIC_API_KEY` | anthropic zorunlu |
-| `ATLAS_LLM_MODEL` | anthropic model — `Goal.llm_model` üstünde |
+| `ATLAS_LLM_MODEL` | anthropic model |
 | `ATLAS_LLM_ANTHROPIC_URL` | anthropic URL override |
 | `ATLAS_LLM_ACP_BIN` | acp zorunlu |
 | `ATLAS_LLM_ACP_ARGS` | acp extra argv |
 | `ATLAS_CONTEXT` | `on` (varsayılan) \| `off` |
-| `ATLAS_LLM_RETRIES` | retry sayısı (varsayılan 0 = kapalı) |
-| `ATLAS_LLM_BACKOFF` | üstel taban saniye (varsayılan 1.0) |
-| `ATLAS_LLM_JITTER` | jitter üst-sınır saniye (varsayılan 0.0) |
-| `ATLAS_LLM_TRACE=1` | retry stderr + anthropic usage stderr |
+| `ATLAS_ACP_INTERACTIVE=1` ★ | **016.3** — permission stdin sordur |
+| `ATLAS_LLM_RETRIES` | retry sayısı (varsayılan 0) |
+| `ATLAS_LLM_BACKOFF` | üstel taban saniye (1.0) |
+| `ATLAS_LLM_JITTER` | jitter saniye (0.0) |
+| `ATLAS_LLM_TRACE=1` | retry+usage stderr |
 | `ATLAS_LLM_PRICE_IN` | anthropic input per million USD |
 | `ATLAS_LLM_PRICE_OUT` | anthropic output per million USD |
 | `ATLAS_LLM_OBS_CHARS` | gözlem char üst sınır (varsayılan 200) |
-| `ATLAS_ARCHIVE_AGE_DAYS` | `--auto` yaş eşiği (varsayılan 7) |
-| `ATLAS_DOTENV` | `.env` yolu override (varsayılan `./.env`) |
-| `ATLAS_METRICS` | metrics.jsonl yolu (varsayılan `.atlas/metrics.jsonl`) |
+| `ATLAS_LLM_OBS_HEAD` ★ | **018.1** — head char (100) |
+| `ATLAS_LLM_OBS_TAIL` ★ | **018.1** — tail char (100) |
+| `ATLAS_ARCHIVE_AGE_DAYS` | `--auto` yaş eşiği (7) |
+| `ATLAS_DOTENV` | `.env` yolu override |
+| `ATLAS_METRICS` | metrics.jsonl yolu |
+| `ATLAS_SANDBOX_PATH` ★ | **026** — sandbox subprocess PATH |
+| `ATLAS_SANDBOX_TIMEOUT` ★ | **026** — sandbox timeout sn (10.0) |
+| `ATLAS_RUNS_DIR` ★ | **027** — replay kopyaları yol (`.atlas/runs`) |
 
 **Exit kodları (değişmedi):** 0/2/3/4/5/6/7.
 
+**Yeni CLI komutları (bu turda):**
+- `atlas replay <run-id> [--new-run-id X] [--dry-run]` (027)
+
+**Yeni skill:**
+- `skills/engineering/prompt/SKILL.md` (025)
+
 **Kritik sözleşme değişmezlikleri (bu turda korundu):**
-- `orchestrator/core.py::{run_loop, Action, Judge, LoopResult,
-  StepKind, BudgetExceededError, CallBudget}` — dokunulmadı.
-- `orchestrator/planner.py::{Planner, make_planner,
-  make_retrying_planner, PlannerExhaustedError, LLMPlannerError,
-  RetryAfterError}` — imzalar korundu. `_call_anthropic` yalnız
-  yan-etki eklendi (metric yaz), imza değişmedi.
-- `orchestrator/goals.py::Goal` — dokunulmadı.
-- `AuditLog` sözleşmesi (record/verify) — dokunulmadı.
-- `atlas doctor` (021) mevcut alt-komut korundu; yeni bayraklar
-  eklendi (`--json`, `--ping`).
+- `orchestrator/core.py`, `orchestrator/goals.py`, `AuditLog` — dokunulmadı.
+- `orchestrator/planner.py::{Planner, make_planner, LLMPlannerError,
+  RetryAfterError}` — imzalar korundu.
+- `orchestrator/actions.py::{make_action, Action, ActionDeniedError}` —
+  imzalar korundu; `_shell` yalnız yeni env/timeout parametreleri.
+- `atlas run` sözleşmesi + mevcut alt-komutlar — dokunulmadı; yeni
+  `atlas replay` eklendi.
 
 **Bilinen flaky:** yok.
 
 **Görev-öncesi zorunlu okuma sırası:**
-1. `DECISIONS.md` — 2026-07-29 altında **27 giriş bloğu**
+1. `DECISIONS.md` — 2026-07-29 altında **33 giriş bloğu**
 2. Bu dosya (DEVAM_NOKTASI.md)
 3. Hedef görevin `pipeline/tasks/<XXX>/{00-need,02-spec,09-ship}.md`
 4. Değişecek modülün üstündeki docstring
+5. Yeni: `skills/engineering/prompt/SKILL.md` (LLM görevi hazırlarken)
 
 ---
 
 ## Kapanış Notları
 
-- 518 test yeşil (bu turun baseline'ı 486 → +32; oturum başı 319 → +199)
-- 7 lineer commit main'e alındı, uzağa push edildi, 6 feature branch
-  silindi (kullanıcı açık onayıyla)
+- 545 test yeşil (bu turun baseline'ı 518 → +27; oturum başı 319 → +226)
+- 6 lineer commit `feat/027-atlas-replay` ucunda; merge stratejisi
+  user'a bağlı
 - Uncommitted değişiklik yok, working tree temiz
-- Ollama / Juggler / ACP kimlikleri `.juggler/` altında (gitignored) —
-  dokunulmadı
-- Portable bundle son sürüm: `D:\ATLAS.rar` (önceki oturum, 1.9 GB) —
-  yenilenmemedi (kapsam dışı)
-- DECISIONS.md 2026-07-29 altında **27 giriş bloğu** birikti
+- Docker YASAK (kullanıcı direktifi 026'da) — portable stdlib-only
+  sandbox iyileştirmesi
+- Ollama / Juggler / ACP kimlikleri `.juggler/` altında — dokunulmadı
+- DECISIONS.md 2026-07-29 altında **33 giriş bloğu** birikti
