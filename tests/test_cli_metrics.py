@@ -140,3 +140,99 @@ def test_023_write_metric_disk_hata_sessiz(
         {"usage": {"input_tokens": 1, "output_tokens": 1}}
     )
     # test geçerse hata bloklanmadı
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SPEC 029 — atlas metrics --alert
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _mixed_metrics(metrics: Path) -> None:
+    """Test yardımcısı: %62.5 cache-hit oran veren iki kayıt."""
+    _write_metrics_file(metrics, [
+        {"ts": "t1", "in": 100, "out": 50,
+         "cache_c": 0, "cache_r": 0, "cost": "?"},
+        {"ts": "t2", "in": 200, "out": 100,
+         "cache_c": 0, "cache_r": 500, "cost": "?"},
+    ])
+
+
+def test_029_alert_alti_gecer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--alert 20` iken oran %62.5 → exit 0, uyarı yok."""
+    metrics = _env(monkeypatch, tmp_path)
+    _mixed_metrics(metrics)
+    rc = main(["metrics", "--alert", "20"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "UYARI" not in captured.err
+    assert "62.5%" in captured.out  # mevcut çıktı korunmuş
+
+
+def test_029_alert_ustu_duser(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--alert 80` iken oran %62.5 → exit 8, stderr'de UYARI."""
+    metrics = _env(monkeypatch, tmp_path)
+    _mixed_metrics(metrics)
+    rc = main(["metrics", "--alert", "80"])
+    assert rc == 8
+    err = capsys.readouterr().err
+    assert "UYARI" in err
+    assert "cache-hit" in err
+    assert "62.5" in err
+    assert "80" in err
+
+
+def test_029_alert_kayitsiz_duser(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Kayıt yoksa hit=0 → herhangi bir pozitif eşik altındadır → exit 8."""
+    _env(monkeypatch, tmp_path)
+    rc = main(["metrics", "--alert", "10"])
+    assert rc == 8
+    err = capsys.readouterr().err
+    assert "UYARI" in err
+
+
+def test_029_alert_sifir_kapatir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--alert 0` alarmı kapatır — kayıtsız bile exit 0."""
+    _env(monkeypatch, tmp_path)
+    rc = main(["metrics", "--alert", "0"])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "UYARI" not in err
+
+
+def test_029_alert_json_ile_birlesir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--alert 80 --json` iken JSON çıktı korunur, uyarı stderr'de, exit 8."""
+    metrics = _env(monkeypatch, tmp_path)
+    _mixed_metrics(metrics)
+    rc = main(["metrics", "--alert", "80", "--json"])
+    assert rc == 8
+    captured = capsys.readouterr()
+    # stdout hâlâ JSON liste
+    data = json.loads(captured.out.strip())
+    assert isinstance(data, list)
+    assert len(data) == 2
+    # stderr'de UYARI
+    assert "UYARI" in captured.err
+
+
+def test_029_alert_sinir_disi_exit_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Geçersiz eşik (< 0 veya > 100) → SPEC HATASI + exit 2."""
+    _env(monkeypatch, tmp_path)
+    rc = main(["metrics", "--alert", "150"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "SPEC HATASI" in err
+
+    rc = main(["metrics", "--alert", "-5"])
+    assert rc == 2

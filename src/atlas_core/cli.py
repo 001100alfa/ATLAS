@@ -1160,10 +1160,23 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
 
 
 def _cmd_metrics(args: argparse.Namespace) -> int:
-    """SPEC 023: `.atlas/metrics.jsonl` son N kaydı özetler."""
+    """SPEC 023 + 029: `.atlas/metrics.jsonl` son N kaydı özetler.
+
+    SPEC 029: `--alert PCT` verilmişse cache-hit oranı PCT altında
+    kalırsa stderr'e `UYARI` basılır ve exit 8 döner.
+    """
     import json as _json
 
     from atlas_core.orchestrator.planner import _metrics_path
+
+    # SPEC 029: sınır kontrolü — geçersiz eşik = SPEC HATASI
+    alert: float | None = getattr(args, "alert", None)
+    if alert is not None and (alert < 0.0 or alert > 100.0):
+        print(
+            f"SPEC HATASI: --alert 0–100 aralığında olmalı: {alert}",
+            file=sys.stderr,
+        )
+        return 2
 
     path = _metrics_path()
     limit: int = args.limit
@@ -1184,10 +1197,6 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
             pass
     tail = records[-limit:]
 
-    if args.json:
-        print(_json.dumps(tail, ensure_ascii=False))
-        return 0
-
     total_in = sum(int(r.get("in", 0) or 0) for r in tail)
     total_out = sum(int(r.get("out", 0) or 0) for r in tail)
     total_cc = sum(int(r.get("cache_c", 0) or 0) for r in tail)
@@ -1196,25 +1205,38 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
     denom = total_in + total_cc + total_cr
     hit_ratio = (total_cr / denom * 100) if denom else 0.0
 
-    print(f"=== ATLAS metrics — son {limit} çağrı ===")
-    print(f"  toplam: {len(tail)} çağrı")
-    print(f"  input tokens:   {total_in}")
-    print(f"  output tokens:  {total_out}")
-    print(f"  cache creation: {total_cc}")
-    print(f"  cache read:     {total_cr}")
-    print(f"  cache-hit oranı: {hit_ratio:.1f}% ({total_cr} / {denom})")
-    # Cost hesabı için env'den fiyat oku
-    price_in, price_out = _read_llm_prices()
-    if price_in > 0 or price_out > 0:
-        cost = (
-            total_in * price_in / 1_000_000
-            + total_cc * price_in * 1.25 / 1_000_000
-            + total_cr * price_in * 0.1 / 1_000_000
-            + total_out * price_out / 1_000_000
-        )
-        print(f"  tahmini cost:   ${cost:.6f}")
+    if args.json:
+        print(_json.dumps(tail, ensure_ascii=False))
     else:
-        print("  tahmini cost:   (fiyat env'i yok)")
+        print(f"=== ATLAS metrics — son {limit} çağrı ===")
+        print(f"  toplam: {len(tail)} çağrı")
+        print(f"  input tokens:   {total_in}")
+        print(f"  output tokens:  {total_out}")
+        print(f"  cache creation: {total_cc}")
+        print(f"  cache read:     {total_cr}")
+        print(f"  cache-hit oranı: {hit_ratio:.1f}% ({total_cr} / {denom})")
+        # Cost hesabı için env'den fiyat oku
+        price_in, price_out = _read_llm_prices()
+        if price_in > 0 or price_out > 0:
+            cost = (
+                total_in * price_in / 1_000_000
+                + total_cc * price_in * 1.25 / 1_000_000
+                + total_cr * price_in * 0.1 / 1_000_000
+                + total_out * price_out / 1_000_000
+            )
+            print(f"  tahmini cost:   ${cost:.6f}")
+        else:
+            print("  tahmini cost:   (fiyat env'i yok)")
+
+    # SPEC 029: alarm — eşik altı → stderr UYARI + exit 8
+    # --alert 0 alarmı kapatır (0 < 0 asla doğru değil).
+    if alert is not None and alert > 0.0 and hit_ratio < alert:
+        print(
+            f"UYARI: cache-hit %{hit_ratio:.1f} < eşik %{alert:.1f}",
+            file=sys.stderr,
+        )
+        return 8
+
     return 0
 
 
@@ -1338,11 +1360,15 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 028: --list son N kaydı verir (varsayılan 20)")
     p_rep.set_defaults(func=_cmd_replay)
 
-    p_met = sub.add_parser("metrics", help="LLM çağrı metrikleri özeti (SPEC 023)")
+    p_met = sub.add_parser("metrics",
+                           help="LLM çağrı metrikleri özeti (SPEC 023/029)")
     p_met.add_argument("--limit", type=int, default=20,
                        help="son N kaydı özetle (varsayılan 20)")
     p_met.add_argument("--json", action="store_true",
                        help="JSON liste çıktısı")
+    p_met.add_argument("--alert", type=float, default=None,
+                       help="SPEC 029: cache-hit oranı bu %'den düşükse "
+                            "stderr UYARI + exit 8 (0 kapatır)")
     p_met.set_defaults(func=_cmd_metrics)
 
     p_doc = sub.add_parser("doctor", help="Env sağlık özeti (SPEC 021)")
