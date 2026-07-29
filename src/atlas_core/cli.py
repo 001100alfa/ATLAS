@@ -847,6 +847,65 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_metrics(args: argparse.Namespace) -> int:
+    """SPEC 023: `.atlas/metrics.jsonl` son N kaydı özetler."""
+    import json as _json
+
+    from atlas_core.orchestrator.planner import _metrics_path
+
+    path = _metrics_path()
+    limit: int = args.limit
+    records: list[dict[str, Any]] = []
+    if path.is_file():
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+                if isinstance(obj, dict):
+                    records.append(obj)
+        except OSError:
+            pass
+    tail = records[-limit:]
+
+    if args.json:
+        print(_json.dumps(tail, ensure_ascii=False))
+        return 0
+
+    total_in = sum(int(r.get("in", 0) or 0) for r in tail)
+    total_out = sum(int(r.get("out", 0) or 0) for r in tail)
+    total_cc = sum(int(r.get("cache_c", 0) or 0) for r in tail)
+    total_cr = sum(int(r.get("cache_r", 0) or 0) for r in tail)
+    # cache-hit oranı: cache_r / (in + cache_c + cache_r)
+    denom = total_in + total_cc + total_cr
+    hit_ratio = (total_cr / denom * 100) if denom else 0.0
+
+    print(f"=== ATLAS metrics — son {limit} çağrı ===")
+    print(f"  toplam: {len(tail)} çağrı")
+    print(f"  input tokens:   {total_in}")
+    print(f"  output tokens:  {total_out}")
+    print(f"  cache creation: {total_cc}")
+    print(f"  cache read:     {total_cr}")
+    print(f"  cache-hit oranı: {hit_ratio:.1f}% ({total_cr} / {denom})")
+    # Cost hesabı için env'den fiyat oku
+    price_in, price_out = _read_llm_prices()
+    if price_in > 0 or price_out > 0:
+        cost = (
+            total_in * price_in / 1_000_000
+            + total_cc * price_in * 1.25 / 1_000_000
+            + total_cr * price_in * 0.1 / 1_000_000
+            + total_out * price_out / 1_000_000
+        )
+        print(f"  tahmini cost:   ${cost:.6f}")
+    else:
+        print("  tahmini cost:   (fiyat env'i yok)")
+    return 0
+
+
 def _cmd_scan(args: argparse.Namespace) -> int:
     target = Path(args.path)
     files = [target] if target.is_file() else sorted(target.rglob("*"))
@@ -946,6 +1005,13 @@ def main(argv: list[str] | None = None) -> int:
     p_arc.add_argument("--archive-root", default="archive",
                        help="tar.gz'lerin yazılacağı kök dizin")
     p_arc.set_defaults(func=_cmd_archive)
+
+    p_met = sub.add_parser("metrics", help="LLM çağrı metrikleri özeti (SPEC 023)")
+    p_met.add_argument("--limit", type=int, default=20,
+                       help="son N kaydı özetle (varsayılan 20)")
+    p_met.add_argument("--json", action="store_true",
+                       help="JSON liste çıktısı")
+    p_met.set_defaults(func=_cmd_metrics)
 
     p_doc = sub.add_parser("doctor", help="Env sağlık özeti (SPEC 021)")
     p_doc.add_argument("--json", action="store_true",

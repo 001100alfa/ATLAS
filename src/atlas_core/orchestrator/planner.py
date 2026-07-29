@@ -380,8 +380,9 @@ def _call_anthropic(
     try:
         if stream:
             first_line, usage_data = _read_anthropic_stream(req, timeout_s)
-            # 011 trace + 013 charge — usage'dan tam veri
+            # 011 trace + 013 charge + 023 metrics — usage'dan tam veri
             _emit_anthropic_usage_trace(usage_data)
+            _write_metric_for_data(usage_data)
             if on_usage is not None:
                 _in, _out, _cc, _cr = _extract_usage(usage_data)
                 on_usage(_in, _out, _cc, _cr)
@@ -442,6 +443,8 @@ def _call_anthropic(
         raise LLMPlannerError("anthropic boş plan cevabı döndürdü (ilk satır boş)")
     # SPEC 011: report-only token usage trace (yan etki, sözleşme değişmez).
     _emit_anthropic_usage_trace(data)
+    # SPEC 023: metrics.jsonl'a tek satır yaz (yan etki, hata sessiz).
+    _write_metric_for_data(data)
     # SPEC 013 + 015.1: opsiyonel callback ile CallBudget.charge_tokens
     # beslenir; cache alanları kwargs ile aktarılır (varsayılan 0).
     if on_usage is not None:
@@ -453,6 +456,39 @@ def _call_anthropic(
             # (LLMPlannerError değil BudgetExceededError için de).
             raise
     return first_line
+
+
+def _metrics_path() -> Path:
+    """SPEC 023: `.atlas/metrics.jsonl` yolu (env override edilebilir)."""
+    override = os.environ.get("ATLAS_METRICS", "").strip()
+    if override:
+        return Path(override)
+    return Path(".atlas/metrics.jsonl")
+
+
+def _write_metric_for_data(data: Any) -> None:
+    """SPEC 023: anthropic response usage'ından metrics satırı yaz.
+
+    Hata sessiz — disk dolu / izin yoksa planlama akışı devam eder.
+    """
+    try:
+        from datetime import datetime as _dt
+        in_tok, out_tok, cc, cr = _extract_usage(data)
+        cost = _fmt_cost(in_tok, out_tok, cc, cr)
+        record = {
+            "ts": _dt.now().isoformat(timespec="seconds"),
+            "in": in_tok,
+            "out": out_tok,
+            "cache_c": cc,
+            "cache_r": cr,
+            "cost": cost,
+        }
+        p = _metrics_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001 - metrik yazımı ana akışı bloklamamalı
+        pass
 
 
 def _extract_usage(data: Any) -> tuple[int, int, int, int]:

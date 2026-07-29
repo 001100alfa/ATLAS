@@ -1,6 +1,30 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 023 — cache-hit metrikleri)
+- [KARAR] **JSONL formatı** — her satır bağımsız JSON. Append kolay
+  (dosya kilit gerektirmez); parse esnek (bozuk satır atla, kalan
+  okunur); grep/jq uyumu tam. Tek büyük JSON array veya SQLite ise
+  concurrent yazma karmaşıklaştırır.
+- [KARAR] Yazım **`_call_anthropic` içinde** — tek noktada üretim,
+  hem non-streaming hem streaming yoluna uygulanır. Alternatif
+  (CLI seviyesinde callback) çağıranı zorlar; kullanıcı Python
+  API çağırırsa metric yazılmaz.
+- [KARAR] Yazım hatası **sessiz** — plan akışını disk sorunu
+  bloklamamalı. `try: ... except Exception: pass` bilinçli. Kullanıcı
+  metrics yoksa `atlas metrics` "0 çağrı" der; hiç çakışma yok.
+- [KARAR] Cache-hit oranı formülü: `cache_r / (in + cache_c + cache_r)`.
+  Payda tüm input token'ları temsil eder — cache'ten okunan vs
+  yeni okunan oranı doğal.
+- [KARAR] Cost tahmini `_cmd_metrics`'te env fiyatıyla — kullanıcı
+  farklı fiyat env'iyle geriye dönük yeniden hesaplayabilir (kayıtta
+  saklanan cost sabit değil, referans).
+- Kapsam: 1 modül düzenleme (planner.py: +_metrics_path,
+  +_write_metric_for_data ~30 sat; iki yolda çağrı), 1 CLI düzenleme
+  (+_cmd_metrics ~60 sat + parser), 1 yeni test dosyası (7 test).
+  Toplam 512 test yeşil (505 → +7). mypy strict + ruff temiz.
+  Artefaktlar `pipeline/tasks/023-cache-metrics/`.
+
 ## 2026-07-29 (Görev 022 — `.env` otomatik yükleme)
 - [KARAR] **stdlib-only** manuel parser (~25 sat) — `python-dotenv`
   bağımlılığı eklenmedi. Basit KEY=VAL yeter; multi-line, escape,
