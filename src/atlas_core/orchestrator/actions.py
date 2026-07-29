@@ -19,11 +19,18 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from stat import S_ISLNK
 
 from atlas_core.orchestrator.goals import Goal
+
+# SPEC 026.1: Unix `resource` modülü Windows'ta yok — import guard.
+try:
+    import resource as _resource  # type: ignore[import-not-found,unused-ignore]
+except ImportError:
+    _resource = None  # type: ignore[assignment]
 
 Action = Callable[[str], tuple[str, float]]
 
@@ -68,6 +75,45 @@ def _read_sandbox_timeout() -> float:
     except ValueError:
         return SHELL_TIMEOUT_S
     return v if v > 0 else SHELL_TIMEOUT_S
+
+
+def _read_positive_int_env(name: str) -> int | None:
+    """SPEC 026.1: env değerini pozitif int olarak oku; yoksa/parse hatası → None."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        n = int(raw)
+    except ValueError:
+        return None
+    return n if n > 0 else None
+
+
+def _build_preexec_fn() -> Callable[[], None] | None:
+    """SPEC 026.1: Unix'te RLIMIT_CPU + RLIMIT_AS ayarlayan preexec_fn.
+
+    - Windows'ta (`_resource is None` veya `sys.platform == "win32"`)
+      HER ZAMAN None döner — `subprocess.run(preexec_fn=...)` Windows'ta
+      ValueError verir.
+    - Env yoksa (`CPU_S` ve `MEM_MB` her ikisi de None) → None
+      (varsayılan davranış, ekstra fork maliyeti yok).
+    - Bir tanesi verilirse setrlimit çağıran callable döner.
+    """
+    if _resource is None or sys.platform == "win32":
+        return None
+    cpu_s = _read_positive_int_env("ATLAS_SANDBOX_CPU_S")
+    mem_mb = _read_positive_int_env("ATLAS_SANDBOX_MEM_MB")
+    if cpu_s is None and mem_mb is None:
+        return None
+
+    def _apply_limits() -> None:  # pragma: no cover - fork child, coverage görmez
+        if cpu_s is not None:
+            _resource.setrlimit(_resource.RLIMIT_CPU, (cpu_s, cpu_s))
+        if mem_mb is not None:
+            mem_bytes = mem_mb * 1024 * 1024
+            _resource.setrlimit(_resource.RLIMIT_AS, (mem_bytes, mem_bytes))
+
+    return _apply_limits
 
 
 class ActionDeniedError(RuntimeError):
@@ -153,8 +199,10 @@ def make_action(
         if regex is None or not regex.fullmatch(cmd):
             raise ActionDeniedError(f"shell allowlist ihlali: {cmd!r}")
         # SPEC 026: whitelist env + configurable timeout.
+        # SPEC 026.1: Unix'te opt-in RLIMIT_CPU + RLIMIT_AS; Windows'ta None.
         env = _scrub_env()
         timeout_s = _read_sandbox_timeout()
+        preexec = _build_preexec_fn()
         try:
             proc = subprocess.run(  # noqa: S603 - shell=False, arg listesi
                 shlex.split(cmd),
@@ -166,6 +214,7 @@ def make_action(
                 encoding="utf-8",
                 errors="replace",
                 env=env,
+                preexec_fn=preexec,
             )
         except subprocess.TimeoutExpired as exc:
             exit_map["shell"] = -1
