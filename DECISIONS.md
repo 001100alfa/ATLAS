@@ -1,6 +1,35 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 012 — atlas archive --all toplu arşivleme)
+- [KARAR] Aday seçimi `pipeline/tasks/*/09-ship.md` glob — SHIP aşaması
+  geçmiş görevler zaten "arşive uygun" gate'ini geçmiş demektir. `00-need`
+  yeter mi? Hayır — çünkü ihtiyaç yazılmış ama görev bitmemiş olabilir.
+  09-ship SPEC tarafından zaten yazılıyor (pipeline gate); doğal filtre.
+- [KARAR] **Çift kapı (`--apply --yes`)**: toplu yıkıcı işlem, tekil
+  yıkıcı işlemin **iki katı sonuç doğurur** — bir yanlış çağrı
+  10 klasörü birden siler. Tek bir onay bayrağı (`--apply`) mevcut
+  disipline ters düşmese de, çoklu yıkıcı için kullanıcı **niyetini
+  bir kez daha söyler**. `--yes` verilmezse exit 2 (SPEC hatası
+  ile aynı — CLAUDE.md "onay iste" kuralı).
+- [KARAR] **Fail-fast**: ilk hata → dur. Alternatif "hepsini dene,
+  hataları raporla" idi; ancak fail-fast diski ve audit'i temiz tutar
+  (kısmi başarılar açık, arka arkaya 10 hata değil). Kullanıcı hatayı
+  çözüp tekrar çalıştırır — kalan görevler henüz duruyor.
+- [KARAR] Rapor sözleşmesi: `arşivlendi: N/M görev` + `başarılı: ...`
+  + `başarısız: <task> — <mesaj>` (stderr) + `atlanan: ...`. Tek
+  ekranda kısmi başarı + hangi görevlerin hâlâ beklediği görünür.
+- [KARAR] Exit kodu YENİ değil — 2 (SPEC: --yes yok, kök dizin yok)
+  ve 6 (arşiv hatası, fail-fast). Kullanıcı tek tablo öğrenir.
+- [KARAR] Positional `task` `nargs="?"` — `--all` verilirse sessizce
+  yok sayılır; verilmezse eskisi gibi zorunlu (yeni SPEC HATASI mesajı
+  `<task> ya da --all zorunlu`). SPEC 007 mevcut testleri hiç değişmeden
+  yeşil kaldı.
+- Kapsam: 1 modül genişleme (cli.py — +_cmd_archive_all,
+  +_iter_archive_candidates, dallanma), 1 test dosyası genişleme (+5 test).
+  Toplam 407 test yeşil (402 → +5). coverage %93.69. mypy strict +
+  ruff + scan temiz. Artefaktlar `pipeline/tasks/012-archive-all/`.
+
 ## 2026-07-29 (Görev 011 — Token cost, report-only)
 - [KARAR] Kapsam **report-only** — CallBudget'a token yansıması YOK.
   Soyut kredi modeli 003+002'den beri stabil; onu kırmak Görev 013'ün

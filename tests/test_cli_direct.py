@@ -493,3 +493,129 @@ def test_007_archive_ship_yok_fallback(
     ])
     note = (tmp_path / "v" / "tasks" / "task-777-demo.md").read_text(encoding="utf-8")
     assert "777-demo arşivlendi" in note
+
+
+# ---------- SPEC 012: --all toplu arşiv ----------
+
+
+def test_012_all_dry_run_liste(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """M3: dry-run adayları listeler; yıkıcı iş yapmaz."""
+    _env(monkeypatch, tmp_path)
+    _mk_fake_task(tmp_path, "003-alpha")
+    _mk_fake_task(tmp_path, "004-beta")
+    _mk_fake_task(tmp_path, "005-eksik", with_ship=False)  # ship.md yok → atlanmalı
+
+    rc = main([
+        "archive", "--all",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[dry-run] toplu arşivleme adayları: 2 görev" in out
+    assert "003-alpha" in out
+    assert "004-beta" in out
+    assert "005-eksik" not in out  # ship.md yok → aday değil
+    # Klasörler duruyor
+    assert (tmp_path / "pipeline" / "tasks" / "003-alpha").is_dir()
+
+
+def test_012_all_apply_yes_yok_exit_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """M4: --apply var ama --yes yok → exit 2 + uyarı."""
+    _env(monkeypatch, tmp_path)
+    _mk_fake_task(tmp_path, "003-alpha")
+    rc = main([
+        "archive", "--all", "--apply",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--yes ile onaylayın" in err
+    # Klasör duruyor (yıkıcı iş çalışmadı)
+    assert (tmp_path / "pipeline" / "tasks" / "003-alpha").is_dir()
+
+
+def test_012_all_apply_yes_hepsi_basarili(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Happy: --all --apply --yes → tüm adaylar arşivlenir + audit."""
+    _env(monkeypatch, tmp_path)
+    _mk_fake_task(tmp_path, "003-alpha")
+    _mk_fake_task(tmp_path, "004-beta")
+    _mk_fake_task(tmp_path, "005-gamma")
+
+    rc = main([
+        "archive", "--all", "--apply", "--yes",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "arşivlendi: 3/3 görev" in out
+    # Tüm klasörler kaldırılmış
+    for name in ("003-alpha", "004-beta", "005-gamma"):
+        assert not (tmp_path / "pipeline" / "tasks" / name).exists()
+    # 3 tar.gz üretilmiş
+    tar_files = list((tmp_path / "archive").glob("*.tar.gz"))
+    assert len(tar_files) == 3
+    # Audit üç archive kaydı
+    audit_txt = (tmp_path / "a.jsonl").read_text(encoding="utf-8")
+    for name in ("003-alpha", "004-beta", "005-gamma"):
+        assert name in audit_txt
+
+
+def test_012_all_apply_yes_fail_fast(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Fail-fast: ortadaki görevde hata → dur; sonrakilere geçme."""
+    _env(monkeypatch, tmp_path)
+    _mk_fake_task(tmp_path, "003-alpha")
+    _mk_fake_task(tmp_path, "004-beta")
+    _mk_fake_task(tmp_path, "005-gamma")
+
+    import atlas_core.cli as cli_mod
+    real_archive = cli_mod.archive_task
+
+    def boom_archive(task_dir, arch, vault, summary):  # type: ignore[no-untyped-def]
+        if task_dir.name == "004-beta":
+            raise OSError("disk dolu")
+        return real_archive(task_dir, arch, vault, summary)
+
+    monkeypatch.setattr(cli_mod, "archive_task", boom_archive)
+
+    rc = main([
+        "archive", "--all", "--apply", "--yes",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    assert rc == 6
+    out = capsys.readouterr()
+    assert "arşivlendi: 1/3 görev" in out.out
+    assert "003-alpha" in out.out
+    assert "başarısız: 004-beta" in out.err
+    assert "disk dolu" in out.err
+    assert "atlanan: 005-gamma" in out.out
+    # 003 kaldırıldı, 004+005 duruyor
+    assert not (tmp_path / "pipeline" / "tasks" / "003-alpha").exists()
+    assert (tmp_path / "pipeline" / "tasks" / "004-beta").is_dir()
+    assert (tmp_path / "pipeline" / "tasks" / "005-gamma").is_dir()
+
+
+def test_012_all_bos_liste(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Aday yok → dry-run '0 görev'; exit 0."""
+    _env(monkeypatch, tmp_path)
+    (tmp_path / "pipeline" / "tasks").mkdir(parents=True)
+    rc = main([
+        "archive", "--all",
+        "--tasks-root", str(tmp_path / "pipeline" / "tasks"),
+        "--archive-root", str(tmp_path / "archive"),
+    ])
+    assert rc == 0
+    assert "0 görev" in capsys.readouterr().out

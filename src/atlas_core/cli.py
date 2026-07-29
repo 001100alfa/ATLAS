@@ -339,11 +339,17 @@ def _read_ship_summary(task_dir: Path) -> str:
 
 
 def _cmd_archive(args: argparse.Namespace) -> int:
-    """SPEC 007: `atlas archive <task> [--apply] [--summary TEXT]`.
+    """SPEC 007+012: `atlas archive <task> | --all [--apply] [--yes] ...`.
 
-    Dry-run varsayılan (yıkıcı işlem). `--apply` ile gerçek arşivleme:
-    tar.gz + vault notu + klasör silme + audit kaydı.
+    Dry-run varsayılan (yıkıcı işlem). Tekil: `--apply` yeter. Toplu:
+    `--all --apply --yes` (çift onay).
     """
+    if getattr(args, "all", False):
+        return _cmd_archive_all(args)
+    if not args.task:
+        print("SPEC HATASI: <task> ya da --all zorunlu", file=sys.stderr)
+        return 2
+
     tasks_root = Path(args.tasks_root)
     archive_root = Path(args.archive_root)
     task_dir = tasks_root / args.task
@@ -378,6 +384,76 @@ def _cmd_archive(args: argparse.Namespace) -> int:
     print(f"vault:      {vault_note}")
     print(f"kaldırıldı: {task_dir}")
     return 0
+
+
+def _iter_archive_candidates(tasks_root: Path) -> list[Path]:
+    """SPEC 012 M2: `09-ship.md` dosyası olan görev klasörleri (sıralı)."""
+    if not tasks_root.is_dir():
+        return []
+    out: list[Path] = []
+    for child in sorted(tasks_root.iterdir()):
+        if not child.is_dir():
+            continue
+        if (child / "09-ship.md").is_file():
+            out.append(child)
+    return out
+
+
+def _cmd_archive_all(args: argparse.Namespace) -> int:
+    """SPEC 012: `atlas archive --all [--apply --yes]` — toplu arşiv.
+
+    Aday: `pipeline/tasks/*/09-ship.md` olanlar (tamamlanmış).
+    `--apply` **yalnız** `--yes` ile birlikte gerçek toplu iş yapar.
+    Fail-fast: ilk hata → dur, raporla.
+    """
+    tasks_root = Path(args.tasks_root)
+    archive_root = Path(args.archive_root)
+    candidates = _iter_archive_candidates(tasks_root)
+
+    if not args.apply:
+        print(f"[dry-run] toplu arşivleme adayları: {len(candidates)} görev")
+        for d in candidates:
+            print(f"  - {d.name}")
+        if candidates:
+            print("Uygulamak için: atlas archive --all --apply --yes")
+        return 0
+
+    if not getattr(args, "yes", False):
+        print(
+            "TOPLU ARŞİV: --yes ile onaylayın (çoklu yıkıcı işlem)",
+            file=sys.stderr,
+        )
+        return 2
+
+    audit = AuditLog(_audit_path())
+    vault_root = _vault_root()
+    vault = Vault(vault_root)
+    succeeded: list[str] = []
+    failed: tuple[str, str] | None = None
+
+    for d in candidates:
+        summary = _read_ship_summary(d)
+        try:
+            archive_task(d, archive_root, vault, summary)
+        except (OSError, FileNotFoundError) as exc:
+            failed = (d.name, str(exc)[:200])
+            audit.record("atlas-archive", "error", f"{d.name}: {failed[1]}")
+            break
+        audit.record("atlas-archive", "archive", d.name)
+        succeeded.append(d.name)
+
+    total = len(candidates)
+    done = len(succeeded)
+    skipped = [d.name for d in candidates[done + (1 if failed else 0):]]
+
+    print(f"arşivlendi: {done}/{total} görev")
+    if succeeded:
+        print(f"başarılı: {', '.join(succeeded)}")
+    if failed:
+        print(f"başarısız: {failed[0]} — {failed[1]}", file=sys.stderr)
+    if skipped:
+        print(f"atlanan: {', '.join(skipped)}")
+    return 6 if failed else 0
 
 
 def _cmd_scan(args: argparse.Namespace) -> int:
@@ -451,7 +527,12 @@ def main(argv: list[str] | None = None) -> int:
     p_scan.set_defaults(func=_cmd_scan)
 
     p_arc = sub.add_parser("archive", help="Tamamlanmış görevi arşive taşı")
-    p_arc.add_argument("task", help="pipeline/tasks/ altındaki klasör adı")
+    p_arc.add_argument("task", nargs="?", default=None,
+                       help="pipeline/tasks/ altındaki klasör adı (--all yoksa zorunlu)")
+    p_arc.add_argument("--all", action="store_true",
+                       help="09-ship.md dosyası olan tüm görevleri sıraya al (SPEC 012)")
+    p_arc.add_argument("--yes", action="store_true",
+                       help="--all --apply için ikinci onay (çift kapı)")
     p_arc.add_argument("--apply", action="store_true",
                        help="dry-run yerine gerçek taşımayı çalıştır (yıkıcı)")
     p_arc.add_argument("--summary", default=None,
