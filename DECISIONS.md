@@ -1,6 +1,26 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 021.1 — `atlas doctor --json`)
+- [KARAR] Refactor: **veri toplama sunumdan ayrıldı** —
+  `_collect_doctor_report()` dict döner; `_cmd_doctor` sunum tarafını
+  yapar. JSON ve insan formatı aynı kaynaktan gelir; ikizleşme yok.
+- [KARAR] JSON tek satır (`json.dumps` default) — jq gibi araçlar
+  satır başına iş görür. `indent=2` YAGNI — kullanıcı `| jq .`
+  ile güzelleştirir.
+- [KARAR] Alan isimleri **env değişkeni adları** (`ATLAS_LLM`,
+  `ANTHROPIC_API_KEY`, ...) — kullanıcı JSON'da gördüğü key'i
+  hemen env olarak bilir. Simetri temiz.
+- [KARAR] `warnings` **string listesi**, kod değil. Neden: karar
+  logic'i doctor içinde; kullanıcı sadece "ne uyarısı var?" bilmek
+  ister. Structured warnings (`{"code": "no_key", "msg": ...}`)
+  YAGNI.
+- Kapsam: 1 modül düzenleme (cli.py: +typing.Any + refactor
+  _collect_doctor_report ~90 sat + _cmd_doctor --json dallanma
+  + parser --json flag), 1 test dosyası genişleme (+4 test).
+  Toplam 494 test yeşil (490 → +4). mypy strict + ruff temiz.
+  Artefaktlar `pipeline/tasks/021-1-doctor-json/`.
+
 ## 2026-07-29 (Görev 016.2 — ACP `session/request_permission` handler)
 - [KARAR] **Otomatik karar** — kullanıcı UI dialogu asla görmez.
   ATLAS otonom ajan; interaktif prompt çekirdek prensiple çelişir.

@@ -23,6 +23,7 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from atlas_core.memory.archive import archive_task
 from atlas_core.memory.gbrain import GBrain
@@ -538,94 +539,170 @@ def _mask_secret(value: str, keep_prefix: int = 3, keep_suffix: int = 3) -> str:
     return f"{value[:keep_prefix]}***{value[-keep_suffix:]}"
 
 
-def _cmd_doctor(_args: argparse.Namespace) -> int:
-    """SPEC 021: env sağlık özeti (read-only, exit 0).
+def _collect_doctor_report() -> dict[str, Any]:
+    """SPEC 021 + 021.1: env sağlık özetini yapılandırılmış dict olarak topla.
 
-    LLM backend + retry/fiyat + depolama üç bölümde. API key maskelenir.
+    Şema:
+    ```
+    {
+      "backend": {...},
+      "retry_pricing": {...},
+      "storage": {...},
+      "warnings": [str, ...]
+    }
+    ```
+    API key maskeli. Uyarılar warnings listesinde.
     """
     import shutil as _shutil
 
+    warnings: list[str] = []
     backend = os.environ.get("ATLAS_LLM", "stub")
     supported = ("stub", "claude", "anthropic", "acp")
-    print("=== ATLAS doctor — env sağlık kontrolü ===\n")
 
-    # 1) LLM backend
-    print("[LLM backend]")
-    print(f"  ATLAS_LLM: {backend}")
+    backend_info: dict[str, Any] = {"ATLAS_LLM": backend}
     if backend not in supported:
-        print(f"  [!] bilinmeyen backend: {backend} "
-              f"(desteklenen: {', '.join(supported)})")
+        warnings.append(
+            f"bilinmeyen backend: {backend} (desteklenen: {', '.join(supported)})"
+        )
     if backend == "claude":
         override = os.environ.get("ATLAS_LLM_CLAUDE_BIN", "").strip()
         if override and os.path.isfile(override):
-            print(f"  claude bin (override): {override}")
+            backend_info["claude_bin"] = override
+            backend_info["claude_bin_source"] = "override"
         else:
             found = _shutil.which("claude")
             if found:
-                print(f"  claude bin (PATH): {found}")
+                backend_info["claude_bin"] = found
+                backend_info["claude_bin_source"] = "PATH"
             else:
-                print("  [!] claude bin bulunamadı: PATH'e ekleyin veya "
-                      "ATLAS_LLM_CLAUDE_BIN")
+                warnings.append(
+                    "claude bin bulunamadı: PATH'e ekleyin veya "
+                    "ATLAS_LLM_CLAUDE_BIN"
+                )
     if backend == "anthropic":
         key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
         if key:
-            print(f"  ANTHROPIC_API_KEY: {_mask_secret(key)}")
+            backend_info["ANTHROPIC_API_KEY"] = _mask_secret(key)
         else:
-            print("  [!] ANTHROPIC_API_KEY yok")
-        model = (
+            backend_info["ANTHROPIC_API_KEY"] = ""
+            warnings.append("ANTHROPIC_API_KEY yok")
+        backend_info["ATLAS_LLM_MODEL"] = (
             os.environ.get("ATLAS_LLM_MODEL", "").strip()
-            or "(varsayılan: claude-3-5-sonnet-latest)"
+            or "claude-3-5-sonnet-latest"
         )
-        print(f"  ATLAS_LLM_MODEL: {model}")
-        url = (
+        backend_info["ATLAS_LLM_ANTHROPIC_URL"] = (
             os.environ.get("ATLAS_LLM_ANTHROPIC_URL", "").strip()
-            or "(varsayılan: https://api.anthropic.com/v1/messages)"
+            or "https://api.anthropic.com/v1/messages"
         )
-        print(f"  ATLAS_LLM_ANTHROPIC_URL: {url}")
     if backend == "acp":
         override = os.environ.get("ATLAS_LLM_ACP_BIN", "").strip()
         if override and os.path.isfile(override):
-            print(f"  acp bin (override): {override}")
+            backend_info["acp_bin"] = override
+            backend_info["acp_bin_source"] = "override"
         else:
             found = _shutil.which("acp-agent")
             if found:
-                print(f"  acp bin (PATH): {found}")
+                backend_info["acp_bin"] = found
+                backend_info["acp_bin_source"] = "PATH"
             else:
-                print("  [!] acp agent bin bulunamadı: PATH'e ekleyin veya "
-                      "ATLAS_LLM_ACP_BIN")
+                warnings.append(
+                    "acp agent bin bulunamadı: PATH'e ekleyin veya "
+                    "ATLAS_LLM_ACP_BIN"
+                )
         args_extra = os.environ.get("ATLAS_LLM_ACP_ARGS", "").strip()
         if args_extra:
-            print(f"  ATLAS_LLM_ACP_ARGS: {args_extra}")
+            backend_info["ATLAS_LLM_ACP_ARGS"] = args_extra
+    backend_info["ATLAS_LLM_TIMEOUT"] = os.environ.get("ATLAS_LLM_TIMEOUT", "60")
 
-    timeout = os.environ.get("ATLAS_LLM_TIMEOUT", "60")
-    print(f"  ATLAS_LLM_TIMEOUT: {timeout}s")
+    retry_pricing: dict[str, Any] = {
+        "ATLAS_LLM_RETRIES": os.environ.get("ATLAS_LLM_RETRIES", "0"),
+        "ATLAS_LLM_BACKOFF": os.environ.get("ATLAS_LLM_BACKOFF", "1.0"),
+        "ATLAS_LLM_JITTER": os.environ.get("ATLAS_LLM_JITTER", "0"),
+        "ATLAS_LLM_PRICE_IN": os.environ.get("ATLAS_LLM_PRICE_IN", "").strip(),
+        "ATLAS_LLM_PRICE_OUT": os.environ.get("ATLAS_LLM_PRICE_OUT", "").strip(),
+        "ATLAS_LLM_TRACE": os.environ.get("ATLAS_LLM_TRACE", "").strip(),
+        "ATLAS_LLM_OBS_CHARS": os.environ.get("ATLAS_LLM_OBS_CHARS", "200"),
+    }
 
-    # 2) Retry & fiyat
+    storage: dict[str, Any] = {
+        "ATLAS_VAULT": str(_vault_root()),
+        "ATLAS_AUDIT": str(_audit_path()),
+        "ATLAS_SANDBOX": str(_sandbox_root()),
+        "ATLAS_CONTEXT": os.environ.get("ATLAS_CONTEXT", "on"),
+        "ATLAS_ARCHIVE_AGE_DAYS": os.environ.get("ATLAS_ARCHIVE_AGE_DAYS", "7"),
+    }
+
+    return {
+        "backend": backend_info,
+        "retry_pricing": retry_pricing,
+        "storage": storage,
+        "warnings": warnings,
+    }
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """SPEC 021 + 021.1: env sağlık özeti (read-only, exit 0).
+
+    `--json` bayrağı verilirse tek satır JSON; yoksa insan-okunur
+    üç bölüm.
+    """
+    report = _collect_doctor_report()
+
+    if getattr(args, "json", False):
+        import json as _json
+        print(_json.dumps(report, ensure_ascii=False))
+        return 0
+
+    warnings = report["warnings"]
+    backend_info = report["backend"]
+    retry_pricing = report["retry_pricing"]
+    storage = report["storage"]
+
+    print("=== ATLAS doctor — env sağlık kontrolü ===\n")
+
+    print("[LLM backend]")
+    print(f"  ATLAS_LLM: {backend_info['ATLAS_LLM']}")
+    backend = backend_info["ATLAS_LLM"]
+    # Uyarılar
+    for w in warnings:
+        if w.startswith(("bilinmeyen backend", "claude bin", "acp agent",
+                         "ANTHROPIC_API_KEY")):
+            print(f"  [!] {w}")
+    if backend == "claude" and "claude_bin" in backend_info:
+        label = "override" if backend_info["claude_bin_source"] == "override" else "PATH"
+        print(f"  claude bin ({label}): {backend_info['claude_bin']}")
+    if backend == "anthropic":
+        key = backend_info.get("ANTHROPIC_API_KEY", "")
+        if key:
+            print(f"  ANTHROPIC_API_KEY: {key}")
+        print(f"  ATLAS_LLM_MODEL: {backend_info['ATLAS_LLM_MODEL']}")
+        print(f"  ATLAS_LLM_ANTHROPIC_URL: {backend_info['ATLAS_LLM_ANTHROPIC_URL']}")
+    if backend == "acp":
+        if "acp_bin" in backend_info:
+            label = "override" if backend_info["acp_bin_source"] == "override" else "PATH"
+            print(f"  acp bin ({label}): {backend_info['acp_bin']}")
+        if "ATLAS_LLM_ACP_ARGS" in backend_info:
+            print(f"  ATLAS_LLM_ACP_ARGS: {backend_info['ATLAS_LLM_ACP_ARGS']}")
+    print(f"  ATLAS_LLM_TIMEOUT: {backend_info['ATLAS_LLM_TIMEOUT']}s")
+
     print("\n[Retry & fiyat]")
-    retries = os.environ.get("ATLAS_LLM_RETRIES", "0")
-    backoff = os.environ.get("ATLAS_LLM_BACKOFF", "1.0")
-    jitter = os.environ.get("ATLAS_LLM_JITTER", "0")
-    print(f"  ATLAS_LLM_RETRIES: {retries} (0 = kapalı)")
-    print(f"  ATLAS_LLM_BACKOFF: {backoff}s")
-    print(f"  ATLAS_LLM_JITTER: {jitter}s (0 = kapalı)")
-    price_in = os.environ.get("ATLAS_LLM_PRICE_IN", "").strip() or "(yok)"
-    price_out = os.environ.get("ATLAS_LLM_PRICE_OUT", "").strip() or "(yok)"
+    print(f"  ATLAS_LLM_RETRIES: {retry_pricing['ATLAS_LLM_RETRIES']} (0 = kapalı)")
+    print(f"  ATLAS_LLM_BACKOFF: {retry_pricing['ATLAS_LLM_BACKOFF']}s")
+    print(f"  ATLAS_LLM_JITTER: {retry_pricing['ATLAS_LLM_JITTER']}s (0 = kapalı)")
+    price_in = retry_pricing["ATLAS_LLM_PRICE_IN"] or "(yok)"
+    price_out = retry_pricing["ATLAS_LLM_PRICE_OUT"] or "(yok)"
     print(f"  ATLAS_LLM_PRICE_IN:  {price_in} $/M token")
     print(f"  ATLAS_LLM_PRICE_OUT: {price_out} $/M token")
-    trace = os.environ.get("ATLAS_LLM_TRACE", "").strip()
+    trace = retry_pricing["ATLAS_LLM_TRACE"]
     print(f"  ATLAS_LLM_TRACE: {'açık' if trace == '1' else 'kapalı'}")
-    obs = os.environ.get("ATLAS_LLM_OBS_CHARS", "200")
-    print(f"  ATLAS_LLM_OBS_CHARS: {obs}")
+    print(f"  ATLAS_LLM_OBS_CHARS: {retry_pricing['ATLAS_LLM_OBS_CHARS']}")
 
-    # 3) Depolama
     print("\n[Depolama]")
-    print(f"  ATLAS_VAULT: {_vault_root()}")
-    print(f"  ATLAS_AUDIT: {_audit_path()}")
-    print(f"  ATLAS_SANDBOX: {_sandbox_root()}")
-    ctx = os.environ.get("ATLAS_CONTEXT", "on")
-    print(f"  ATLAS_CONTEXT: {ctx}")
-    age = os.environ.get("ATLAS_ARCHIVE_AGE_DAYS", "7")
-    print(f"  ATLAS_ARCHIVE_AGE_DAYS: {age} gün")
+    print(f"  ATLAS_VAULT: {storage['ATLAS_VAULT']}")
+    print(f"  ATLAS_AUDIT: {storage['ATLAS_AUDIT']}")
+    print(f"  ATLAS_SANDBOX: {storage['ATLAS_SANDBOX']}")
+    print(f"  ATLAS_CONTEXT: {storage['ATLAS_CONTEXT']}")
+    print(f"  ATLAS_ARCHIVE_AGE_DAYS: {storage['ATLAS_ARCHIVE_AGE_DAYS']} gün")
 
     return 0
 
@@ -723,6 +800,8 @@ def main(argv: list[str] | None = None) -> int:
     p_arc.set_defaults(func=_cmd_archive)
 
     p_doc = sub.add_parser("doctor", help="Env sağlık özeti (SPEC 021)")
+    p_doc.add_argument("--json", action="store_true",
+                       help="JSON çıktı (CI/pre-flight uyumlu) — SPEC 021.1")
     p_doc.set_defaults(func=_cmd_doctor)
 
     args = parser.parse_args(argv)

@@ -867,3 +867,68 @@ def test_021_doctor_bilinmeyen_backend_uyari(
     out = capsys.readouterr().out
     assert "[!] bilinmeyen backend: xyz-backend" in out
     assert "stub" in out and "claude" in out and "anthropic" in out
+
+
+# ---------- SPEC 021.1: doctor --json ----------
+
+
+def test_021_1_json_parse_edilebilir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--json → stdout tek JSON, parse edilebilir."""
+    import json as _json
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "stub")
+    rc = main(["doctor", "--json"])
+    assert rc == 0
+    out = capsys.readouterr().out.strip()
+    data = _json.loads(out)
+    assert data["backend"]["ATLAS_LLM"] == "stub"
+    assert "retry_pricing" in data
+    assert "storage" in data
+    assert "warnings" in data
+    assert data["warnings"] == []
+
+
+def test_021_1_json_backend_anthropic_key_mask(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """JSON çıktısında API key hâlâ maskeli."""
+    import json as _json
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-SECRET-abc123")
+    rc = main(["doctor", "--json"])
+    assert rc == 0
+    data = _json.loads(capsys.readouterr().out.strip())
+    key = data["backend"]["ANTHROPIC_API_KEY"]
+    assert "***" in key
+    assert "SECRET" not in key
+
+
+def test_021_1_json_warnings_dolu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Anthropic + key yok → warnings listesinde uyarı."""
+    import json as _json
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "anthropic")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    rc = main(["doctor", "--json"])
+    assert rc == 0
+    data = _json.loads(capsys.readouterr().out.strip())
+    assert any("ANTHROPIC_API_KEY" in w for w in data["warnings"])
+
+
+def test_021_1_insan_format_bit_uyumlu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--json yoksa 021 insan format bit-uyumlu (regresyon)."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "stub")
+    rc = main(["doctor"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[LLM backend]" in out
+    assert "[Retry & fiyat]" in out
+    assert "[Depolama]" in out
