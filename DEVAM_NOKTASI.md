@@ -1,13 +1,11 @@
 # DEVAM NOKTASI — ATLAS
 
-**Son çalışma:** 2026-07-29 (4. tur — 003.1 + 003.2 + 007 + flaky +
-merge/push/temizlik)
-**Branch:** `main` (origin/main ile senkron — `99c3ab5`)
+**Son çalışma:** 2026-07-29 (5. tur — 008 + 009 + 010 + 011 + 012)
+**Branch:** `feat/012-archive-all` (main'e ff-merge onayı bekliyor)
 **Working tree:** temiz
-**Durum:** 4 aşama tamamlandı, 5 lineer commit main'e ff-merge + push
-edildi (`30ba1a6..99c3ab5`), 4 feature branch silindi. 371/371 test
-yeşil (flaky düzeltildi), coverage %93.44, mypy strict + ruff + scan
-temiz.
+**Durum:** 5 aşama tamamlandı, 5 lineer commit main'in üstünde
+zincirleme hazır. 407/407 test yeşil (baseline 371 → +36), coverage
+%93.69, mypy strict + ruff + scan temiz.
 
 ---
 
@@ -17,143 +15,134 @@ Yeni oturumda tek cümle: **"DEVAM_NOKTASI.md'yi oku ve kaldığı yerden devam 
 
 ---
 
-## Bu turda yapılan (2026-07-29 — 4. tur)
+## Bu turda yapılan (2026-07-29 — 5. tur)
 
-Sıra ile 4 iş tamamlandı, her biri kendi branch'inde tek commit,
-zincirleme (`003.1 → 003.2 → 007 → flaky`); sonrasında main'e
-lineer ff-merge + push + temizlik.
+Sıra ile 5 iş tamamlandı, her biri kendi branch'inde tek commit,
+zincirleme (`008 → 009 → 010 → 011 → 012`).
 
-1. **Görev 003.1** — anthropic + acp LLM backend'leri (`0591928`)
-   - `_anthropic_planner`: stdlib `urllib` ile Anthropic Messages API'sine
-     HTTPS POST. Env: `ANTHROPIC_API_KEY`, `ATLAS_LLM_MODEL`,
-     `ATLAS_LLM_ANTHROPIC_URL`. Yerel `claude` kurulumu şart değil.
-   - `_acp_planner`: subprocess ACP-lite (initialize → session/new →
-     session/prompt → `agent_message_chunk` topla → stop). Env:
-     `ATLAS_LLM_ACP_BIN`, `ATLAS_LLM_ACP_ARGS`. Görev başına tek-oturum;
-     `finally` bloğunda kill garantisi (süreç sızıntısı yasak).
-   - `LLMPlannerError` + exit 7 sözleşmesi her iki backend'te aynı.
-   - 35 yeni test + 2 CLI test.
+1. **Görev 008** — LLM retry/backoff sarmalayıcı (`afe2fcd`)
+   - `make_retrying_planner(inner, retries, backoff_s)` — `LLMPlannerError`
+     yakala, `backoff * 2**attempt` üstel bekleme, `1 + retries` deneme.
+   - Env: `ATLAS_LLM_RETRIES` (0 = kapalı), `ATLAS_LLM_BACKOFF` (1.0 sn),
+     `ATLAS_LLM_TRACE=1` (retry stderr'a).
+   - `retries <= 0` → **kimlik-geçiş** (`is inner`). Sözleşme değişmez.
+   - CLI: `_cmd_run_goal` `make_retrying_planner` ile sarar.
+   - 15 birim + 1 CLI test.
 
-2. **Görev 003.2** — `Goal.llm_prompt` opsiyonel alanı (`06ddf99`)
-   - YAML'da `llm_prompt: |...` ile kullanıcı sistem promptu bildirir.
-   - `_format_prompt` iki-yollu: kullanıcı promptu **başta**, ATLAS'ın
-     "TEK SATIRLIK" plan sözleşmesi **sonda** (kullanıcı çıktı
-     sözleşmesini bozamaz).
-   - Boş string → `None` (sessiz fallback). Merkezi değişiklik →
-     üç backend (claude/anthropic/acp) otomatik uyumlu. +9 test.
+2. **Görev 009** — `Goal.llm_model` opsiyonel alanı (`bf15b45`)
+   - YAML'da model bildir; öncelik: `goal.llm_model` > `ATLAS_LLM_MODEL`
+     env > `_DEFAULT_ANTHROPIC_MODEL`.
+   - 003.2 kalıbıyla simetrik (boş string → None, tip yanlış → SpecError).
+   - claude/acp backend'ler yok sayar (protokolleri farklı; ertelendi).
+   - +8 test.
 
-3. **Görev 007** — `atlas archive <task>` CLI komutu (`6c71c7d`)
-   - Yıkıcı işlem **dry-run varsayılan**; `--apply` bilinçli seçim
-     (CLAUDE.md kuralı yüzeyde varsayılana gömüldü).
-   - Özet zinciri: `--summary` > `09-ship.md` ilk paragraf > fallback
-     `"<task> arşivlendi"`.
-   - Audit: `("atlas-archive", "archive"|"error", "<task>")`. Dry-run
-     audit'e yazmaz. +6 test.
+3. **Görev 010** — Anthropic system rolü ayrımı (`07596b2`)
+   - `goal.llm_prompt` anthropic body.system alanına gider; messages
+     sadece ATLAS varsayılan gövdesi (kısıt + görev + context + gözlem).
+   - `_format_prompt(..., include_system=False)` keyword; anthropic
+     backend geçirir. Diğerleri varsayılan (True) → prepend korundu.
+   - Model system'i user'dan daha güçlü izler → persona kilidi.
+   - +2 test.
 
-4. **Flaky düzeltmesi** (`e7cc244`) — `test_doctor_gui.py::test_restore_defaults_to_newest_and_can_pick_by_name`
-   - Neden: `list_backups` sort key'i `st_mtime` (float saniye) idi;
-     Windows sistem-saati ~15.6 ms tick'lerde eşleşince "en yeni"
-     belirsizleşiyordu.
-   - Fix: `(st_mtime_ns, name)` desc — NTFS 100 ns hassasiyet + name
-     tiebreaker. +1 regresyon testi (`os.utime` ile ns eşitleyip
-     belirlenimci sıra doğrulaması).
+4. **Görev 011** — Token cost (report-only) (`8685a72`)
+   - Anthropic response `usage.input_tokens` + `output_tokens` yakalanır;
+     `ATLAS_LLM_TRACE=1` env'inde stderr'a `[llm] anthropic tokens:
+     in=N out=N cost≈$X.XXXXXX`.
+   - `ATLAS_LLM_PRICE_IN` + `ATLAS_LLM_PRICE_OUT` per million USD;
+     parse hatası → `cost≈?` fail-safe.
+   - CallBudget entegrasyonu **kapsam DIŞI** (Görev 013 rezerv).
+   - +5 test.
 
-5. **Merge + push + temizlik**
-   - `git merge --ff-only fix/doctor-gui-mtime-flaky` → 5 commit lineer
-     main'e (`99c3ab5`), merge commit YOK.
-   - `git push origin main` → `30ba1a6..99c3ab5` uzağa gitti.
-   - 4 feature branch silindi (`feat/003.1-llm-backends`,
-     `feat/003.2-llm-prompt`, `feat/007-archive-cli`,
-     `fix/doctor-gui-mtime-flaky`).
+5. **Görev 012** — `atlas archive --all` toplu arşivleme (`af353e6`)
+   - Aday: `pipeline/tasks/*/09-ship.md` olanlar.
+   - Dry-run varsayılan; `--apply --yes` **ikili onay** (çift kapı);
+     `--yes` yoksa exit 2.
+   - Fail-fast: ilk hata → dur + rapor (succeeded / failed / skipped
+     listesi). Kısmi başarı görünür.
+   - Tekil yol (007) korundu — `task nargs="?"`, mevcut 6 test yeşil.
+   - +5 test.
 
 ---
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-**Yeni görev seçimi.** Pipeline'da açık iş yok; 003.1 / 003.2 / 007 /
-flaky kapandı. Doğal devam adayları:
+**Merge + push.** 5 lineer commit main'in üstünde hazır:
 
-- **Görev 008 — LLM planner retry/backoff (013 hazırlığı):**
-  `LLMPlannerError` yakalayıp N deneme + backoff (env-ayarlı) — üç
-  backend'e ortak sarmalayıcı. Küçük ve orthogonal.
-- **Görev 009 — `Goal.llm_model` opsiyonel alanı:** her görevin
-  kendi modelini bildirmesi (anthropic backend'te env yerine
-  goal'den). 003.2 kalıbıyla simetrik, küçük.
-- **Görev 010 — Anthropic system rolü ayrımı:** `llm_prompt` sistem
-  rolü, `goal.goal` user rolü — Anthropic Messages API "system" alanı.
-  003.2'nin sözleşme boyutunu genişletir.
-- **Görev 011 — Token cost/quota:** CallBudget'ın soyut kredisini
-  gerçek token maliyetine bağla (Anthropic response header'ları).
-  Daha kapsamlı; 009 ile birleştirilebilir.
-- **Görev 012 — Sık kullanılan görevlerin `atlas archive --all` +
-  git commit hook zinciri:** 007'nin doğal genişlemesi.
+```
+main (a0f16cd) ← origin/main (senkron)
+     ↑
+     afe2fcd feat(008): LLM planner retry/backoff sarmalayici
+     bf15b45 feat(009): Goal.llm_model opsiyonel alani
+     07596b2 feat(010): Anthropic system rolu ayrimi
+     8685a72 feat(011): anthropic token usage trace (report-only)
+     af353e6 feat(012): atlas archive --all toplu arsivleme
+```
 
-Ya da başka bir öncelik varsa net söyle.
+Önerilen yol:
+
+```bash
+git checkout main
+git merge --ff-only feat/012-archive-all   # 5 commit lineer
+git push origin main
+git branch -d feat/008-retry-backoff feat/009-llm-model \
+             feat/010-anthropic-system-role feat/011-token-cost \
+             feat/012-archive-all
+```
+
+Alternatif — merge etmeden yeni görev seçilebilir. Doğal devamlar:
+
+- **Görev 013 — CallBudget'a token→kredi entegrasyonu:**
+  011'in doğal genişlemesi; retry (008) + fiyat (011) kesişimi.
+- **Görev 010.1 — claude subprocess `--system` argümanı:**
+  010'un claude backend'e uzanması.
+- **Görev 014 — Retry jitter + `Retry-After` header'ı:**
+  008'in üstüne gelen politika iyileştirmesi.
+- **Görev 015 — Anthropic prompt caching:** 011 üstüne fiyat indirimi.
 
 ---
 
 ## Hızlı Bağlam
 
-**Branch grafı:**
-```
-origin/main (99c3ab5) = main (99c3ab5) ← senkron
-```
-Kalan local branch'ler (bu turların dışı, önceki oturumların işi):
-`feat/paketleme-bulut-secenegi`, `feat/tasinabilir-kurulum`,
-`fix/{arsivleyici-arama, kimi-yeniden-etkinlestirme,
-ollama-kimligi-tasinabilir, surum-etiketli-yedek}`.
-
-**main'e giren 5 commit (2026-07-29 4. tur):**
-```
-99c3ab5 docs: DEVAM_NOKTASI.md — 4. tur (003.1+003.2+007+flaky) kapanis
-e7cc244 fix(doctor-gui): list_backups (st_mtime_ns, name) desc
-6c71c7d feat(007): atlas archive CLI komutu (dry-run varsayilan + audit)
-06ddf99 feat(003.2): Goal.llm_prompt opsiyonel alani + prompt overlay
-0591928 feat(003.1): anthropic + acp LLM backend'leri (stdlib urllib + ACP-lite)
-```
-
-**Kalite kapıları:**
-```bash
-uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
-# 371 passed; coverage %93.44
-uv run mypy src                # 25 dosya, temiz
-uv run ruff check src tests    # temiz
-uv run atlas scan src          # sır bulunamadı
-```
-
-**Sözleşme değişmezlikleri (bu turda korundu):**
-- `orchestrator/core.py::{run_loop, Action, Judge, CallBudget,
-  LoopResult, StepKind}` — dokunulmadı
-- `orchestrator/planner.py::{Planner, make_planner,
-  PlannerExhaustedError, LLMPlannerError}` — imzalar korundu; yalnız
-  iç yardımcı ekleme
-- `orchestrator/goals.py::Goal` — yeni alan opsiyonel default'lu
-  (`llm_prompt: str | None = None`)
-- `memory/archive.py::archive_task`, `memory/vault.py::Vault` — dokunulmadı
-- CLI mevcut alt-komutlar — dokunulmadı; yeni `archive` eklendi
-
-**Env sözleşmesi (kümülatif):**
+**Env sözleşmesi (kümülatif, bu turda eklenenler ★):**
 | Değişken | Anlam |
 |---|---|
 | `ATLAS_LLM` | `stub` \| `claude` \| `anthropic` \| `acp` \| bilinmiyor |
 | `ATLAS_LLM_TIMEOUT` | ortak subprocess/HTTPS timeout (varsayılan 60 sn) |
-| `ATLAS_LLM_CLAUDE_BIN` | claude override (SPEC 003) |
-| `ANTHROPIC_API_KEY` | **anthropic zorunlu** (SPEC 003.1) |
-| `ATLAS_LLM_MODEL` | anthropic model id (varsayılan `claude-3-5-sonnet-latest`) |
-| `ATLAS_LLM_ANTHROPIC_URL` | anthropic URL override (vekil/test) |
-| `ATLAS_LLM_ACP_BIN` | **acp zorunlu** (veya PATH'te `acp-agent`) |
-| `ATLAS_LLM_ACP_ARGS` | acp extra argv (shlex parse) |
+| `ATLAS_LLM_CLAUDE_BIN` | claude override |
+| `ANTHROPIC_API_KEY` | anthropic zorunlu |
+| `ATLAS_LLM_MODEL` | anthropic model — 009'da Goal.llm_model **üstünde** |
+| `ATLAS_LLM_ANTHROPIC_URL` | anthropic URL override (test/vekil) |
+| `ATLAS_LLM_ACP_BIN` | acp zorunlu |
+| `ATLAS_LLM_ACP_ARGS` | acp extra argv (shlex) |
 | `ATLAS_CONTEXT` | `on` (varsayılan) \| `off` (SPEC 006) |
+| `ATLAS_LLM_RETRIES` ★ | **008** — retry sayısı (varsayılan 0 = kapalı) |
+| `ATLAS_LLM_BACKOFF` ★ | **008** — üstel taban saniye (varsayılan 1.0) |
+| `ATLAS_LLM_TRACE=1` ★ | **008+011** — retry stderr + anthropic usage stderr |
+| `ATLAS_LLM_PRICE_IN` ★ | **011** — anthropic input per million USD (ops.) |
+| `ATLAS_LLM_PRICE_OUT` ★ | **011** — anthropic output per million USD (ops.) |
 
 **Exit kodları (değişmedi):**
-- 0 başarı, 2 SPEC/YAML, 3 bütçe, 4 max_steps/planner_exhausted,
+- 0 başarı, 2 SPEC/YAML/--yes yok, 3 bütçe, 4 max_steps/planner_exhausted,
   5 action_denied, 6 handler/arşiv hatası, 7 LLM planner hatası
 
-**Bilinen flaky:** yok — bu turda düzeltildi.
+**Kritik sözleşme değişmezlikleri (bu turda korundu):**
+- `orchestrator/core.py::{run_loop, Action, Judge, CallBudget,
+  LoopResult, StepKind}` — dokunulmadı
+- `orchestrator/planner.py::{Planner, make_planner,
+  PlannerExhaustedError, LLMPlannerError}` — imzalar korundu; yeni
+  yalnız iç yardımcı + `make_retrying_planner` yan-fabrika
+- `orchestrator/goals.py::Goal` — yeni alan `llm_model` opsiyonel
+  default'lu (003.2 kalıbı)
+- `atlas archive <task>` (SPEC 007) — hiç değişmedi; `--all` yalnız
+  yeni ek yol
+- `_call_anthropic`, `_format_prompt` — yeni parametreler **keyword-only
+  + default'lu**
+
+**Bilinen flaky:** yok.
 
 **Görev-öncesi zorunlu okuma sırası:**
-1. `DECISIONS.md` — en üstteki [KARAR]/[HATA] satırları (2026-07-29
-   4 yeni girdi bloğu: 003.1, 003.2, 007, flaky)
+1. `DECISIONS.md` — 2026-07-29 altında **9 giriş bloğu** (003.1, 003.2,
+   007, flaky, 008, 009, 010, 011, 012)
 2. Bu dosya (DEVAM_NOKTASI.md)
 3. Hedef görevin `pipeline/tasks/<XXX>/{00-need,02-spec,09-ship}.md`
 4. Değişecek modülün üstündeki docstring
@@ -162,13 +151,12 @@ uv run atlas scan src          # sır bulunamadı
 
 ## Kapanış Notları
 
-- 371 test yeşil (baseline 319 → +52 test); coverage %93.44
-- 5 lineer commit main'e alındı, uzağa push edildi, 4 feature branch
-  silindi (kullanıcı açık onayıyla)
+- 407 test yeşil (bu turun baseline'ı 371 → +36; oturum başı 319 → +88)
+- Coverage %93.69
+- 5 lineer commit `feat/012-archive-all` ucunda; merge stratejisi
+  user'a bağlı
 - Uncommitted değişiklik yok, working tree temiz
 - Ollama / Juggler / ACP kimlikleri `.juggler/` altında (gitignored) —
   dokunulmadı
-- Portable bundle son sürüm: `D:\ATLAS.rar` (önceki oturum, 1.9 GB) —
-  yenilenmemedi (kapsam dışı)
-- DECISIONS.md 2026-07-29 altında **4 yeni girdi bloğu**: 003.1, 003.2,
-  007, flaky
+- DECISIONS.md 2026-07-29 altında **5 yeni giriş bloğu**: 008, 009,
+  010, 011, 012 (önceki turun 4 bloğuyla toplam 9)
