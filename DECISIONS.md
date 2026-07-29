@@ -1,6 +1,26 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 016.2 — ACP `session/request_permission` handler)
+- [KARAR] **Otomatik karar** — kullanıcı UI dialogu asla görmez.
+  ATLAS otonom ajan; interaktif prompt çekirdek prensiple çelişir.
+  İnteraktif mod istenirse 016.3 opt-in olarak eklenir.
+- [KARAR] Karar tablosu = 016.1 metod tablosu: read-only tool →
+  `allow_once`; write/shell tool → `reject`; bilinmeyen → `reject`
+  **savunmalı varsayılan**. Bilinmeyen tool'a `allow_once` demek
+  güvenlik açığı; kural: "bilmiyorsan reddet".
+- [KARAR] `params.options` içinden eşleşen `optionId` seçilir; yoksa
+  read için `allow_always`/`allow` fallback; en son sabit string
+  fallback. Böylece ACP sunucusunun option sözleşmesine saygı
+  duyulur ama bozuk options durumunda da yanıt üretilir.
+- [KARAR] Read'te `allow_always` fallback → `allow_once` yerine
+  session-boyu izin verilir eğer sunucu bunu sunuyorsa. 016.4'te
+  session-level "her zaman izin" kaydı eklenirse buraya bağlanır.
+- Kapsam: 1 modül düzenleme (planner.py: _acp_handle_client_request
+  dallanma + _acp_permission_response ~50 sat), 1 test dosyası
+  genişleme (+4 test). Toplam 490 test yeşil (486 → +4). mypy strict
+  + ruff temiz. Artefaktlar `pipeline/tasks/016-2-acp-permission/`.
+
 ## 2026-07-29 (Görev 021 — `atlas doctor` env sağlık özeti)
 - [KARAR] Read-only + exit 0 — env yanlış olsa da uyarı verir ama
   process'i kırmaz. Kullanıcı ne düzelteceğini görsün diye script'ler

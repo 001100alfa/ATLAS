@@ -868,6 +868,8 @@ def _acp_handle_client_request(stdin: IO[str], msg: dict[str, Any]) -> None:
     """Agent'ın gönderdiği client-method request'ine JSON-RPC cevap yaz.
 
     - `fs/read_text_file`: proje kökü altında güvenli okuma.
+    - `session/request_permission` (SPEC 016.2): tool tipine göre
+      otomatik karar (read → allow_once; write/shell → reject).
     - Yazma/shell: `-32000 not supported`.
     - Diğer: `-32601 Method not found`.
     """
@@ -875,6 +877,11 @@ def _acp_handle_client_request(stdin: IO[str], msg: dict[str, Any]) -> None:
     req_id = msg.get("id")
     if method in _ACP_READ_METHODS:
         _acp_send(stdin, _acp_fs_read_response(req_id, msg.get("params", {})))
+        return
+    if method == "session/request_permission":
+        _acp_send(
+            stdin, _acp_permission_response(req_id, msg.get("params", {}))
+        )
         return
     if method in _ACP_WRITE_METHODS:
         _acp_send(
@@ -897,6 +904,66 @@ def _acp_handle_client_request(stdin: IO[str], msg: dict[str, Any]) -> None:
             "error": {"code": -32601, "message": f"Method not found: {method}"},
         },
     )
+
+
+def _acp_permission_response(
+    req_id: Any, params: dict[str, Any]
+) -> dict[str, Any]:
+    """SPEC 016.2: tool tipine göre otomatik permission kararı.
+
+    - Read-only tool → `allow_once` seç.
+    - Write/shell tool → `reject`.
+    - Bilinmeyen → `reject` (savunmalı).
+
+    Yanıt formatı:
+    `{"outcome":{"outcome":"selected","optionId":"<X>"}}`.
+    Verilen `params.options` içinde eşleşen optionId varsa o kullanılır;
+    yoksa sabit fallback.
+    """
+    tool_call = params.get("toolCall") if isinstance(params, dict) else None
+    tool_name = ""
+    if isinstance(tool_call, dict):
+        raw = tool_call.get("name") or tool_call.get("title")
+        if isinstance(raw, str):
+            tool_name = raw
+    if not tool_name:
+        raw_title = params.get("title") if isinstance(params, dict) else None
+        if isinstance(raw_title, str):
+            tool_name = raw_title
+
+    if tool_name in _ACP_READ_METHODS:
+        decision = "allow_once"
+    else:
+        # Write/shell + bilinmeyen → reject (savunmalı varsayılan)
+        decision = "reject"
+
+    # `params.options` içinden eşleşen optionId seç, yoksa fallback sabit.
+    options = params.get("options") if isinstance(params, dict) else None
+    chosen = decision
+    if isinstance(options, list):
+        # Öncelik: tam eşleşme
+        for opt in options:
+            if isinstance(opt, dict) and opt.get("optionId") == decision:
+                chosen = decision
+                break
+        else:
+            # Read için `allow_always` → `allow_once`; yoksa `reject`
+            if decision == "allow_once":
+                for opt in options:
+                    if isinstance(opt, dict) and opt.get("optionId") in (
+                        "allow_always", "allow"
+                    ):
+                        oid = opt.get("optionId")
+                        if isinstance(oid, str):
+                            chosen = oid
+                            break
+    return {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "result": {
+            "outcome": {"outcome": "selected", "optionId": chosen},
+        },
+    }
 
 
 def _acp_fs_read_response(

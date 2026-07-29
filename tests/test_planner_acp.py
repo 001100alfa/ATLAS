@@ -670,6 +670,127 @@ def test_016_1_tool_call_notif_hala_red(
         p("g", [])
 
 
+# ---------- SPEC 016.2: session/request_permission ----------
+
+
+def _perm_request(
+    tool_name: str, options: list[dict[str, str]] | None = None, req_id: int = 200
+) -> str:
+    params: dict[str, Any] = {
+        "toolCall": {"name": tool_name, "input": {}},
+    }
+    if options is not None:
+        params["options"] = options
+    return json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "method": "session/request_permission",
+            "params": params,
+        }
+    ) + "\n"
+
+
+def test_016_2_read_tool_allow_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Read-only tool → allow_once."""
+    monkeypatch.chdir(tmp_path)
+    _prep_bin(monkeypatch, tmp_path)
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _perm_request("fs/read_text_file", options=[
+            {"optionId": "allow_once", "kind": "allow_once", "name": "İzin ver"},
+            {"optionId": "reject", "kind": "reject", "name": "Reddet"},
+        ]),
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    p("g", [])
+    msgs = fake.stdin_messages()
+    resp = next(m for m in msgs if m.get("id") == 200)
+    assert resp["result"]["outcome"]["outcome"] == "selected"
+    assert resp["result"]["outcome"]["optionId"] == "allow_once"
+
+
+def test_016_2_write_tool_reject(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Write tool → reject."""
+    monkeypatch.chdir(tmp_path)
+    _prep_bin(monkeypatch, tmp_path)
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _perm_request("fs/write_text_file", options=[
+            {"optionId": "allow_once", "kind": "allow_once", "name": "OK"},
+            {"optionId": "reject", "kind": "reject", "name": "No"},
+        ]),
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    p("g", [])
+    msgs = fake.stdin_messages()
+    resp = next(m for m in msgs if m.get("id") == 200)
+    assert resp["result"]["outcome"]["optionId"] == "reject"
+
+
+def test_016_2_bilinmeyen_tool_reject(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Bilinmeyen tool → reject (savunmalı varsayılan)."""
+    monkeypatch.chdir(tmp_path)
+    _prep_bin(monkeypatch, tmp_path)
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _perm_request("mystery/tool", options=None),
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    p("g", [])
+    msgs = fake.stdin_messages()
+    resp = next(m for m in msgs if m.get("id") == 200)
+    assert resp["result"]["outcome"]["optionId"] == "reject"
+
+
+def test_016_2_options_yoksa_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """options verilmemişse fallback string kullanılır."""
+    monkeypatch.chdir(tmp_path)
+    _prep_bin(monkeypatch, tmp_path)
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _perm_request("fs/read_text_file", options=None),  # options yok
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    p("g", [])
+    msgs = fake.stdin_messages()
+    resp = next(m for m in msgs if m.get("id") == 200)
+    # options yok → sabit fallback "allow_once"
+    assert resp["result"]["outcome"]["optionId"] == "allow_once"
+
+
 # ---------- SPEC 003.2: özel llm_prompt acp session/prompt gövdesinde ----------
 
 def test_003_2_ozel_prompt_prompt_de_gorunur(
