@@ -1,6 +1,39 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 019 — Anthropic streaming, opt-in)
+- [KARAR] Opt-in `Goal.stream: bool = False` — non-streaming yol
+  varsayılan; 011/013/015.1 test suite'i bit-uyumlu. Streaming'i
+  aktif eden görev bazında karar verir (uzun response beklenen
+  görevlerde).
+- [KARAR] **İlk newline'da kes** — ATLAS planner sözleşmesi "tek
+  satır" olduğundan tam response'u beklemek anlamsız. `text_delta`
+  chunk'ları biriktir, `"\n" in joined` görünce `first_line`'ı
+  al ve `resp.close()`. Sunucu tarafında kalan chunk'lar üretilmeye
+  devam edebilir ama bize hız kazancı.
+- [KARAR] Inline SSE parser (stdlib-only) — ~50 sat kod; `sseclient`
+  kütüphanesi eklemek istenmez. Format basit: `event: X\ndata: {...}\n\n`.
+  Satır satır oku, `event: ` başlı satırlar current event'i set eder,
+  `data: ` satırları JSON parse edilir, boş satır event'i sonlandırır.
+- [KARAR] Usage yakalama tam — `message_start.message.usage`
+  (input_tokens öncesi) + `message_delta.usage` (output_tokens güncel).
+  `_extract_usage` mevcut sözleşmesi kullanılır (011/013/015.1 uyum).
+  Erken kes'ten sonra usage 0 kalabilir (message_delta gelmedi) —
+  kabul: hız > tam usage.
+- [KARAR] Hata dallanması: geçersiz SSE JSON → net mesaj
+  `"streaming: geçersiz SSE data: <ilk 200>"`. HTTPError yolu **aynı**
+  (streaming'de urlopen `Content-Type` etkilemez). RetryAfterError
+  streaming'de de tetiklenir (aynı except kolu — kodu tekrar etmiyoruz).
+- [KARAR] `resp.close()` **`finally`** bloğunda — early return'de bile
+  bağlantı sızıntısı yok. `Exception` yakalamada `noqa: BLE001` (teardown
+  ana hatayı gölgelemez).
+- Kapsam: 1 modül düzenleme (goals.py: +stream alanı + load kolu),
+  1 modül düzenleme (planner.py: _call_anthropic stream keyword +
+  _read_anthropic_stream ~65 sat + _anthropic_planner bind),
+  2 test dosyası genişleme (+8 test). Toplam 477 test yeşil (469 → +8).
+  mypy strict + ruff temiz. Artefaktlar
+  `pipeline/tasks/019-anthropic-streaming/`.
+
 ## 2026-07-29 (Görev 018 — gözlem uzunluk kırpma env)
 - [KARAR] Env **runtime** okunur — `_format_prompt` her çağrıda
   `_read_obs_chars_env()`. Cache'lemek performans için mikro-iyileştirme

@@ -59,6 +59,10 @@ class Goal:
     # SPEC 015: True + llm_prompt → Anthropic system alanı bloklar
     # listesi + cache_control ephemeral (5 dk hız/maliyet indirimi).
     prompt_cache: bool = False
+    # SPEC 019: True → Anthropic Messages API streaming (SSE) — ilk
+    # newline'da kes, algılanan gecikme düşer. Non-streaming davranışı
+    # varsayılan (bit-uyumlu).
+    stream: bool = False
 
 
 def _require(spec: dict[str, object], key: str, kind: type) -> object:
@@ -182,6 +186,13 @@ def load_goal(path: Path) -> Goal:
             f"prompt_cache bool olmalı, gelen: {type(prompt_cache_raw).__name__}"
         )
 
+    # SPEC 019: opsiyonel streaming (bool).
+    stream_raw = raw.get("stream", False)
+    if not isinstance(stream_raw, bool):
+        raise SpecError(
+            f"stream bool olmalı, gelen: {type(stream_raw).__name__}"
+        )
+
     # Literal daraltması: yukarıda enum kontrolü yapıldı, tip güvenli.
     return Goal(
         goal=goal,
@@ -199,4 +210,5 @@ def load_goal(path: Path) -> Goal:
         llm_prompt=llm_prompt,
         llm_model=llm_model,
         prompt_cache=prompt_cache_raw,
+        stream=stream_raw,
     )

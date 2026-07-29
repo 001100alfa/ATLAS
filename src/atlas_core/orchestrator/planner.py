@@ -343,6 +343,7 @@ def _call_anthropic(
     *,
     system: str | list[dict[str, Any]] | None = None,
     on_usage: Callable[[int, int, int, int], None] | None = None,
+    stream: bool = False,
 ) -> str:
     """Anthropic Messages API — HTTPS POST, ilk satır plan döner.
 
@@ -350,6 +351,8 @@ def _call_anthropic(
     olarak eklenir (Anthropic API sözleşmesi). None/boş → alan eklenmez.
     SPEC 015: `system` liste tipindeyse (bloklar formatı) doğrudan
     payload'a bind — cache_control taşımaya izin verir.
+    SPEC 019: `stream=True` → request'e `"stream": true` eklenir; SSE
+    parse ile ilk newline'da kesilir (algılanan gecikme düşer).
 
     stdlib `urllib` + `json`. Hiçbir kod yolunda `api_key` stderr/log'a
     yazılmaz — yalnız request header'ına girer.
@@ -361,6 +364,8 @@ def _call_anthropic(
     }
     if system:
         payload["system"] = system
+    if stream:
+        payload["stream"] = True
     body = json.dumps(payload).encode("utf-8")
     req = urllib_request.Request(  # noqa: S310 - url env kontrollü, https zorlanır
         url,
@@ -373,6 +378,14 @@ def _call_anthropic(
         },
     )
     try:
+        if stream:
+            first_line, usage_data = _read_anthropic_stream(req, timeout_s)
+            # 011 trace + 013 charge — usage'dan tam veri
+            _emit_anthropic_usage_trace(usage_data)
+            if on_usage is not None:
+                _in, _out, _cc, _cr = _extract_usage(usage_data)
+                on_usage(_in, _out, _cc, _cr)
+            return first_line
         with urllib_request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
             raw = resp.read()
     except urllib_error.HTTPError as exc:
@@ -490,6 +503,81 @@ def _emit_anthropic_usage_trace(data: Any) -> None:
     )
 
 
+def _read_anthropic_stream(
+    req: urllib_request.Request, timeout_s: int
+) -> tuple[str, dict[str, Any]]:
+    """SPEC 019: SSE stream'i satır satır oku, ilk newline'da kes.
+
+    Döner: `(first_line, usage_data)` — `usage_data` `_extract_usage`
+    formatıyla uyumlu `{"usage": {...}}` dict.
+    """
+    text_parts: list[str] = []
+    usage_data: dict[str, Any] = {"usage": {}}
+    resp = urllib_request.urlopen(req, timeout=timeout_s)  # noqa: S310
+    try:
+        current_event = ""
+        for raw_line in resp:
+            line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+            if not line:
+                current_event = ""
+                continue
+            if line.startswith("event: "):
+                current_event = line[7:]
+                continue
+            if not line.startswith("data: "):
+                continue
+            data_json = line[6:]
+            try:
+                data = json.loads(data_json)
+            except json.JSONDecodeError as exc:
+                raise LLMPlannerError(
+                    f"streaming: geçersiz SSE data: {data_json[:_BODY_TAIL]}"
+                ) from exc
+            if not isinstance(data, dict):
+                continue
+            evt_type = data.get("type") or current_event
+            if evt_type == "content_block_delta":
+                delta = data.get("delta")
+                if isinstance(delta, dict) and delta.get("type") == "text_delta":
+                    t = delta.get("text")
+                    if isinstance(t, str):
+                        text_parts.append(t)
+                        joined = "".join(text_parts)
+                        # İlk newline gelince kes → algılanan gecikme düşer.
+                        if "\n" in joined:
+                            first_line = joined.splitlines()[0].strip()
+                            if first_line:
+                                # message_delta gelmeden kapatıyoruz, usage=0
+                                return first_line, usage_data
+            elif evt_type == "message_delta":
+                # message_delta içinde `usage` (output_tokens güncel)
+                d = data.get("usage")
+                if isinstance(d, dict):
+                    usage_data["usage"].update(d)
+            elif evt_type == "message_start":
+                # message_start içinde message.usage (input_tokens vs.)
+                m = data.get("message")
+                if isinstance(m, dict):
+                    u = m.get("usage")
+                    if isinstance(u, dict):
+                        usage_data["usage"].update(u)
+            elif evt_type == "message_stop":
+                break
+    finally:
+        try:
+            resp.close()
+        except Exception:  # noqa: BLE001 - teardown; ana hatayı gölgeleme
+            pass
+
+    text = "".join(text_parts).strip()
+    if not text:
+        raise LLMPlannerError("anthropic boş plan cevabı döndürdü (stream)")
+    first_line = text.splitlines()[0].strip()
+    if not first_line:
+        raise LLMPlannerError("anthropic boş plan cevabı döndürdü (stream, ilk satır boş)")
+    return first_line, usage_data
+
+
 def _fmt_cost(
     in_tok: int, out_tok: int, cache_c: int = 0, cache_r: int = 0
 ) -> str:
@@ -550,13 +638,15 @@ def _anthropic_planner(
     else:
         system = None
 
+    stream = goal.stream
+
     def _anthropic(_goal: str, history: list[tuple[StepKind, str]]) -> str:
         prompt = _format_prompt(
             goal, history, context=context, include_system=False
         )
         return _call_anthropic(
             api_key, url, model, prompt, timeout_s,
-            system=system, on_usage=on_usage,
+            system=system, on_usage=on_usage, stream=stream,
         )
 
     return _anthropic

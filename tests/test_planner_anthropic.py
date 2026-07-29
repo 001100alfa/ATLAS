@@ -469,6 +469,173 @@ def test_011_fiyat_env_bozuk(
     assert "cost≈?" in capsys.readouterr().err
 
 
+# ---------- SPEC 019: streaming ----------
+
+
+class _FakeSSEResponse:
+    """`urlopen` SSE stream sahtesi — iter satır bayt döner."""
+
+    def __init__(self, lines: list[bytes]) -> None:
+        self._lines = list(lines)
+        self.closed = False
+
+    def __iter__(self):
+        return iter(self._lines)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _sse_event(evt_type: str, data: dict[str, Any]) -> list[bytes]:
+    """SSE event: `event: X\\ndata: {...}\\n\\n`."""
+    return [
+        f"event: {evt_type}\n".encode(),
+        f"data: {json.dumps(data)}\n".encode(),
+        b"\n",
+    ]
+
+
+def test_019_stream_happy_erken_kes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SSE stream: ilk newline'da kes; sonraki delta'lar okunmaz."""
+    _prep_key(monkeypatch)
+    from dataclasses import replace
+
+    lines: list[bytes] = []
+    lines += _sse_event("message_start", {
+        "type": "message_start",
+        "message": {"usage": {"input_tokens": 100}},
+    })
+    lines += _sse_event("content_block_start", {"type": "content_block_start"})
+    lines += _sse_event("content_block_delta", {
+        "type": "content_block_delta",
+        "delta": {"type": "text_delta", "text": "write:x.txt:"},
+    })
+    lines += _sse_event("content_block_delta", {
+        "type": "content_block_delta",
+        "delta": {"type": "text_delta", "text": "1\n"},  # ilk newline → kes
+    })
+    # Bu delta okunmamalı — stream erken kesilir
+    lines += _sse_event("content_block_delta", {
+        "type": "content_block_delta",
+        "delta": {"type": "text_delta", "text": "OKUNMAMALI"},
+    })
+
+    resp = _FakeSSEResponse(lines)
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(req: Any, **_kw: Any) -> _FakeSSEResponse:
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return resp
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    g = replace(_goal_llm(), stream=True)
+    p = make_planner(g)
+    assert p("g", []) == "write:x.txt:1"
+    # Request body'de stream: true
+    assert seen["body"]["stream"] is True
+    # Stream kapatıldı
+    assert resp.closed is True
+
+
+def test_019_stream_false_non_streaming_yol(monkeypatch: pytest.MonkeyPatch) -> None:
+    """stream=False (varsayılan) → non-streaming yol (011 bit-uyumlu)."""
+    _prep_key(monkeypatch)
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(req: Any, **_kw: Any) -> _FakeResponse:
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResponse(
+            json.dumps(
+                {"content": [{"type": "text", "text": "write:x.txt:1"}]}
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())  # stream=False
+    assert p("g", []) == "write:x.txt:1"
+    assert "stream" not in seen["body"]
+
+
+def test_019_stream_bos_cevap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stream hiç delta üretmezse LLMPlannerError('boş plan')."""
+    _prep_key(monkeypatch)
+    from dataclasses import replace
+
+    lines: list[bytes] = []
+    lines += _sse_event("message_start", {
+        "type": "message_start",
+        "message": {"usage": {"input_tokens": 100}},
+    })
+    lines += _sse_event("message_stop", {"type": "message_stop"})
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeSSEResponse:
+        return _FakeSSEResponse(lines)
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    g = replace(_goal_llm(), stream=True)
+    p = make_planner(g)
+    with pytest.raises(LLMPlannerError, match="boş plan"):
+        p("g", [])
+
+
+def test_019_stream_usage_yakalanir(monkeypatch: pytest.MonkeyPatch) -> None:
+    """message_delta içindeki usage on_usage'a iletilir."""
+    _prep_key(monkeypatch)
+    from dataclasses import replace
+
+    # Stream: message_start (input=100) → delta text → message_delta (output=50)
+    #                                                → message_stop
+    lines: list[bytes] = []
+    lines += _sse_event("message_start", {
+        "type": "message_start",
+        "message": {"usage": {"input_tokens": 100, "output_tokens": 0}},
+    })
+    lines += _sse_event("content_block_delta", {
+        "type": "content_block_delta",
+        "delta": {"type": "text_delta", "text": "ok"},
+    })
+    # Bu iki event stream erken kesilirse okunmaz (\n olmadığı için okunur)
+    lines += _sse_event("message_delta", {
+        "type": "message_delta",
+        "usage": {"output_tokens": 50},
+    })
+    lines += _sse_event("message_stop", {"type": "message_stop"})
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeSSEResponse:
+        return _FakeSSEResponse(lines)
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    captured: list[tuple[int, int, int, int]] = []
+    g = replace(_goal_llm(), stream=True)
+    p = make_planner(
+        g, on_usage=lambda i, o, cc, cr: captured.append((i, o, cc, cr))
+    )
+    assert p("g", []) == "ok"
+    # message_delta usage yakalandı
+    assert captured == [(100, 50, 0, 0)]
+
+
+def test_019_stream_gecersiz_json_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SSE data satırı geçersiz JSON → LLMPlannerError."""
+    _prep_key(monkeypatch)
+    from dataclasses import replace
+
+    lines = [
+        b"event: content_block_delta\n",
+        b"data: {bozuk json\n",
+        b"\n",
+    ]
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeSSEResponse:
+        return _FakeSSEResponse(lines)
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    g = replace(_goal_llm(), stream=True)
+    p = make_planner(g)
+    with pytest.raises(LLMPlannerError, match="streaming: geçersiz SSE"):
+        p("g", [])
+
+
 # ---------- SPEC 015.1: cache-hit indirim (trace + on_usage) ----------
 
 def test_015_1_extract_usage_4_tuple() -> None:

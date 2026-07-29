@@ -348,3 +348,34 @@ def test_015_prompt_cache_tip_hatasi(tmp_path: Path) -> None:
     )
     with pytest.raises(SpecError, match="prompt_cache bool olmalı"):
         load_goal(p)
+
+
+# ---------- SPEC 019: opsiyonel stream ----------
+
+
+def test_019_stream_alan_yok_false() -> None:
+    goal = load_goal(FIXTURES / "hello.yaml")
+    assert goal.stream is False
+
+
+def test_019_stream_true(tmp_path: Path) -> None:
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "stream: true\n",
+        encoding="utf-8",
+    )
+    assert load_goal(p).stream is True
+
+
+def test_019_stream_tip_hatasi(tmp_path: Path) -> None:
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "stream: acik\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match="stream bool olmalı"):
+        load_goal(p)
