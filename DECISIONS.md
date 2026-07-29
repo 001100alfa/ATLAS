@@ -1,6 +1,70 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 029 — `atlas metrics --alert`)
+- [KARAR] **Yeni exit kodu 8** = "alert eşiği geçilemedi" (yalnız
+  `atlas metrics --alert` özelinde). 6 ile birleştirmedim: 6 zaten
+  `archive-all failed` (bir görev arşivlenemedi); "cache-hit
+  düşük" ile aynı kova sessiz yanlışa yol açardı — CI script'i "6"
+  görünce arşive bakar. Yeni CLI davranışı = yeni kod.
+- [KARAR] **`--alert 0` alarmı kapatır.** `0 > 0` asla doğru olmadığı
+  için ateşleme yoluna girmez; kural "sıfır eşik = devre dışı".
+  Alternatif (`--alert` yoksa alarm yok, verildiyse hep aç) yeterli
+  ama env-driven CI'da bayrağı koşullu geçirmek zor — sabit
+  `--alert ${THRESHOLD:-0}` kalıbı işi çözer.
+- [KARAR] **Kayıt yoksa alarm ATEŞLENİR** (`hit_ratio = 0.0` <
+  pozitif eşik). Karşı öneri: "veri yok, sessiz kal" — reddedildi;
+  metrics.jsonl dosyasının kaybolduğu bir CI ortamı zaten hatalıdır,
+  alarmın orada susması sessiz yanlış olur. `--alert 0` verilirse
+  yine kapalı.
+- [KARAR] **`--json` ile alarm birleşir.** JSON stdout'a, UYARI
+  stderr'e, exit kodu kurala tabi. Karışmazlar — `atlas metrics
+  --json --alert 40 > m.json 2> alerts.txt` CI kalıbı.
+- [KARAR] Geçersiz eşik (`< 0` ya da `> 100`) → SPEC HATASI + exit 2
+  (mevcut sözleşme). Argparse zaten `type=float` yapıyor; sınır
+  kontrolü el ile — argparse `choices` `float` ile uyumsuz.
+- [KARAR] Mevcut çıktı **birebir korundu** — hiçbir satır silinmedi,
+  hiçbir alan değişmedi. Alarm yalnız EKLENDİ. Regresyon test
+  matrisi eski `test_023_*` üzerinden zaten kanıtlanıyor (7 test
+  hâlâ yeşil).
+- Kapsam: 1 modül düzenleme (cli.py: `_cmd_metrics` +alert sınır +
+  hesap + UYARI + exit 8; parser `--alert float`), 1 test dosyası
+  eki (+6 test, 13 toplam). 557 test yeşil (551 → +6). mypy strict
+  + ruff + scan temiz. Artefaktlar `pipeline/tasks/029-metrics-alert/`.
+
+## 2026-07-29 (Görev 028 — `atlas replay --list`)
+- [KARAR] **`--list` bayrak, alt-alt-komut değil.** Alternatif
+  `atlas replay list <args>` — ama 027 sözleşmesi tek positional
+  `run_id`; yeni alt-komut argparse ağacını değiştirir. `--list`
+  bayrağı ile positional `nargs='?'` yaparak sözleşme geri uyumlu
+  kalır: `atlas replay <run-id>` çağrısı hiç değişmedi.
+- [KARAR] Kaynak `.atlas/runs/*.yaml` **dosya sistemi**, `audit.jsonl`
+  değil. Dashboard audit-based; replay file-based (027'den beri).
+  İki farklı kaynak birleştirilmedi — dashboard silme/rotate audit'i
+  etkilemez, replay klasörü elle taşınabilir. Ayrık kalması sözleşme
+  bozmayı önler.
+- [KARAR] **Yaml-dışı yoksay** — yalnız `is_file() and suffix ==
+  ".yaml"`. `.yml` bilerek dışta bırakıldı (027 kopyası hep `.yaml`
+  yazıyor; kullanıcının orada tuttuğu başka `.yml` konfig
+  listelenmesin).
+- [KARAR] Sıralama **mtime desc** — replay ihtiyacı hep "yeniden
+  çalıştır" olduğundan en yeni önce. Alternatif ctime/name — mtime
+  kullanıcı beklentisiyle örtüşür ("hangisini biraz önce çalıştırdım").
+- [KARAR] Goal metni **ilk `^goal:` satırından**, en fazla 60 char
+  (uzunsa `…`). Alternatif full YAML parse — bağımlılık ekler
+  (pyyaml zaten var ama basit satır tarama disk okumasız yeter).
+- [KARAR] Boş klasör = `(hiç kayıt yok)` + exit 0. **Hata değil.**
+  İlk çalıştırmada `.atlas/runs/` henüz yok — kullanıcıyı korkutma.
+- [KARAR] `atlas replay` (positional yok, `--list` yok) → SPEC
+  HATASI + exit 2 (mevcut sözleşme). Argparse otomatik hata verse
+  bile açık Türkçe mesaj daha bilgilendirici.
+- Kapsam: 1 modül düzenleme (cli.py: +`_extract_goal_from_yaml`,
+  +`_collect_replay_runs`, +`_cmd_replay_list`; `_cmd_replay`
+  dallanma; parser `--list/--json/--limit` + `run_id nargs='?'`),
+  1 test dosyası eki (+6 test, 12 toplam). 551 test yeşil (545 →
+  +6). mypy strict + ruff + scan temiz. Artefaktlar
+  `pipeline/tasks/028-replay-list/`.
+
 ## 2026-07-29 (Görev 027 — `atlas replay <run-id>`)
 - [KARAR] **YAML kopyası** replay için yeter — full snapshot (sandbox
   state, env) YAGNI. Görev YAML'ı deterministik (goal, plan_kind,
