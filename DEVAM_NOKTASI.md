@@ -1,11 +1,12 @@
 # DEVAM NOKTASI — ATLAS
 
-**Son çalışma:** 2026-07-29 (6. tur — 013+010.1+014+015+016+017)
-**Branch:** `feat/017-archive-auto` (main'e ff-merge onayı bekliyor)
+**Son çalışma:** 2026-07-29 (6. tur — 013+010.1+014+015+016+017 + merge/push/temizlik)
+**Branch:** `main` (origin/main ile senkron — `fbf51db`)
 **Working tree:** temiz
-**Durum:** 6 aşama tamamlandı, 6 lineer commit main'in üstünde
-zincirleme hazır. 444/444 test yeşil (baseline 420 → +24), coverage
-%90 üstünde, mypy strict + ruff + scan temiz.
+**Durum:** 6 aşama tamamlandı, 7 lineer commit main'e ff-merge + push
+edildi (`4edfdbe..fbf51db`), 6 feature branch silindi. 444/444 test
+yeşil, coverage %90 üstünde, mypy strict + ruff + scan temiz.
+Bilinen flaky yok.
 
 ---
 
@@ -18,7 +19,8 @@ Yeni oturumda tek cümle: **"DEVAM_NOKTASI.md'yi oku ve kaldığı yerden devam 
 ## Bu turda yapılan (2026-07-29 — 6. tur)
 
 Sıra ile 6 iş tamamlandı, her biri kendi branch'inde tek commit,
-zincirleme (`013 → 010.1 → 014 → 015 → 016 → 017`).
+zincirleme (`013 → 010.1 → 014 → 015 → 016 → 017`); sonrasında main'e
+lineer ff-merge + push + temizlik.
 
 1. **Görev 013** — CallBudget'a token maliyeti entegrasyonu (`057df31`)
    - `CallBudget.charge_tokens(in_tok, out_tok, price_in, price_out)`
@@ -67,51 +69,71 @@ zincirleme (`013 → 010.1 → 014 → 015 → 016 → 017`).
    - Çift kapı (`--apply --yes`) korunur.
    - +4 test.
 
+7. **Merge + push + temizlik**
+   - `git merge --ff-only feat/017-archive-auto` → 7 commit lineer
+     main'e (`fbf51db`), merge commit YOK.
+   - `git push origin main` → `4edfdbe..fbf51db` uzağa gitti.
+   - 6 feature branch silindi (`feat/013-callbudget-tokens`,
+     `feat/010.1-claude-system-arg`, `feat/014-retry-jitter-header`,
+     `feat/015-anthropic-cache`, `feat/016-acp-tool-reject`,
+     `feat/017-archive-auto`).
+
 ---
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-**Merge + push.** 6 lineer commit main'in üstünde hazır:
-
-```
-main (4edfdbe) ← origin/main (senkron)
-     ↑
-     057df31 feat(013): CallBudget.charge_tokens
-     7135d71 feat(010.1): claude --append-system-prompt
-     2840da3 feat(014): retry jitter + Retry-After
-     00dff15 feat(015): Anthropic prompt caching
-     08ccfac feat(016): ACP tool_call/tool_call_update açık red
-     ee868fe feat(017): archive --all --auto yaş filtresi
-```
-
-Önerilen yol:
-
-```bash
-git checkout main
-git merge --ff-only feat/017-archive-auto   # 6 commit lineer
-git push origin main
-git branch -d feat/013-callbudget-tokens feat/010.1-claude-system-arg \
-             feat/014-retry-jitter-header feat/015-anthropic-cache \
-             feat/016-acp-tool-reject feat/017-archive-auto
-```
-
-Alternatif — merge etmeden yeni görev seçilebilir. Doğal devamlar:
+**Yeni görev seçimi.** Pipeline'da açık iş yok; 013/010.1/014/015/016/017
+kapandı. Doğal devam adayları:
 
 - **Görev 015.1 — Cache-hit token indirimi:** 013 fiyat + 015 cache
   kesişimi; `cache_creation_input_tokens` vs `cache_read_input_tokens`
   Anthropic response'ta ayrı; farklı ücretlendirme.
 - **Görev 016.1 — ACP tool-use tam:** MCP forwarding + izin dialog'u +
-  gerçek tool yürütme (büyük iş).
-- **Görev 018 — Gözlem uzunluk kırpma:** `_format_prompt` prompt
-  şişmesin (obs 200 char şu an; belki dinamik).
+  gerçek tool yürütme. Büyük iş; öncesinde ACP protokol notu netleştirilmeli.
+- **Görev 018 — Gözlem uzunluk kırpma:** `_format_prompt` gözlemleri
+  200 char sabit kırpıyor; dinamik (`ATLAS_LLM_OBS_CHARS`) yapabiliriz.
 - **Görev 019 — Anthropic streaming:** ilk chunk gelince plan
   raporla (uzun response'larda hız).
 - **Görev 020 — `atlas run --dry-run`:** planner çıktısını göster,
-  action yürütme (rehearsal).
+  action yürütme (rehearsal); token maliyeti gerçek ama disk
+  yıkıcı iş yok.
+- **Görev 021 — `atlas doctor`:** env sağlık kontrolü + planlanan
+  fiyat/model tahmini; kurulum + ilk çağrı öncesi güven verir.
+
+Ya da başka bir öncelik varsa net söyle.
 
 ---
 
 ## Hızlı Bağlam
+
+**Branch grafı:**
+```
+origin/main (fbf51db) = main (fbf51db) ← senkron
+```
+Kalan local branch'ler (bu turların dışı, önceki oturumların işi):
+`feat/paketleme-bulut-secenegi`, `feat/tasinabilir-kurulum`,
+`fix/{arsivleyici-arama, kimi-yeniden-etkinlestirme,
+ollama-kimligi-tasinabilir, surum-etiketli-yedek}`.
+
+**main'e giren 7 commit (2026-07-29 6. tur):**
+```
+fbf51db docs: DEVAM_NOKTASI.md — 6. tur kapanis
+ee868fe feat(017): archive --all --auto yas filtresi
+08ccfac feat(016): ACP tool_call/tool_call_update acik red
+00dff15 feat(015): Anthropic prompt caching
+2840da3 feat(014): retry jitter + Retry-After
+7135d71 feat(010.1): claude --append-system-prompt
+057df31 feat(013): CallBudget.charge_tokens
+```
+
+**Kalite kapıları (bu turun sonu):**
+```bash
+uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
+# 444 passed
+uv run mypy src                # 25 dosya, temiz
+uv run ruff check src tests    # temiz
+uv run atlas scan src          # sır bulunamadı
+```
 
 **Env sözleşmesi (kümülatif, bu turda eklenenler ★):**
 | Değişken | Anlam |
@@ -142,8 +164,8 @@ Alternatif — merge etmeden yeni görev seçilebilir. Doğal devamlar:
 - `orchestrator/planner.py::{Planner, make_planner, make_retrying_planner,
   PlannerExhaustedError, LLMPlannerError}` — imzalar korundu; yeni
   `RetryAfterError` (LLMPlannerError alt sınıfı, LSP uyumlu).
-- `orchestrator/goals.py::Goal` — yeni alanlar `prompt_cache: bool =
-  False` opsiyonel default'lu (003.2 kalıbı).
+- `orchestrator/goals.py::Goal` — yeni alan `prompt_cache: bool = False`
+  opsiyonel default'lu (003.2 kalıbı).
 - `atlas archive` (007/012) — sözleşme korundu; yeni `--auto`
   daraltıcı bayrak.
 - `_call_anthropic`, `_format_prompt`, `_anthropic_planner` — yeni
@@ -163,11 +185,13 @@ Alternatif — merge etmeden yeni görev seçilebilir. Doğal devamlar:
 ## Kapanış Notları
 
 - 444 test yeşil (bu turun baseline'ı 420 → +24; oturum başı 319 → +125)
-- 6 lineer commit `feat/017-archive-auto` ucunda; merge stratejisi
-  user'a bağlı
+- 7 lineer commit main'e alındı, uzağa push edildi, 6 feature branch
+  silindi (kullanıcı açık onayıyla)
 - Uncommitted değişiklik yok, working tree temiz
 - Ollama / Juggler / ACP kimlikleri `.juggler/` altında (gitignored) —
   dokunulmadı
-- DECISIONS.md 2026-07-29 altında **15 giriş bloğu** birikti (bu tur
-  itibarıyla): 003.1, 003.2, 007, flaky, 008, 009, 010, 011, 012, 013,
-  010.1, 014, 015, 016, 017
+- Portable bundle son sürüm: `D:\ATLAS.rar` (önceki oturum, 1.9 GB) —
+  yenilenmemedi (kapsam dışı)
+- DECISIONS.md 2026-07-29 altında **15 giriş bloğu** birikti:
+  003.1, 003.2, 007, flaky, 008, 009, 010, 011, 012, 013, 010.1, 014,
+  015, 016, 017
