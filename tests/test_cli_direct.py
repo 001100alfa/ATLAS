@@ -789,3 +789,81 @@ def test_020_dry_run_llm_hata_exit_7(
         ])
         == 7
     )
+
+
+# ---------- SPEC 021: atlas doctor ----------
+
+
+def test_021_doctor_stub_varsayilan(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Varsayılan (env yok) → stub backend + exit 0."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.delenv("ATLAS_LLM", raising=False)
+    rc = main(["doctor"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "ATLAS_LLM: stub" in out
+    assert "[LLM backend]" in out
+    assert "[Retry & fiyat]" in out
+    assert "[Depolama]" in out
+
+
+def test_021_doctor_anthropic_key_yok_uyari(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Anthropic backend + key yok → `[!]` uyarısı; exit hâlâ 0."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "anthropic")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    rc = main(["doctor"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[!] ANTHROPIC_API_KEY yok" in out
+
+
+def test_021_doctor_anthropic_key_maskeler(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Anthropic key varsa maskelenir — tam key ASLA stdout'ta olmaz."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-SUPER-SECRET-abcdef123456")
+    rc = main(["doctor"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Tam key STDOUT'ta YOK
+    assert "SUPER-SECRET" not in out
+    # Maske görünür
+    assert "sk-" in out
+    assert "***" in out
+    assert "456" in out  # son 3 karakter
+
+
+def test_021_doctor_claude_bin_yok_uyari(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "claude")
+    monkeypatch.delenv("ATLAS_LLM_CLAUDE_BIN", raising=False)
+    import atlas_core.cli as cli_mod
+    monkeypatch.setattr(cli_mod, "_shutil", cli_mod, raising=False)
+    # shutil.which'i patch et
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda _n: None)
+    rc = main(["doctor"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[!] claude bin bulunamadı" in out
+
+
+def test_021_doctor_bilinmeyen_backend_uyari(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "xyz-backend")
+    rc = main(["doctor"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[!] bilinmeyen backend: xyz-backend" in out
+    assert "stub" in out and "claude" in out and "anthropic" in out

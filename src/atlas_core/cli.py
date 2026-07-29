@@ -529,6 +529,107 @@ def _cmd_archive_all(args: argparse.Namespace) -> int:
     return 6 if failed else 0
 
 
+def _mask_secret(value: str, keep_prefix: int = 3, keep_suffix: int = 3) -> str:
+    """API key maskele: `sk-...***abc`."""
+    if not value:
+        return "(yok)"
+    if len(value) <= keep_prefix + keep_suffix:
+        return "***"
+    return f"{value[:keep_prefix]}***{value[-keep_suffix:]}"
+
+
+def _cmd_doctor(_args: argparse.Namespace) -> int:
+    """SPEC 021: env sağlık özeti (read-only, exit 0).
+
+    LLM backend + retry/fiyat + depolama üç bölümde. API key maskelenir.
+    """
+    import shutil as _shutil
+
+    backend = os.environ.get("ATLAS_LLM", "stub")
+    supported = ("stub", "claude", "anthropic", "acp")
+    print("=== ATLAS doctor — env sağlık kontrolü ===\n")
+
+    # 1) LLM backend
+    print("[LLM backend]")
+    print(f"  ATLAS_LLM: {backend}")
+    if backend not in supported:
+        print(f"  [!] bilinmeyen backend: {backend} "
+              f"(desteklenen: {', '.join(supported)})")
+    if backend == "claude":
+        override = os.environ.get("ATLAS_LLM_CLAUDE_BIN", "").strip()
+        if override and os.path.isfile(override):
+            print(f"  claude bin (override): {override}")
+        else:
+            found = _shutil.which("claude")
+            if found:
+                print(f"  claude bin (PATH): {found}")
+            else:
+                print("  [!] claude bin bulunamadı: PATH'e ekleyin veya "
+                      "ATLAS_LLM_CLAUDE_BIN")
+    if backend == "anthropic":
+        key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if key:
+            print(f"  ANTHROPIC_API_KEY: {_mask_secret(key)}")
+        else:
+            print("  [!] ANTHROPIC_API_KEY yok")
+        model = (
+            os.environ.get("ATLAS_LLM_MODEL", "").strip()
+            or "(varsayılan: claude-3-5-sonnet-latest)"
+        )
+        print(f"  ATLAS_LLM_MODEL: {model}")
+        url = (
+            os.environ.get("ATLAS_LLM_ANTHROPIC_URL", "").strip()
+            or "(varsayılan: https://api.anthropic.com/v1/messages)"
+        )
+        print(f"  ATLAS_LLM_ANTHROPIC_URL: {url}")
+    if backend == "acp":
+        override = os.environ.get("ATLAS_LLM_ACP_BIN", "").strip()
+        if override and os.path.isfile(override):
+            print(f"  acp bin (override): {override}")
+        else:
+            found = _shutil.which("acp-agent")
+            if found:
+                print(f"  acp bin (PATH): {found}")
+            else:
+                print("  [!] acp agent bin bulunamadı: PATH'e ekleyin veya "
+                      "ATLAS_LLM_ACP_BIN")
+        args_extra = os.environ.get("ATLAS_LLM_ACP_ARGS", "").strip()
+        if args_extra:
+            print(f"  ATLAS_LLM_ACP_ARGS: {args_extra}")
+
+    timeout = os.environ.get("ATLAS_LLM_TIMEOUT", "60")
+    print(f"  ATLAS_LLM_TIMEOUT: {timeout}s")
+
+    # 2) Retry & fiyat
+    print("\n[Retry & fiyat]")
+    retries = os.environ.get("ATLAS_LLM_RETRIES", "0")
+    backoff = os.environ.get("ATLAS_LLM_BACKOFF", "1.0")
+    jitter = os.environ.get("ATLAS_LLM_JITTER", "0")
+    print(f"  ATLAS_LLM_RETRIES: {retries} (0 = kapalı)")
+    print(f"  ATLAS_LLM_BACKOFF: {backoff}s")
+    print(f"  ATLAS_LLM_JITTER: {jitter}s (0 = kapalı)")
+    price_in = os.environ.get("ATLAS_LLM_PRICE_IN", "").strip() or "(yok)"
+    price_out = os.environ.get("ATLAS_LLM_PRICE_OUT", "").strip() or "(yok)"
+    print(f"  ATLAS_LLM_PRICE_IN:  {price_in} $/M token")
+    print(f"  ATLAS_LLM_PRICE_OUT: {price_out} $/M token")
+    trace = os.environ.get("ATLAS_LLM_TRACE", "").strip()
+    print(f"  ATLAS_LLM_TRACE: {'açık' if trace == '1' else 'kapalı'}")
+    obs = os.environ.get("ATLAS_LLM_OBS_CHARS", "200")
+    print(f"  ATLAS_LLM_OBS_CHARS: {obs}")
+
+    # 3) Depolama
+    print("\n[Depolama]")
+    print(f"  ATLAS_VAULT: {_vault_root()}")
+    print(f"  ATLAS_AUDIT: {_audit_path()}")
+    print(f"  ATLAS_SANDBOX: {_sandbox_root()}")
+    ctx = os.environ.get("ATLAS_CONTEXT", "on")
+    print(f"  ATLAS_CONTEXT: {ctx}")
+    age = os.environ.get("ATLAS_ARCHIVE_AGE_DAYS", "7")
+    print(f"  ATLAS_ARCHIVE_AGE_DAYS: {age} gün")
+
+    return 0
+
+
 def _cmd_scan(args: argparse.Namespace) -> int:
     target = Path(args.path)
     files = [target] if target.is_file() else sorted(target.rglob("*"))
@@ -620,6 +721,9 @@ def main(argv: list[str] | None = None) -> int:
     p_arc.add_argument("--archive-root", default="archive",
                        help="tar.gz'lerin yazılacağı kök dizin")
     p_arc.set_defaults(func=_cmd_archive)
+
+    p_doc = sub.add_parser("doctor", help="Env sağlık özeti (SPEC 021)")
+    p_doc.set_defaults(func=_cmd_doctor)
 
     args = parser.parse_args(argv)
     # Windows konsolu (cp1254) Türkçe/üstsimge çıktıyı bozabilir; UTF-8'e sabitle.

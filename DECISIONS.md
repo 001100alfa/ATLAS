@@ -1,6 +1,34 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 021 — `atlas doctor` env sağlık özeti)
+- [KARAR] Read-only + exit 0 — env yanlış olsa da uyarı verir ama
+  process'i kırmaz. Kullanıcı ne düzelteceğini görsün diye script'ler
+  içinde `atlas doctor` sonu 0 dönmeli (CI/pre-flight).
+- [KARAR] API key maskeleme sözleşmesi: `_mask_secret(v, 3, 3)` →
+  `sk-***abc`. Uzunluk 6'dan azsa `***`. **Hiçbir kod yolunda tam
+  key stdout'a düşmez** — regresyon testi `test_021_doctor_anthropic_key_maskeler`
+  bunu doğruluyor (`"SUPER-SECRET" not in out`).
+- [KARAR] Üç bölüm başlığı `[LLM backend]` / `[Retry & fiyat]` /
+  `[Depolama]` — grep/awk ile ayrıştırma kolay; ekran tarama için
+  görsel yapı net.
+- [KARAR] Backend-özel uyarılar (`[!] claude bin bulunamadı`, `[!]
+  ANTHROPIC_API_KEY yok`) — kullanıcı hangi backend seçmiş, ne eksik
+  hemen görür. Bilinmeyen backend özel uyarı (`bilinmeyen backend:
+  xyz`) + desteklenen listesi.
+- [KARAR] LLM ping (Anthropic'e küçük request) **kapsam DIŞI** —
+  cost + gecikme + hata izolasyonu karmaşık; kullanıcı `atlas run
+  --dry-run` ile gerçek çağrıyı test edebilir. `atlas doctor` ağa
+  hiç dokunmaz.
+- [KARAR] `_shutil` gibi import alias mypy warning'i yerine `import
+  shutil as _shutil` — mypy/ruff temiz. Fonksiyon içi lazy import
+  (module scope'ta zaten `shutil` yok — cli.py hiç kullanmıyordu).
+- Kapsam: 1 modül düzenleme (cli.py: +_mask_secret + _cmd_doctor
+  yardımcıları ~100 sat, parser + "doctor" alt-komutu), 1 test
+  dosyası genişleme (+5 test). Toplam 486 test yeşil (481 → +5).
+  mypy strict + ruff temiz. `atlas scan src` sır bulmadı.
+  Artefaktlar `pipeline/tasks/021-atlas-doctor/`.
+
 ## 2026-07-29 (Görev 020 — `atlas run --dry-run` rehearsal)
 - [KARAR] **Tek adım rehearsal** — action stub'landı + judge sabit
   True. Alternatif "N adım simüle et" bilinmiyor bir gelecek (planner
