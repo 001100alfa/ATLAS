@@ -80,22 +80,40 @@ class CallBudget:
         output_tokens: int,
         price_in: float,
         price_out: float,
+        *,
+        cache_creation: int = 0,
+        cache_read: int = 0,
     ) -> None:
         """SPEC 013: LLM token maliyeti bütçeye ekler (per million USD).
 
-        Cost = `in * price_in / 1e6 + out * price_out / 1e6`. Fiyat
-        0/negatif → no-op (bütçe hiç değişmez, 011 fail-safe kalıbı).
+        SPEC 015.1: Anthropic prompt caching aktifken cache alanları
+        indirimli fiyat çarpanları ile hesaplanır:
+        - cache_creation: `price_in * 1.25` (yazma primi)
+        - cache_read: `price_in * 0.1` (okuma indirimi)
+
+        Cost = normal + cache_creation + cache_read + output.
+        Fiyat 0/negatif → no-op (bütçe hiç değişmez, 011 fail-safe kalıbı).
         Bütçe aşarsa `BudgetExceededError`.
         """
         if price_in <= 0 and price_out <= 0:
             return  # no-op: fiyat env'i yoksa/hatalıysa bütçe hiç değişmez
+        pin = max(price_in, 0.0)
+        pout = max(price_out, 0.0)
         cost = (
-            input_tokens * max(price_in, 0.0) / 1_000_000
-            + output_tokens * max(price_out, 0.0) / 1_000_000
+            input_tokens * pin / 1_000_000
+            + cache_creation * pin * 1.25 / 1_000_000
+            + cache_read * pin * 0.1 / 1_000_000
+            + output_tokens * pout / 1_000_000
         )
         if cost <= 0:
             return
-        self.charge(cost, f"llm tokens (in={input_tokens} out={output_tokens})")
+        what = (
+            f"llm tokens (in={input_tokens} out={output_tokens}"
+            + (f" cache={cache_creation}" if cache_creation else "")
+            + (f" cache_read={cache_read}" if cache_read else "")
+            + ")"
+        )
+        self.charge(cost, what)
 
 
 @dataclass(slots=True)

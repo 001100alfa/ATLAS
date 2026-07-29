@@ -170,12 +170,18 @@ def _cmd_run_goal(args: argparse.Namespace) -> int:
     audit = AuditLog(_audit_path())
     budget = CallBudget(limit=goal.budget)
     last_exit: dict[str, int] = {}
-    # SPEC 013: anthropic backend usage → CallBudget.charge_tokens
+    # SPEC 013 + 015.1: anthropic backend usage → CallBudget.charge_tokens
     # (fiyat env yoksa no-op; charge_tokens içindeki fail-safe).
+    # 4-arg: (input, output, cache_creation, cache_read).
     price_in, price_out = _read_llm_prices()
 
-    def _on_usage(in_tok: int, out_tok: int) -> None:
-        budget.charge_tokens(in_tok, out_tok, price_in, price_out)
+    def _on_usage(
+        in_tok: int, out_tok: int, cache_c: int, cache_r: int
+    ) -> None:
+        budget.charge_tokens(
+            in_tok, out_tok, price_in, price_out,
+            cache_creation=cache_c, cache_read=cache_r,
+        )
 
     try:
         inner = make_planner(

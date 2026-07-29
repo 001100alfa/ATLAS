@@ -1,6 +1,39 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 015.1 — cache-hit token indirimi)
+- [KARAR] Anthropic tarife çarpanları **modül sabitleri**:
+  `_CACHE_READ_MULT = 0.1`, `_CACHE_WRITE_MULT = 1.25`. Kamu tarife.
+  Model-özel farklılaştırmadık (Sonnet/Opus aynı oran); Anthropic
+  tarifesi değişirse tek yerden güncellenir.
+- [KARAR] `_extract_usage` **4-tuple**'a genişledi — `(input, output,
+  cache_creation, cache_read)`. İç fonksiyon; kırma maliyeti düşük;
+  tüm çağıranları (trace + on_usage) tek yerden güncelledik.
+- [KARAR] `on_usage` callback imzası **2-arg → 4-arg** (`(int, int)`
+  → `(int, int, int, int)`) — 013 sözleşmesi kırıldı ama:
+  1. İç API (public planner Callable etkilenmedi)
+  2. 013'ten kısa süre geçti, tek çağıran var (CLI)
+  3. Alternatif: cache alanlarını bir 4. arg yerine `**kwargs` ile
+     iletmek okunması zor kod. Basit tuple daha net.
+  Test tarafında 2 test güncellendi (4-arg lambda) — kırma acısız.
+- [KARAR] `CallBudget.charge_tokens` yeni kwargs `cache_creation: int
+  = 0`, `cache_read: int = 0` **keyword-only + default=0** — 013
+  mevcut çağrıları bit-uyumlu. `charge_tokens(a, b, c, d)` hâlâ
+  çalışır. Genişleme kırmadan geldi.
+- [KARAR] Trace format `in=N (cache=W r=R) out=M` — cache varsa
+  parantez. Yoksa 011 formatı bit-uyumlu (`in=N out=M`). Grep/awk
+  hala kolay; kullanıcı `cache=` gördüğünde hemen "cache-hit
+  bilgisi" olduğunu anlar.
+- [KARAR] Trace ve charge_tokens tek gerçek kaynak: `_extract_usage`.
+  Cache hesabı iki yerde de aynı (indirim = %10 read, %125 create).
+  Bir yerde bug varsa diğerinde de var; test yalıtımı temiz.
+- Kapsam: 1 modül düzenleme (planner.py sabitler + _extract_usage
+  4-tuple + _fmt_cost cache paramları + trace format + on_usage tip),
+  1 modül düzenleme (core.py charge_tokens kwargs), 1 CLI düzenleme
+  (_on_usage 4-arg), 2 test dosyası genişleme (+10 test). Toplam
+  454 test yeşil (444 → +10). mypy strict + ruff temiz. Artefaktlar
+  `pipeline/tasks/015-1-cache-hit-discount/`.
+
 ## 2026-07-29 (Görev 017 — `atlas archive --auto` yaş filtresi)
 - [KARAR] Yaş ölçüsü **`09-ship.md` dosyasının st_mtime**'ı — task
   klasörünün oluşum tarihi değil. SHIP zamanı "görev bitti" işareti;

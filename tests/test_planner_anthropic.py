@@ -469,6 +469,112 @@ def test_011_fiyat_env_bozuk(
     assert "cost≈?" in capsys.readouterr().err
 
 
+# ---------- SPEC 015.1: cache-hit indirim (trace + on_usage) ----------
+
+def test_015_1_extract_usage_4_tuple() -> None:
+    """`_extract_usage` cache alanlarını da döndürür (4-tuple)."""
+    data = {
+        "usage": {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cache_creation_input_tokens": 200,
+            "cache_read_input_tokens": 300,
+        }
+    }
+    assert planner_mod._extract_usage(data) == (100, 50, 200, 300)
+
+
+def test_015_1_extract_usage_cache_yok_0() -> None:
+    """Cache alanları yoksa 0 döner (011 uyumlu)."""
+    data = {"usage": {"input_tokens": 100, "output_tokens": 50}}
+    assert planner_mod._extract_usage(data) == (100, 50, 0, 0)
+
+
+def test_015_1_trace_cache_formati(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Trace: cache alanları varsa `in=N (cache=W r=R) out=M`."""
+    _prep_key(monkeypatch)
+    monkeypatch.setenv("ATLAS_LLM_TRACE", "1")
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        return _FakeResponse(
+            json.dumps(
+                {
+                    "content": [{"type": "text", "text": "write:x.txt:1"}],
+                    "usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 50,
+                        "cache_creation_input_tokens": 200,
+                        "cache_read_input_tokens": 300,
+                    },
+                }
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())
+    p("g", [])
+    err = capsys.readouterr().err
+    assert "in=100 (cache=200 r=300) out=50" in err
+
+
+def test_015_1_trace_cache_yok_eski_format(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Cache alanları yoksa 011 format bit-uyumlu: `in=N out=M`."""
+    _prep_key(monkeypatch)
+    monkeypatch.setenv("ATLAS_LLM_TRACE", "1")
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        return _FakeResponse(
+            json.dumps(
+                {
+                    "content": [{"type": "text", "text": "write:x.txt:1"}],
+                    "usage": {"input_tokens": 100, "output_tokens": 50},
+                }
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    p = make_planner(_goal_llm())
+    p("g", [])
+    err = capsys.readouterr().err
+    assert "in=100 out=50" in err
+    assert "cache=" not in err  # parantez atlanır
+
+
+def test_015_1_on_usage_cache_alanlari_gecer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """on_usage callback cache alanlarını da alır."""
+    _prep_key(monkeypatch)
+
+    def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
+        return _FakeResponse(
+            json.dumps(
+                {
+                    "content": [{"type": "text", "text": "write:x.txt:1"}],
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 5,
+                        "cache_creation_input_tokens": 20,
+                        "cache_read_input_tokens": 30,
+                    },
+                }
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
+    captured: list[tuple[int, int, int, int]] = []
+    p = make_planner(
+        _goal_llm(),
+        on_usage=lambda i, o, cc, cr: captured.append((i, o, cc, cr)),
+    )
+    p("g", [])
+    assert captured == [(10, 5, 20, 30)]
+
+
 # ---------- SPEC 015: prompt caching ----------
 
 def test_015_cache_kapali_system_string(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -631,7 +737,7 @@ def test_014_http_529_with_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------- SPEC 013: on_usage callback → CallBudget.charge_tokens ----------
 
 def test_013_on_usage_cagrilir(monkeypatch: pytest.MonkeyPatch) -> None:
-    """M4: response usage varsa on_usage(in, out) çağrılır."""
+    """M4: response usage varsa on_usage(in, out, cache_c, cache_r) çağrılır."""
     _prep_key(monkeypatch)
 
     def fake_urlopen(*_a: Any, **_kw: Any) -> _FakeResponse:
@@ -645,10 +751,14 @@ def test_013_on_usage_cagrilir(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
-    captured: list[tuple[int, int]] = []
-    p = make_planner(_goal_llm(), on_usage=lambda i, o: captured.append((i, o)))
+    captured: list[tuple[int, int, int, int]] = []
+    p = make_planner(
+        _goal_llm(),
+        on_usage=lambda i, o, cc, cr: captured.append((i, o, cc, cr)),
+    )
     p("g", [])
-    assert captured == [(123, 45)]
+    # SPEC 015.1: cache alanları yok → 0
+    assert captured == [(123, 45, 0, 0)]
 
 
 def test_013_on_usage_none_no_op(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -690,7 +800,7 @@ def test_013_on_usage_butce_asim_planner_asagi(
 
     monkeypatch.setattr(planner_mod.urllib_request, "urlopen", fake_urlopen)
 
-    def raiser(_i: int, _o: int) -> None:
+    def raiser(_i: int, _o: int, _cc: int, _cr: int) -> None:
         raise BudgetExceededError("token aşımı")
 
     p = make_planner(_goal_llm(), on_usage=raiser)

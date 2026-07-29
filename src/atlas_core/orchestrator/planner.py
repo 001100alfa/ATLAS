@@ -48,6 +48,10 @@ _DEFAULT_ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-latest"
 _ANTHROPIC_VERSION = "2023-06-01"
 _ANTHROPIC_MAX_TOKENS = 256
+# SPEC 015.1: Anthropic prompt caching resmi tarife çarpanları.
+# cache_read = %10 tam fiyat; cache_creation = %125 tam fiyat.
+_CACHE_READ_MULT = 0.1
+_CACHE_WRITE_MULT = 1.25
 
 # SPEC 008: test için monkeypatch-able uyku hook'u (default time.sleep).
 _sleep: Callable[[float], None] = time.sleep
@@ -77,7 +81,7 @@ def make_planner(
     goal: Goal,
     context: str | None = None,
     *,
-    on_usage: Callable[[int, int], None] | None = None,
+    on_usage: Callable[[int, int, int, int], None] | None = None,
 ) -> Planner:
     """Goal.plan_kind + ATLAS_LLM'e göre uygun planner closure'u üretir.
 
@@ -320,7 +324,7 @@ def _call_anthropic(
     timeout_s: int,
     *,
     system: str | list[dict[str, Any]] | None = None,
-    on_usage: Callable[[int, int], None] | None = None,
+    on_usage: Callable[[int, int, int, int], None] | None = None,
 ) -> str:
     """Anthropic Messages API — HTTPS POST, ilk satır plan döner.
 
@@ -407,11 +411,12 @@ def _call_anthropic(
         raise LLMPlannerError("anthropic boş plan cevabı döndürdü (ilk satır boş)")
     # SPEC 011: report-only token usage trace (yan etki, sözleşme değişmez).
     _emit_anthropic_usage_trace(data)
-    # SPEC 013: opsiyonel callback ile CallBudget.charge_tokens beslenir.
+    # SPEC 013 + 015.1: opsiyonel callback ile CallBudget.charge_tokens
+    # beslenir; cache alanları kwargs ile aktarılır (varsayılan 0).
     if on_usage is not None:
-        _in, _out = _extract_usage(data)
+        _in, _out, _cc, _cr = _extract_usage(data)
         try:
-            on_usage(_in, _out)
+            on_usage(_in, _out, _cc, _cr)
         except Exception:
             # Bütçe aşımı vs. burada yakalanmaz — yukarıya raise et
             # (LLMPlannerError değil BudgetExceededError için de).
@@ -419,39 +424,61 @@ def _call_anthropic(
     return first_line
 
 
-def _extract_usage(data: Any) -> tuple[int, int]:
-    """`usage.input_tokens` + `output_tokens` yakala; yoksa (0, 0)."""
+def _extract_usage(data: Any) -> tuple[int, int, int, int]:
+    """`usage` alanlarını yakala; yoksa (0, 0, 0, 0).
+
+    Döner: `(input_tokens, output_tokens, cache_creation_input_tokens,
+    cache_read_input_tokens)`. SPEC 015.1 — Anthropic prompt caching
+    aktifken cache alanları dolu gelir.
+    """
     usage = data.get("usage") if isinstance(data, dict) else None
     in_tok = 0
     out_tok = 0
+    cache_c = 0
+    cache_r = 0
     if isinstance(usage, dict):
         in_raw = usage.get("input_tokens", 0)
         out_raw = usage.get("output_tokens", 0)
+        cc_raw = usage.get("cache_creation_input_tokens", 0)
+        cr_raw = usage.get("cache_read_input_tokens", 0)
         if isinstance(in_raw, int):
             in_tok = in_raw
         if isinstance(out_raw, int):
             out_tok = out_raw
-    return in_tok, out_tok
+        if isinstance(cc_raw, int):
+            cache_c = cc_raw
+        if isinstance(cr_raw, int):
+            cache_r = cr_raw
+    return in_tok, out_tok, cache_c, cache_r
 
 
 def _emit_anthropic_usage_trace(data: Any) -> None:
     """`ATLAS_LLM_TRACE=1` açıkken usage bilgisini stderr'a yaz.
 
-    Kapalıysa yalın no-op — çağrı yolunda yan etki yok.
+    Kapalıysa yalın no-op — çağrı yolunda yan etki yok. SPEC 015.1:
+    cache alanları varsa `in=N (cache=W r=R) out=M` formatı.
     """
     if os.environ.get("ATLAS_LLM_TRACE") != "1":
         return
-    in_tok, out_tok = _extract_usage(data)
-    cost_txt = _fmt_cost(in_tok, out_tok)
+    in_tok, out_tok, cache_c, cache_r = _extract_usage(data)
+    cost_txt = _fmt_cost(in_tok, out_tok, cache_c, cache_r)
+    cache_part = ""
+    if cache_c or cache_r:
+        cache_part = f" (cache={cache_c} r={cache_r})"
     print(
-        f"[llm] anthropic tokens: in={in_tok} out={out_tok} cost≈{cost_txt}",
+        f"[llm] anthropic tokens: in={in_tok}{cache_part} out={out_tok} "
+        f"cost≈{cost_txt}",
         file=sys.stderr,
     )
 
 
-def _fmt_cost(in_tok: int, out_tok: int) -> str:
+def _fmt_cost(
+    in_tok: int, out_tok: int, cache_c: int = 0, cache_r: int = 0
+) -> str:
     """Fiyat env'i (per million USD) varsa cost, yoksa `?`.
 
+    SPEC 015.1: cache_creation `_CACHE_WRITE_MULT` (%125),
+    cache_read `_CACHE_READ_MULT` (%10) çarpanlı hesaplanır.
     Parse hatası → `?` (fail-safe; kullanıcı env'i yanlış yazarsa
     işlemi kırma).
     """
@@ -460,7 +487,12 @@ def _fmt_cost(in_tok: int, out_tok: int) -> str:
         price_out = float(os.environ.get("ATLAS_LLM_PRICE_OUT", ""))
     except ValueError:
         return "?"
-    cost = in_tok * price_in / 1_000_000 + out_tok * price_out / 1_000_000
+    cost = (
+        in_tok * price_in / 1_000_000
+        + cache_c * price_in * _CACHE_WRITE_MULT / 1_000_000
+        + cache_r * price_in * _CACHE_READ_MULT / 1_000_000
+        + out_tok * price_out / 1_000_000
+    )
     return f"${cost:.6f}"
 
 
@@ -468,7 +500,7 @@ def _anthropic_planner(
     goal: Goal,
     context: str | None = None,
     *,
-    on_usage: Callable[[int, int], None] | None = None,
+    on_usage: Callable[[int, int, int, int], None] | None = None,
 ) -> Planner:
     """Fabrika: env'i erken çözer (fail-fast), closure her turda çağırır.
 

@@ -76,3 +76,60 @@ def test_charge_ile_charge_tokens_bir_arada_gecer() -> None:
     b.charge(5.0, "act 1")
     b.charge_tokens(1_000_000, 200_000, price_in=3.0, price_out=15.0)  # +6
     assert b.spent == pytest.approx(11.0)
+
+
+# ---------- SPEC 015.1: cache-hit indirim ----------
+
+
+def test_015_1_cache_read_yuzde_10() -> None:
+    """cache_read = %10 tam fiyat: 1M cache_read * 3 * 0.1 = 0.3."""
+    b = CallBudget(limit=100.0)
+    b.charge_tokens(
+        0, 0, price_in=3.0, price_out=15.0,
+        cache_read=1_000_000,
+    )
+    assert b.spent == pytest.approx(0.3)
+
+
+def test_015_1_cache_creation_yuzde_125() -> None:
+    """cache_creation = %125 tam fiyat: 1M cache * 3 * 1.25 = 3.75."""
+    b = CallBudget(limit=100.0)
+    b.charge_tokens(
+        0, 0, price_in=3.0, price_out=15.0,
+        cache_creation=1_000_000,
+    )
+    assert b.spent == pytest.approx(3.75)
+
+
+def test_015_1_hep_bir_arada() -> None:
+    """input + cache_write + cache_read + output — toplam."""
+    b = CallBudget(limit=100.0)
+    # 500k input * 3 = 1.5
+    # 500k cache_c * 3 * 1.25 = 1.875
+    # 500k cache_r * 3 * 0.1 = 0.15
+    # 200k out * 15 = 3.0
+    # toplam = 6.525
+    b.charge_tokens(
+        500_000, 200_000, price_in=3.0, price_out=15.0,
+        cache_creation=500_000, cache_read=500_000,
+    )
+    assert b.spent == pytest.approx(6.525)
+
+
+def test_015_1_default_kwargs_013_uyumlu() -> None:
+    """cache_* verilmezse 013 davranışı bit-uyumlu."""
+    b = CallBudget(limit=100.0)
+    b.charge_tokens(1_000_000, 200_000, price_in=3.0, price_out=15.0)
+    assert b.spent == pytest.approx(6.0)  # 013 hesabı aynen
+
+
+def test_015_1_what_metni_cache_bilgisi() -> None:
+    """Bütçe aşarsa what mesajı cache bilgisi taşır."""
+    b = CallBudget(limit=0.5)
+    with pytest.raises(BudgetExceededError) as exc_info:
+        b.charge_tokens(
+            1_000_000, 0, price_in=3.0, price_out=0.0,
+            cache_creation=100_000,
+        )
+    msg = str(exc_info.value)
+    assert "cache=100000" in msg
