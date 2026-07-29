@@ -1,6 +1,28 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 024 — `atlas dashboard` özet)
+- [KARAR] Run tespiti **heuristic** — audit `plan`/`dry_run` başlangıç,
+  `done`/`denied`/`max_steps`/`llm_error` bitiş. Alternatif "run
+  başlangıç için ayrı action" (`atlas-run/start`) audit sözleşmesini
+  genişletirdi; şu an heuristik yeter.
+- [KARAR] Bitmemiş run'lar `"unfinished"` olarak listelenir — süreç
+  sonlanmadan öldüyse görünür. Alternatif "atla" bilgi kaybı.
+- [KARAR] Cost run-metrics eşleşmesi **zaman aralığı**: `start_ts <=
+  m.ts <= end_ts`. ISO 8601 string karşılaştırması kronolojik doğru;
+  parse gereksiz. UTC/timezone farkı YAGNI (çoğu kullanıcı tek
+  makinede).
+- [KARAR] Audit sağlık ilk satır — `denetim zinciri: GEÇERLİ /
+  BOZULMUŞ`. Kullanıcı dashboard'a bakınca hemen zincirin
+  bütünlüğünü görsün; bozulmuşsa runs listesi güvensiz.
+- [KARAR] Fiyat env yoksa cost `?` — 023 kalıbı. Kullanıcı env
+  set etmediyse dashboard yine çalışır, sadece cost belirsiz.
+- Kapsam: 1 CLI düzenleme (cli.py: +_collect_runs_from_audit ~50 sat,
+  +_cost_for_run ~35 sat, +_cmd_dashboard ~40 sat, +parser),
+  1 yeni test dosyası (6 test). Toplam 518 test yeşil (512 → +6).
+  mypy strict + ruff + scan temiz. Artefaktlar
+  `pipeline/tasks/024-dashboard/`.
+
 ## 2026-07-29 (Görev 023 — cache-hit metrikleri)
 - [KARAR] **JSONL formatı** — her satır bağımsız JSON. Append kolay
   (dosya kilit gerektirmez); parse esnek (bozuk satır atla, kalan

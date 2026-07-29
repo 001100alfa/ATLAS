@@ -847,6 +847,158 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _collect_runs_from_audit(
+    audit_path: Path, limit: int
+) -> list[dict[str, Any]]:
+    """SPEC 024: audit.jsonl'dan atlas-run oturumlarını çıkar.
+
+    Basit heuristic: `dry_run` veya `plan` başlangıç işareti;
+    sonraki `done` / `denied` / `max_steps` / `llm_error` bitiş.
+    Her run için `{start_ts, end_ts, exit, steps, goal}` döner.
+    """
+    import json as _json
+    if not audit_path.is_file():
+        return []
+    records: list[dict[str, Any]] = []
+    try:
+        for line in audit_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict) and obj.get("actor") == "atlas-run":
+                records.append(obj)
+    except OSError:
+        return []
+
+    end_actions = {"done", "denied", "max_steps", "llm_error"}
+    runs: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for rec in records:
+        action = rec.get("action", "")
+        ts = rec.get("ts", "")
+        detail = rec.get("detail", "")
+        if action in ("plan", "dry_run") and current is None:
+            current = {
+                "start_ts": ts,
+                "end_ts": ts,
+                "exit": "?",
+                "steps": 0,
+                "goal": detail if action == "dry_run" else detail,
+            }
+        if current is not None:
+            if action == "plan":
+                current["steps"] += 1
+                if not current.get("goal"):
+                    current["goal"] = detail
+            if action in end_actions:
+                current["end_ts"] = ts
+                current["exit"] = action
+                if not current.get("goal"):
+                    current["goal"] = detail
+                runs.append(current)
+                current = None
+    if current is not None:
+        # Bitmemiş run — açık bırak
+        current["exit"] = "unfinished"
+        runs.append(current)
+
+    return runs[-limit:]
+
+
+def _cost_for_run(
+    run: dict[str, Any], metrics_path: Path,
+    price_in: float, price_out: float,
+) -> float | None:
+    """SPEC 024: metrics.jsonl'dan run zaman aralığındaki cost."""
+    import json as _json
+    if not metrics_path.is_file():
+        return None
+    start = run.get("start_ts", "")
+    end = run.get("end_ts", "")
+    total_in = 0
+    total_cc = 0
+    total_cr = 0
+    total_out = 0
+    try:
+        for line in metrics_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                m = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            if not isinstance(m, dict):
+                continue
+            ts = m.get("ts", "")
+            # Basit string karşılaştırma — ISO 8601 kronolojik sıralı
+            if start and end and (ts < start or ts > end):
+                continue
+            total_in += int(m.get("in", 0) or 0)
+            total_out += int(m.get("out", 0) or 0)
+            total_cc += int(m.get("cache_c", 0) or 0)
+            total_cr += int(m.get("cache_r", 0) or 0)
+    except OSError:
+        return None
+    if price_in <= 0 and price_out <= 0:
+        return None
+    return (
+        total_in * price_in / 1_000_000
+        + total_cc * price_in * 1.25 / 1_000_000
+        + total_cr * price_in * 0.1 / 1_000_000
+        + total_out * price_out / 1_000_000
+    )
+
+
+def _cmd_dashboard(args: argparse.Namespace) -> int:
+    """SPEC 024: `.atlas/audit.jsonl` + `.atlas/metrics.jsonl` özet."""
+    import json as _json
+
+    from atlas_core.orchestrator.planner import _metrics_path
+
+    audit_path = _audit_path()
+    metrics_path = _metrics_path()
+    audit = AuditLog(audit_path) if audit_path.parent.exists() else None
+    chain_ok = audit.verify() if audit is not None else True
+
+    limit: int = args.limit
+    runs = _collect_runs_from_audit(audit_path, limit)
+    price_in, price_out = _read_llm_prices()
+
+    if args.json:
+        out_runs: list[dict[str, Any]] = []
+        for r in runs:
+            cost = _cost_for_run(r, metrics_path, price_in, price_out)
+            item = dict(r)
+            item["cost"] = f"${cost:.6f}" if cost is not None else "?"
+            out_runs.append(item)
+        print(_json.dumps({
+            "audit_chain_valid": chain_ok,
+            "runs": out_runs,
+        }, ensure_ascii=False))
+        return 0
+
+    print(f"denetim zinciri: {'GEÇERLİ' if chain_ok else 'BOZULMUŞ'}")
+    print(f"\n=== ATLAS dashboard — son {limit} run ===\n")
+    if not runs:
+        print("  (0 run)")
+        return 0
+    print(f"  {'#':<3} {'ts':<20} {'exit':<12} {'steps':<6} cost")
+    for i, r in enumerate(runs, 1):
+        cost = _cost_for_run(r, metrics_path, price_in, price_out)
+        cost_str = f"${cost:.6f}" if cost is not None else "?"
+        ts_short = str(r.get("start_ts", ""))[:19].replace("T", " ")
+        print(
+            f"  {i:<3} {ts_short:<20} "
+            f"{r.get('exit', '?'):<12} {r.get('steps', 0):<6} {cost_str}"
+        )
+    return 0
+
+
 def _cmd_metrics(args: argparse.Namespace) -> int:
     """SPEC 023: `.atlas/metrics.jsonl` son N kaydı özetler."""
     import json as _json
@@ -1005,6 +1157,11 @@ def main(argv: list[str] | None = None) -> int:
     p_arc.add_argument("--archive-root", default="archive",
                        help="tar.gz'lerin yazılacağı kök dizin")
     p_arc.set_defaults(func=_cmd_archive)
+
+    p_dash = sub.add_parser("dashboard", help="Son N run özeti (SPEC 024)")
+    p_dash.add_argument("--limit", type=int, default=10)
+    p_dash.add_argument("--json", action="store_true")
+    p_dash.set_defaults(func=_cmd_dashboard)
 
     p_met = sub.add_parser("metrics", help="LLM çağrı metrikleri özeti (SPEC 023)")
     p_met.add_argument("--limit", type=int, default=20,
