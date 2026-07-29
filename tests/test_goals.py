@@ -126,3 +126,62 @@ def test_negatif_butce_spec_error(tmp_path: Path) -> None:
     )
     with pytest.raises(SpecError, match="budget"):
         load_goal(p)
+
+
+# ---------- SPEC 006: opsiyonel context alanları ----------
+
+
+def test_006_default_inject_context_ve_limit() -> None:
+    goal = load_goal(FIXTURES / "hello.yaml")
+    # YAML'da yok — default kullanılır
+    assert goal.inject_context is True
+    assert goal.context_limit == 5
+
+
+def test_006_inject_context_bool_degilse_spec_error(tmp_path: Path) -> None:
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "inject_context: kırık\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match="inject_context bool"):
+        load_goal(p)
+
+
+def test_006_context_limit_negatif_spec_error(tmp_path: Path) -> None:
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "context_limit: -1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match="context_limit"):
+        load_goal(p)
+
+
+def test_006_context_limit_ust_sinir_spec_error(tmp_path: Path) -> None:
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "context_limit: 51\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match="context_limit"):
+        load_goal(p)
+
+
+def test_006_context_limit_bool_reddedilir(tmp_path: Path) -> None:
+    # bool int'in alt sınıfı — özel kontrol testi
+    p = tmp_path / "b.yaml"
+    p.write_text(
+        "goal: x\nplan_kind: static\nplan_steps: [\"read:y\"]\n"
+        "action_allowlist: [read]\njudge_kind: file_exists\njudge_arg: y\n"
+        "context_limit: true\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match="context_limit"):
+        load_goal(p)

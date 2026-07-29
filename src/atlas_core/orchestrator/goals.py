@@ -29,6 +29,9 @@ class SpecError(ValueError):
     """YAML hedef dosyası şema/anlam hatası."""
 
 
+_MAX_CONTEXT_LIMIT = 50
+
+
 @dataclass(frozen=True, slots=True)
 class Goal:
     """Doğrulanmış hedef sözleşmesi (çalışma zamanı değişmez)."""
@@ -43,6 +46,10 @@ class Goal:
     budget: float
     max_steps: int
     costs: dict[str, float] = field(default_factory=lambda: dict(_DEFAULT_COSTS))
+    # SPEC 006: otomatik GBrain context injection kontrolleri (opsiyonel).
+    # Eski YAML'lar (bu alanlar yok) default davranışla çalışır.
+    inject_context: bool = True
+    context_limit: int = 5
 
 
 def _require(spec: dict[str, object], key: str, kind: type) -> object:
@@ -122,6 +129,19 @@ def load_goal(path: Path) -> Goal:
             raise SpecError(f"costs[{k!r}] negatif olmayan sayı olmalı")
         costs[k] = float(v)
 
+    # SPEC 006: opsiyonel context injection alanları.
+    inject_ctx_raw = raw.get("inject_context", True)
+    if not isinstance(inject_ctx_raw, bool):
+        raise SpecError(f"inject_context bool olmalı, gelen: {inject_ctx_raw!r}")
+    ctx_limit_raw = raw.get("context_limit", 5)
+    # bool int'in alt sınıfıdır — özellikle ele al.
+    if isinstance(ctx_limit_raw, bool) or not isinstance(ctx_limit_raw, int):
+        raise SpecError(f"context_limit pozitif tamsayı olmalı, gelen: {ctx_limit_raw!r}")
+    if ctx_limit_raw <= 0 or ctx_limit_raw > _MAX_CONTEXT_LIMIT:
+        raise SpecError(
+            f"context_limit 1..{_MAX_CONTEXT_LIMIT} aralığında olmalı, gelen: {ctx_limit_raw}"
+        )
+
     # Literal daraltması: yukarıda enum kontrolü yapıldı, tip güvenli.
     return Goal(
         goal=goal,
@@ -134,4 +154,6 @@ def load_goal(path: Path) -> Goal:
         budget=float(budget_raw),
         max_steps=max_steps_raw,
         costs=costs,
+        inject_context=inject_ctx_raw,
+        context_limit=ctx_limit_raw,
     )

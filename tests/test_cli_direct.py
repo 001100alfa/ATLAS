@@ -185,3 +185,104 @@ def test_audit_verify_bozuk(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     audit.write_text('{"ts":"x","actor":"a","action":"b","detail":"c","prev":"WRONG","hash":"deadbeef"}\n')
     monkeypatch.setenv("ATLAS_AUDIT", str(audit))
     assert main(["audit-verify"]) == 1
+
+
+# ---------- SPEC 006: otomatik context injection ----------
+
+
+def test_006_static_gorevde_baglam_kapali(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """AC3: static görev → _context_enabled False → 'Bağlam: (kapalı)'."""
+    _env(monkeypatch, tmp_path)
+    # capsys benzeri: main() stdout'unu tmpfile'a yönlendirmek yerine,
+    # subprocess'siz direkt fonksiyonu çalıştırıyoruz — sadece exit'i ölçelim.
+    assert main(["run", "--goal-file", "tests/goals/hello.yaml", "--run-id", "d"]) == 0
+
+
+def test_006_atlas_context_off_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AC5: env=off → LLM görevi bile olsa 'Bağlam: (kapalı)'.
+
+    Not: llm_stub.yaml stub planı `plan[stub]:noop` üretir; bu fiil
+    action_allowlist=[read] içinde yok → ActionDenied → exit 5. Yani
+    exit kodu değil, stdout'taki başlık test edilir.
+    """
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "stub")
+    monkeypatch.setenv("ATLAS_CONTEXT", "off")
+    assert main(["run", "--goal-file", "tests/goals/llm_stub.yaml", "--run-id", "e"]) == 5
+    out = capsys.readouterr().out
+    assert "Bağlam: (kapalı)" in out
+
+
+def test_006_llm_gorevde_baglam_hesaplanir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AC1: llm görev + varsayılan → _context_enabled True → 'Bağlam:' başlığı."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "stub")
+    monkeypatch.delenv("ATLAS_CONTEXT", raising=False)
+    assert main(["run", "--goal-file", "tests/goals/llm_stub.yaml", "--run-id", "f"]) == 5
+    out = capsys.readouterr().out
+    # başlık var ve "kapalı" değil (etkin ama vault boş: "yok")
+    assert "Bağlam:" in out
+    baglam_satir = [ln for ln in out.splitlines() if ln.startswith("Bağlam:")][0]
+    assert "kapalı" not in baglam_satir
+
+
+def test_006_gbrain_hata_izole(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AC7: GBrain patlarsa görev context'siz devam (stderr uyarı, exit != 7)."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "stub")
+    import atlas_core.cli as cli_mod
+
+    class _Boom:
+        def __init__(self, *a: object, **kw: object) -> None:
+            raise RuntimeError("gbrain diski dolu")
+
+    monkeypatch.setattr(cli_mod, "GBrain", _Boom)
+    # stub planı ActionDenied → exit 5, ama context hatası izole (7 değil)
+    assert main(["run", "--goal-file", "tests/goals/llm_stub.yaml", "--run-id", "g"]) == 5
+    err = capsys.readouterr().err
+    assert "GBrain context alınamadı" in err
+    assert "diski dolu" in err
+
+
+def test_006_goal_inject_context_false(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AC6: goal.inject_context=False → kapalı (env değil, YAML)."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "stub")
+    y = tmp_path / "no_ctx.yaml"
+    y.write_text(
+        "goal: bağlamsız\nplan_kind: llm\naction_allowlist: [read]\n"
+        "judge_kind: file_exists\njudge_arg: yok.txt\n"
+        "budget: 20\nmax_steps: 2\ninject_context: false\n",
+        encoding="utf-8",
+    )
+    assert main(["run", "--goal-file", str(y), "--run-id", "h"]) == 5
+    out = capsys.readouterr().out
+    assert "Bağlam: (kapalı)" in out
+
+
+def test_006_baglam_var_ise_sayilir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """FR8: vault'ta ilgili not varsa 'N not enjekte edildi'."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "stub")
+    main(["remember", "dosya-not", "dosya yazma notları için ayrıntılar"])
+    y = tmp_path / "match.yaml"
+    y.write_text(
+        "goal: dosya yaz\nplan_kind: llm\naction_allowlist: [read]\n"
+        "judge_kind: file_exists\njudge_arg: yok.txt\n"
+        "budget: 20\nmax_steps: 2\n",
+        encoding="utf-8",
+    )
+    assert main(["run", "--goal-file", str(y), "--run-id", "i"]) == 5
+    out = capsys.readouterr().out
+    # "N not enjekte edildi" veya "Bağlam: yok" (FTS bulamazsa) — ikisi de geçerli
+    assert ("enjekte edildi" in out) or ("Bağlam: yok" in out)

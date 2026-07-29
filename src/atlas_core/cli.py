@@ -33,7 +33,7 @@ from atlas_core.orchestrator.core import (
     StepKind,
     run_loop,
 )
-from atlas_core.orchestrator.goals import SpecError, load_goal
+from atlas_core.orchestrator.goals import Goal, SpecError, load_goal
 from atlas_core.orchestrator.judges import make_judge
 from atlas_core.orchestrator.planner import (
     LLMPlannerError,
@@ -86,12 +86,50 @@ def _cmd_recall(args: argparse.Namespace) -> int:
     return 0
 
 
+def _context_enabled(goal: Goal) -> bool:
+    """SPEC 006 FR2: context injection açık mı?
+
+    Sıra: env `ATLAS_CONTEXT=off` → False, `Goal.inject_context is False` →
+    False, `plan_kind=="static"` → False (static görevlerde gerek yok).
+    Aksi hâlde True.
+    """
+    if os.environ.get("ATLAS_CONTEXT", "on").lower() == "off":
+        return False
+    if not goal.inject_context:
+        return False
+    if goal.plan_kind == "static":
+        return False
+    return True
+
+
+def _compute_context(goal: Goal) -> tuple[str | None, str]:
+    """GBrain.context_for'u çağırır; (context, görünürlük etiketi) döner.
+
+    FR6: GBrain hatası görevi kırmasın — stderr'e uyarı, ctx=None, devam.
+    """
+    try:
+        brain = GBrain(_vault_root())
+        ctx = brain.context_for(goal.goal, limit=goal.context_limit)
+    except Exception as exc:  # noqa: BLE001 — FR6 hata izolasyonu; görevi bloklamaz
+        print(f"UYARI: GBrain context alınamadı: {exc}", file=sys.stderr)
+        return None, "yok (hata)"
+    if not ctx or ctx.startswith("(GBrain:"):
+        return None, "yok"
+    # Basit satır sayımı: "- [[..]]" ile başlayan not satırları
+    n = sum(1 for line in ctx.splitlines() if line.startswith("- [["))
+    return ctx, f"{n} not enjekte edildi"
+
+
 def _cmd_run_goal(args: argparse.Namespace) -> int:
     """SPEC 002: `--goal-file` verildiğinde gerçek görev sürücüsü.
 
     goal YAML'ini yükler, sandbox'i kurar, planner+action+judge'u
     fabrikadan alır, run_loop'u sürer. ActionDeniedError yakalanır,
     audit'e 'denied' kaydi düşer, exit 5.
+
+    SPEC 006: `_context_enabled(goal)` True ise GBrain.context_for(goal.goal)
+    tek kez çağrılıp planner fabrikasına geçirilir; static görevler ve
+    `ATLAS_CONTEXT=off` durumu için GBrain hiç instantiate edilmez.
     """
     try:
         goal = load_goal(Path(args.goal_file))
@@ -104,11 +142,19 @@ def _cmd_run_goal(args: argparse.Namespace) -> int:
     sandbox = _sandbox_root() / goal_id
     sandbox.mkdir(parents=True, exist_ok=True)
 
+    # SPEC 006: context enjeksiyonu (görev başında bir kez)
+    if _context_enabled(goal):
+        ctx, ctx_label = _compute_context(goal)
+        print(f"Bağlam: {ctx_label}")
+    else:
+        ctx = None
+        print("Bağlam: (kapalı)")
+
     audit = AuditLog(_audit_path())
     budget = CallBudget(limit=goal.budget)
     last_exit: dict[str, int] = {}
     try:
-        plan = make_planner(goal)  # fabrika: LLM bin yok → LLMPlannerError
+        plan = make_planner(goal, context=ctx)  # fabrika: LLM bin yok → LLMPlannerError
     except LLMPlannerError as exc:
         audit.record("atlas-run", "llm_error", str(exc)[:200])
         print(f"LLM PLANNER HATASI: {exc}", file=sys.stderr)

@@ -41,13 +41,15 @@ class LLMPlannerError(RuntimeError):
     """LLM subprocess başarısız (komut yok, timeout, exit!=0, boş cevap)."""
 
 
-def make_planner(goal: Goal) -> Planner:
+def make_planner(goal: Goal, context: str | None = None) -> Planner:
     """Goal.plan_kind + ATLAS_LLM'e göre uygun planner closure'u üretir.
 
     - `static`: plan_steps'i sırayla döndürür; tükenirse
-      `PlannerExhaustedError`.
+      `PlannerExhaustedError`. `context` yok sayılır.
     - `llm` + `ATLAS_LLM=stub` (varsayılan): sabit `plan[stub]:noop`.
+      `context` yok sayılır.
     - `llm` + `ATLAS_LLM=claude`: `_claude_planner` — subprocess her tur.
+      Verilirse `context` prompt'a otomatik eklenir (SPEC 006).
       Bin bulunamazsa **fabrika anında** `LLMPlannerError`.
     - `llm` + diğer: `NotImplementedError("Görev 003.1'de eklenecek")`.
     """
@@ -72,7 +74,7 @@ def make_planner(goal: Goal) -> Planner:
 
             return _stub
         if backend == "claude":
-            return _claude_planner(goal)
+            return _claude_planner(goal, context=context)
         raise NotImplementedError(
             f"LLM backend {backend!r} Görev 003.1'de eklenecek "
             "(desteklenen: stub, claude)"
@@ -106,15 +108,32 @@ def _resolve_claude_bin() -> str:
     return found
 
 
-def _format_prompt(goal: Goal, history: list[tuple[StepKind, str]]) -> str:
-    """Sabit, kısa prompt (< 800 karakter). LLM'ye TEK satır plan istenir."""
+_MAX_CONTEXT_CHARS = 4000  # SPEC 006: prompt şişmesin — üst emniyet
+
+
+def _format_prompt(
+    goal: Goal,
+    history: list[tuple[StepKind, str]],
+    context: str | None = None,
+) -> str:
+    """Sabit, kısa prompt (< 800 karakter, context ile ≤ 5000).
+
+    `context` verilirse görev satırından hemen sonra "Önceden bilinen bağlam"
+    bloğu eklenir (SPEC 006 FR5). None veya boş string → blok eklenmez.
+    """
     verbs = ", ".join(sorted(goal.action_allowlist)) or "(hiç)"
     obs = [text for kind, text in history if kind is StepKind.OBSERVE]
     tail = obs[-_MAX_HISTORY_OBSERVES:]
     obs_block = "\n".join(f"- {o[:200]}" for o in tail) if tail else "(yok)"
+    ctx_block = ""
+    if context:
+        ctx_trimmed = context.strip()[:_MAX_CONTEXT_CHARS]
+        if ctx_trimmed:
+            ctx_block = f"\nÖnceden bilinen bağlam (GBrain):\n{ctx_trimmed}\n"
     return (
         "Sen ATLAS'ın planlama alt-ajansısın. Görev:\n"
-        f"{goal.goal}\n\n"
+        f"{goal.goal}\n"
+        f"{ctx_block}\n"
         f"Sözleşme: TEK SATIRLIK plan komutu üret. İzin verilen fiiller: {verbs}.\n"
         'Biçim: fiil:arg1[:arg2]. Örnek: "write:notes.txt:merhaba" veya '
         '"shell:echo ok".\n\n'
@@ -163,13 +182,17 @@ def _call_claude(bin_path: str, prompt: str, timeout_s: int) -> str:
     return first_line
 
 
-def _claude_planner(goal: Goal) -> Planner:
-    """Fabrika: bin'i erken çözer (fail-fast), closure her turda çağırır."""
+def _claude_planner(goal: Goal, context: str | None = None) -> Planner:
+    """Fabrika: bin'i erken çözer (fail-fast), closure her turda çağırır.
+
+    `context` verilmişse closure'a bind edilir; her plan çağrısında aynı
+    context prompt'a eklenir (SPEC 006 — görev başında tek kez hesaplanır).
+    """
     bin_path = _resolve_claude_bin()  # fail-fast
     timeout_s = int(os.environ.get("ATLAS_LLM_TIMEOUT", str(_DEFAULT_TIMEOUT_S)))
 
     def _claude(_goal: str, history: list[tuple[StepKind, str]]) -> str:
-        prompt = _format_prompt(goal, history)
+        prompt = _format_prompt(goal, history, context=context)
         return _call_claude(bin_path, prompt, timeout_s)
 
     return _claude

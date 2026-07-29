@@ -226,3 +226,95 @@ def test_call_oserror(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plan = make_planner(_goal_llm())
     with pytest.raises(LLMPlannerError, match="başlatılamadı"):
         plan("goal", [])
+
+
+# ---------- SPEC 006: context injection ----------
+
+
+def test_006_context_prompt_a_eklenir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _prep_bin(monkeypatch, tmp_path)
+    seen: dict[str, str] = {}
+
+    def fake_run(*_args: Any, **kwargs: Any) -> _FakeProc:
+        seen["input"] = kwargs.get("input", "")
+        return _FakeProc(stdout="write:x.txt:1\n", returncode=0)
+
+    monkeypatch.setattr(planner_mod.subprocess, "run", fake_run)
+    ctx = "## GBrain bağlamı: dosya yaz\n- [[hello]] (skor 3.0): merhaba dünya"
+    plan = make_planner(_goal_llm(), context=ctx)
+    plan("goal", [])
+    assert "Önceden bilinen bağlam (GBrain):" in seen["input"]
+    assert "[[hello]]" in seen["input"]
+    assert "merhaba dünya" in seen["input"]
+
+
+def test_006_none_context_prompt_blogu_eklemez(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _prep_bin(monkeypatch, tmp_path)
+    seen: dict[str, str] = {}
+
+    def fake_run(*_args: Any, **kwargs: Any) -> _FakeProc:
+        seen["input"] = kwargs.get("input", "")
+        return _FakeProc(stdout="write:x.txt:1\n", returncode=0)
+
+    monkeypatch.setattr(planner_mod.subprocess, "run", fake_run)
+    plan = make_planner(_goal_llm(), context=None)
+    plan("goal", [])
+    assert "Önceden bilinen bağlam" not in seen["input"]
+
+
+def test_006_bos_context_bloguyok(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _prep_bin(monkeypatch, tmp_path)
+    seen: dict[str, str] = {}
+
+    def fake_run(*_args: Any, **kwargs: Any) -> _FakeProc:
+        seen["input"] = kwargs.get("input", "")
+        return _FakeProc(stdout="write:x.txt:1\n", returncode=0)
+
+    monkeypatch.setattr(planner_mod.subprocess, "run", fake_run)
+    plan = make_planner(_goal_llm(), context="   \n\n ")
+    plan("goal", [])
+    assert "Önceden bilinen bağlam" not in seen["input"]
+
+
+def test_006_stub_backend_context_yok_sayar(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ATLAS_LLM", "stub")
+    plan = make_planner(_goal_llm(), context="uzun ve alakalı bağlam")
+    # stub davranışı bit-uyumlu — context'i görmezden gelir
+    assert plan("goal", []) == "plan[stub]:noop"
+
+
+def test_006_static_backend_context_yok_sayar() -> None:
+    # static plan_kind için context tamamen alakasız (yok sayılmalı)
+    from atlas_core.orchestrator.goals import Goal
+    g = Goal(
+        goal="s",
+        plan_kind="static",
+        plan_steps=("read:x",),
+        action_allowlist=frozenset({"read"}),
+        shell_allow_regex=None,
+        judge_kind="file_exists",
+        judge_arg="x",
+        budget=5.0,
+        max_steps=2,
+        costs={"read": 1.0, "write": 2.0, "shell": 5.0},
+    )
+    plan = make_planner(g, context="çok uzun context")
+    assert plan("goal", []) == "read:x"
+
+
+def test_006_uzun_context_kirpilir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _prep_bin(monkeypatch, tmp_path)
+    seen: dict[str, str] = {}
+
+    def fake_run(*_args: Any, **kwargs: Any) -> _FakeProc:
+        seen["input"] = kwargs.get("input", "")
+        return _FakeProc(stdout="write:x.txt:1\n", returncode=0)
+
+    monkeypatch.setattr(planner_mod.subprocess, "run", fake_run)
+    big = "x" * 10_000
+    plan = make_planner(_goal_llm(), context=big)
+    plan("goal", [])
+    # _MAX_CONTEXT_CHARS = 4000 emniyeti
+    assert seen["input"].count("x") <= 4100  # + biraz overhead

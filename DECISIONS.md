@@ -1,6 +1,37 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 006 — Otomatik context injection)
+- [KARAR] `cli.py::_cmd_run_goal` başında **tek kez** GBrain.context_for
+  çağrılır ve `make_planner`'a `context=` kwarg ile bind edilir. Loop
+  içinde tekrar edilmez — turlar arası vault değişimi nadir, FTS bile
+  olsa gereksiz çağrı istenmez.
+- [KARAR] `_context_enabled(goal)` üçlü kapıdan geçer: env `ATLAS_CONTEXT=off`
+  → False; `goal.inject_context` False → False; `plan_kind=="static"` →
+  False. Aksi hâlde True. Static görevler için GBrain **hiç instantiate
+  edilmez** (disk/CPU maliyeti sıfır) — Görev 005 index'i açılmaz.
+- [KARAR] `Planner` sözleşmesi (`(goal, history) -> str`) korundu.
+  Context'i imzaya eklemek her çağrı yerini kırar; onun yerine
+  `make_planner(goal, context=None)` — closure'a bind. Static ve stub
+  backend'ler context'i yok sayar (M2, AC3-AC4).
+- [KARAR] Yeni `Goal` alanları **opsiyonel default'lu**: `inject_context:
+  bool=True`, `context_limit: int=5` (üst sınır 50). Doğrulama'da
+  `bool int'in alt sınıfıdır` özel kontrolü — `context_limit: true`
+  yakalanıyor. Eski YAML'lar hiç değişmeden yükleniyor.
+- [KARAR] Prompt'a context bloğu görev satırından **hemen sonra** eklenir
+  ("Önceden bilinen bağlam (GBrain):"). Boş / None → blok yok. Üst sınır
+  `_MAX_CONTEXT_CHARS=4000` — prompt şişmesin (Görev 011 token budget
+  gelene kadar emniyet).
+- [KARAR] GBrain hata izolasyonu (FR6): try/except `Exception` +
+  stderr uyarı, ctx=None, görev devam. Ajan diski dolsa bile çalışır.
+  `# noqa: BLE001` bilerek — bu tek yer geniş yakalama gerektiriyor.
+- [KARAR] Kullanıcı görünürlüğü: stdout başlığı üç durum ayırır:
+  `Bağlam: N not enjekte edildi` (etkin+dolu) / `Bağlam: yok` (etkin+boş) /
+  `Bağlam: (kapalı)` (env/YAML/static). Sessiz enjeksiyon yasak.
+- Kapsam: 3 modül düzenleme, 3 test dosyası genişleme (17 yeni test),
+  toplam 319 test yeşil, coverage %94.85, mypy strict + ruff temiz.
+  Artefaktlar `pipeline/tasks/006-auto-context/`.
+
 ## 2026-07-29 (Görev 003 — LLM planner entegrasyonu)
 - [KARAR] `orchestrator/planner.py` LLM backend'i **subprocess-based** ve
   **`claude --print`** ile başlar. `ATLAS_LLM=claude` verildiğinde her tur
