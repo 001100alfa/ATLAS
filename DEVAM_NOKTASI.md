@@ -1,11 +1,12 @@
 # DEVAM NOKTASI — ATLAS
 
-**Son çalışma:** 2026-07-29 (5. tur — 008 + 009 + 010 + 011 + 012)
-**Branch:** `feat/012-archive-all` (main'e ff-merge onayı bekliyor)
+**Son çalışma:** 2026-07-29 (5. tur — 008+009+010+011+012 + merge/push/temizlik)
+**Branch:** `main` (origin/main ile senkron — `f2caf33`)
 **Working tree:** temiz
-**Durum:** 5 aşama tamamlandı, 5 lineer commit main'in üstünde
-zincirleme hazır. 407/407 test yeşil (baseline 371 → +36), coverage
-%93.69, mypy strict + ruff + scan temiz.
+**Durum:** 5 aşama tamamlandı, 6 lineer commit main'e ff-merge + push
+edildi (`a0f16cd..f2caf33`), 5 feature branch silindi. 407/407 test
+yeşil, coverage %93.69, mypy strict + ruff + scan temiz. Bilinen
+flaky yok.
 
 ---
 
@@ -18,7 +19,8 @@ Yeni oturumda tek cümle: **"DEVAM_NOKTASI.md'yi oku ve kaldığı yerden devam 
 ## Bu turda yapılan (2026-07-29 — 5. tur)
 
 Sıra ile 5 iş tamamlandı, her biri kendi branch'inde tek commit,
-zincirleme (`008 → 009 → 010 → 011 → 012`).
+zincirleme (`008 → 009 → 010 → 011 → 012`); sonrasında main'e
+lineer ff-merge + push + temizlik.
 
 1. **Görev 008** — LLM retry/backoff sarmalayıcı (`afe2fcd`)
    - `make_retrying_planner(inner, retries, backoff_s)` — `LLMPlannerError`
@@ -62,46 +64,72 @@ zincirleme (`008 → 009 → 010 → 011 → 012`).
    - Tekil yol (007) korundu — `task nargs="?"`, mevcut 6 test yeşil.
    - +5 test.
 
+6. **Merge + push + temizlik**
+   - `git merge --ff-only feat/012-archive-all` → 6 commit lineer
+     main'e (`f2caf33`), merge commit YOK.
+   - `git push origin main` → `a0f16cd..f2caf33` uzağa gitti.
+   - 5 feature branch silindi (`feat/008-retry-backoff`,
+     `feat/009-llm-model`, `feat/010-anthropic-system-role`,
+     `feat/011-token-cost`, `feat/012-archive-all`).
+
 ---
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-**Merge + push.** 5 lineer commit main'in üstünde hazır:
+**Yeni görev seçimi.** Pipeline'da açık iş yok; 008/009/010/011/012
+kapandı. Doğal devam adayları:
 
-```
-main (a0f16cd) ← origin/main (senkron)
-     ↑
-     afe2fcd feat(008): LLM planner retry/backoff sarmalayici
-     bf15b45 feat(009): Goal.llm_model opsiyonel alani
-     07596b2 feat(010): Anthropic system rolu ayrimi
-     8685a72 feat(011): anthropic token usage trace (report-only)
-     af353e6 feat(012): atlas archive --all toplu arsivleme
-```
-
-Önerilen yol:
-
-```bash
-git checkout main
-git merge --ff-only feat/012-archive-all   # 5 commit lineer
-git push origin main
-git branch -d feat/008-retry-backoff feat/009-llm-model \
-             feat/010-anthropic-system-role feat/011-token-cost \
-             feat/012-archive-all
-```
-
-Alternatif — merge etmeden yeni görev seçilebilir. Doğal devamlar:
-
-- **Görev 013 — CallBudget'a token→kredi entegrasyonu:**
-  011'in doğal genişlemesi; retry (008) + fiyat (011) kesişimi.
-- **Görev 010.1 — claude subprocess `--system` argümanı:**
-  010'un claude backend'e uzanması.
-- **Görev 014 — Retry jitter + `Retry-After` header'ı:**
-  008'in üstüne gelen politika iyileştirmesi.
+- **Görev 013 — CallBudget'a token→kredi entegrasyonu:** 011'in
+  doğal genişlemesi; retry (008) + fiyat (011) kesişimi. `CallBudget`
+  sözleşmesine token maliyeti eklenir; otomatik quota kesme (bütçe
+  aşımı → sıradaki plan iptal).
+- **Görev 010.1 — claude subprocess `--system` argümanı:** 010'un
+  claude backend'e uzanması. Şu an claude prepend, anthropic system;
+  simetri için claude da native system desteklemeli.
+- **Görev 014 — Retry jitter + `Retry-After` header'ı:** 008'in
+  üstüne gelen politika iyileştirmesi. Anthropic 429 response'unda
+  `Retry-After` başlığı verilirse ona uy.
 - **Görev 015 — Anthropic prompt caching:** 011 üstüne fiyat indirimi.
+  Sistem promptu `cache_control: {"type": "ephemeral"}` ile 5 dk cache.
+- **Görev 016 — ACP tool-use ilk aşama:** 003.1'in `agent_message_chunk`
+  toplama alt kümesini `tool_call` işleme ile genişletme.
+- **Görev 017 — Otomatik `atlas archive --all` cron/hook:** 012'nin
+  operasyonel entegrasyonu; `atlas run` sonu ship.md yazıldığında
+  arka planda arşive alma teklifi.
+
+Ya da başka bir öncelik varsa net söyle.
 
 ---
 
 ## Hızlı Bağlam
+
+**Branch grafı:**
+```
+origin/main (f2caf33) = main (f2caf33) ← senkron
+```
+Kalan local branch'ler (bu turların dışı, önceki oturumların işi):
+`feat/paketleme-bulut-secenegi`, `feat/tasinabilir-kurulum`,
+`fix/{arsivleyici-arama, kimi-yeniden-etkinlestirme,
+ollama-kimligi-tasinabilir, surum-etiketli-yedek}`.
+
+**main'e giren 6 commit (2026-07-29 5. tur):**
+```
+f2caf33 docs: DEVAM_NOKTASI.md — 5. tur (008..012) kapanis
+af353e6 feat(012): atlas archive --all toplu arsivleme
+8685a72 feat(011): anthropic token usage trace (report-only)
+07596b2 feat(010): Anthropic system rolu ayrimi (llm_prompt -> body.system)
+bf15b45 feat(009): Goal.llm_model opsiyonel alani
+afe2fcd feat(008): LLM planner retry/backoff sarmalayici
+```
+
+**Kalite kapıları (bu turun sonu):**
+```bash
+uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
+# 407 passed; coverage %93.69
+uv run mypy src                # 25 dosya, temiz
+uv run ruff check src tests    # temiz
+uv run atlas scan src          # sır bulunamadı
+```
 
 **Env sözleşmesi (kümülatif, bu turda eklenenler ★):**
 | Değişken | Anlam |
@@ -110,7 +138,7 @@ Alternatif — merge etmeden yeni görev seçilebilir. Doğal devamlar:
 | `ATLAS_LLM_TIMEOUT` | ortak subprocess/HTTPS timeout (varsayılan 60 sn) |
 | `ATLAS_LLM_CLAUDE_BIN` | claude override |
 | `ANTHROPIC_API_KEY` | anthropic zorunlu |
-| `ATLAS_LLM_MODEL` | anthropic model — 009'da Goal.llm_model **üstünde** |
+| `ATLAS_LLM_MODEL` | anthropic model — 009'da `Goal.llm_model` **üstünde** |
 | `ATLAS_LLM_ANTHROPIC_URL` | anthropic URL override (test/vekil) |
 | `ATLAS_LLM_ACP_BIN` | acp zorunlu |
 | `ATLAS_LLM_ACP_ARGS` | acp extra argv (shlex) |
@@ -133,10 +161,10 @@ Alternatif — merge etmeden yeni görev seçilebilir. Doğal devamlar:
   yalnız iç yardımcı + `make_retrying_planner` yan-fabrika
 - `orchestrator/goals.py::Goal` — yeni alan `llm_model` opsiyonel
   default'lu (003.2 kalıbı)
-- `atlas archive <task>` (SPEC 007) — hiç değişmedi; `--all` yalnız
-  yeni ek yol
-- `_call_anthropic`, `_format_prompt` — yeni parametreler **keyword-only
-  + default'lu**
+- `atlas archive <task>` (SPEC 007) — hiç değişmedi; `--all` yeni ek
+  yol (`task nargs="?"` esnetildi)
+- `_call_anthropic`, `_format_prompt` — yeni parametreler
+  **keyword-only + default'lu** (eski çağrılar etkilenmez)
 
 **Bilinen flaky:** yok.
 
@@ -153,10 +181,12 @@ Alternatif — merge etmeden yeni görev seçilebilir. Doğal devamlar:
 
 - 407 test yeşil (bu turun baseline'ı 371 → +36; oturum başı 319 → +88)
 - Coverage %93.69
-- 5 lineer commit `feat/012-archive-all` ucunda; merge stratejisi
-  user'a bağlı
+- 6 lineer commit main'e alındı, uzağa push edildi, 5 feature branch
+  silindi (kullanıcı açık onayıyla)
 - Uncommitted değişiklik yok, working tree temiz
 - Ollama / Juggler / ACP kimlikleri `.juggler/` altında (gitignored) —
   dokunulmadı
-- DECISIONS.md 2026-07-29 altında **5 yeni giriş bloğu**: 008, 009,
-  010, 011, 012 (önceki turun 4 bloğuyla toplam 9)
+- Portable bundle son sürüm: `D:\ATLAS.rar` (önceki oturum, 1.9 GB) —
+  yenilenmemedi (kapsam dışı)
+- DECISIONS.md 2026-07-29 altında **9 giriş bloğu** birikti (bu tur
+  itibarıyla): 003.1, 003.2, 007, flaky, 008, 009, 010, 011, 012
