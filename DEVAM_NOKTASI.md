@@ -1,18 +1,32 @@
 # DEVAM NOKTASI — ATLAS
 
+> ## TETİKLEYİCİ (agent talimatı — bu bloku her açılışta oku)
+> Kullanıcı **"devam et"**, **"kaldığı yerden devam et"** veya
+> **"projeye devam"** derse, başka soru sormadan:
+> 1. Bu dosyanın **tamamını** oku.
+> 2. `## Bu turda yapılan` bölümünden son turun sonucunu özetle.
+> 3. `## Sıradaki Karar (kullanıcıya sunulacak)` altındaki adayları
+>    listeleyip kısa bir seçim sorusuyla yeni turu başlat.
+> 4. Kullanıcı onay verene kadar YIKICI işlem yapma (push, rm,
+>    force-push, branch silme).
+> 5. Zorunlu Döngü'ye (`CLAUDE.md` §Zorunlu Döngü) gir; ilk iş
+>    `DECISIONS.md`'nin son 2026-07-29 girişlerini kaba tarama.
+
 **Son çalışma:** 2026-07-29 (11. tur — 018.2 + 026.1 + 026.2 + 030)
-**Branch:** `main` (origin/main ile senkron — `c3b8fbf` + docs commit)
-**Working tree:** temiz
-**Durum:** 4 büyük görev tamamlandı, 4 lineer commit main'e ff-merge
-+ push edildi (`0057b66..c3b8fbf`), 4 feature branch silindi. 600/600
-test yeşil (+8 Windows/Unix platform skip). Coverage %91.19, mypy
-strict + ruff + scan temiz. Bilinen flaky yok.
+**Branch:** `main` (origin/main ile senkron — `d323a90`)
+**Working tree:** temiz (kapanış öncesi son doğrulama)
+**Durum:** 11. tur tamamlandı; 4 lineer feat commit + 1 docs commit
+main'e ff-merge + push edildi (`0057b66..d323a90`), 4 feature branch
+silindi. **600/600 test yeşil** (+8 platform skip), coverage %91.19,
+mypy strict + ruff + scan temiz. Bilinen flaky yok.
 
 ---
 
 ## Kullanıcıya kaldığı yerden başlatma
 
-Yeni oturumda tek cümle: **"DEVAM_NOKTASI.md'yi oku ve kaldığı yerden devam et."**
+Yeni oturumda tek cümle yeter: **"devam et"**
+
+(Alternatif: "DEVAM_NOKTASI.md'yi oku ve kaldığı yerden devam et.")
 
 ---
 
