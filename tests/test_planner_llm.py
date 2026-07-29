@@ -339,25 +339,50 @@ def _goal_llm_with_prompt(prompt: str) -> Goal:
     )
 
 
-def test_003_2_ozel_prompt_claude_stdin_de_gorunur(
+def test_010_1_ozel_prompt_claude_argv_de_gorunur(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """AC8: özel prompt claude subprocess'in stdin'inde başta görünür."""
+    """SPEC 010.1: özel prompt claude argv `--append-system-prompt`'te,
+    stdin'de değil (anthropic body.system ile simetri)."""
     _prep_bin(monkeypatch, tmp_path)
-    seen: dict[str, str] = {}
+    seen: dict[str, Any] = {}
 
-    def fake_run(*_args: Any, **kwargs: Any) -> _FakeProc:
+    def fake_run(argv: list[str], *_a: Any, **kwargs: Any) -> _FakeProc:
+        seen["argv"] = argv
         seen["input"] = kwargs.get("input", "")
         return _FakeProc(stdout="write:x.txt:1\n", returncode=0)
 
     monkeypatch.setattr(planner_mod.subprocess, "run", fake_run)
     plan = make_planner(_goal_llm_with_prompt("Sen kıdemli mühendissin."))
     plan("goal", [])
+    argv = seen["argv"]
     inp = seen["input"]
-    # Özel prompt başta
-    assert inp.startswith("Sen kıdemli mühendissin.")
-    # Görev + sözleşme hâlâ var (kısıt satırı sonda)
-    assert "Görev: dosya yaz" in inp
+    # llm_prompt argv'de --append-system-prompt argümanının değeri olarak
+    assert "--append-system-prompt" in argv
+    idx = argv.index("--append-system-prompt")
+    assert argv[idx + 1] == "Sen kıdemli mühendissin."
+    # stdin gövdesinde llm_prompt YOK; ATLAS varsayılan gövdesi VAR
+    assert "kıdemli mühendissin" not in inp
+    assert "dosya yaz" in inp
     assert "TEK SATIRLIK" in inp
-    # ATLAS'ın varsayılan "planlama alt-ajansısın" cümlesi YOK
-    assert "planlama alt-ajansısın" not in inp
+    # include_system=False → varsayılan "planlama alt-ajansısın" cümlesi VAR
+    assert "planlama alt-ajansısın" in inp
+
+
+def test_010_1_prompt_yoksa_argv_temiz(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """llm_prompt None → argv'de --append-system-prompt YOK (geriye uyumlu)."""
+    _prep_bin(monkeypatch, tmp_path)
+    seen: dict[str, list[str]] = {}
+
+    def fake_run(argv: list[str], *_a: Any, **_kw: Any) -> _FakeProc:
+        seen["argv"] = argv
+        return _FakeProc(stdout="write:x.txt:1\n", returncode=0)
+
+    monkeypatch.setattr(planner_mod.subprocess, "run", fake_run)
+    plan = make_planner(_goal_llm())  # llm_prompt None
+    plan("goal", [])
+    assert "--append-system-prompt" not in seen["argv"]
+    # 4 sabit argüman: bin + --print + --output-format + text
+    assert len(seen["argv"]) == 4

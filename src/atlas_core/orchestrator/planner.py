@@ -198,14 +198,25 @@ def _format_prompt(
     )
 
 
-def _call_claude(bin_path: str, prompt: str, timeout_s: int) -> str:
-    """`claude --print --output-format text` çağırır, ilk satırı döner.
+def _call_claude(
+    bin_path: str,
+    prompt: str,
+    timeout_s: int,
+    *,
+    system: str | None = None,
+) -> str:
+    """`claude --print --output-format text [--append-system-prompt <s>]` çağırır.
+
+    SPEC 010.1: `system` verilirse `--append-system-prompt <text>`
+    argümanı eklenir — anthropic native `system` alanıyla simetri.
 
     Windows uyumu: `shell=False`, `text=True`, `encoding="utf-8"`,
     `errors="replace"`, `input=prompt`, `capture_output=True`.
     Hata durumunda `LLMPlannerError` (Türkçe mesaj).
     """
     argv = [bin_path, "--print", "--output-format", "text"]
+    if system:
+        argv += ["--append-system-prompt", system]
     try:
         proc = subprocess.run(  # noqa: S603 - bin_path resolve edilmiş, shell=False
             argv,
@@ -243,13 +254,20 @@ def _claude_planner(goal: Goal, context: str | None = None) -> Planner:
 
     `context` verilmişse closure'a bind edilir; her plan çağrısında aynı
     context prompt'a eklenir (SPEC 006 — görev başında tek kez hesaplanır).
+
+    SPEC 010.1: `goal.llm_prompt` set edilmişse claude'a
+    `--append-system-prompt` argümanı ile geçer; gövde
+    `include_system=False` kalıbıyla üretilir (anthropic ile simetri).
     """
     bin_path = _resolve_claude_bin()  # fail-fast
     timeout_s = int(os.environ.get("ATLAS_LLM_TIMEOUT", str(_DEFAULT_TIMEOUT_S)))
+    system = goal.llm_prompt or None
 
     def _claude(_goal: str, history: list[tuple[StepKind, str]]) -> str:
-        prompt = _format_prompt(goal, history, context=context)
-        return _call_claude(bin_path, prompt, timeout_s)
+        prompt = _format_prompt(
+            goal, history, context=context, include_system=False
+        )
+        return _call_claude(bin_path, prompt, timeout_s, system=system)
 
     return _claude
 

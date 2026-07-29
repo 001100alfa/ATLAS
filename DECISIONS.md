@@ -1,6 +1,30 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 010.1 — claude subprocess `--append-system-prompt`)
+- [KARAR] `goal.llm_prompt` claude subprocess'e **argv** üzerinden
+  `--append-system-prompt <text>` argümanı olarak geçer; gövde
+  `include_system=False` kalıbıyla üretilir (llm_prompt stdin'den
+  atılır). Anthropic body.system alanıyla birebir simetri — üç backend
+  (claude / anthropic / [acp bekliyor]) aynı prensiple sistem rolünü
+  gövdeden ayırıyor.
+- [KARAR] `--append-system-prompt` yerine `--system` yok — Claude Code
+  CLI native argümanı `--append-system-prompt`. Simetri açısında
+  argüman adı önemli değil; işlev aynı.
+- [KARAR] Argv geçişi (`shlex` splitting'e ihtiyaç yok) — `system`
+  string tek bir positional argüman olarak subprocess'e gönderilir;
+  `shell=False` şart, boşluk/quote sorunu yok. Windows uyumu (CVE-2024-4030
+  kalıbı) korundu.
+- [KARAR] SPEC 003.2 kalıbının test uygulaması güncellendi:
+  `test_003_2_ozel_prompt_claude_stdin_de_gorunur` → `test_010_1_ozel_prompt_claude_argv_de_gorunur`.
+  llm_prompt semantiği aynı (kullanıcı sistem rolü), yalnız iletim
+  kanalı stdin → argv değişti; kullanıcı YAML'da değişiklik yok.
+- Kapsam: 1 modül düzenleme (planner.py: _call_claude system keyword,
+  _claude_planner include_system=False + system bind — ~15 sat),
+  1 test dosyası düzenleme (003.2 testi 010.1 kalıbına dönüşüm +
+  1 yeni test). Toplam 420 test yeşil (419 → +1 net). mypy strict +
+  ruff temiz. Artefaktlar `pipeline/tasks/010-1-claude-system-arg/`.
+
 ## 2026-07-29 (Görev 013 — CallBudget'a token maliyeti entegrasyonu)
 - [KARAR] `charge_tokens` **ayrı method** — `charge()` sözleşmesi
   dokunulmadı. Ayrı yol, "token akışını takip et ama kredi denklemini
