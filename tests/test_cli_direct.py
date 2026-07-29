@@ -932,3 +932,108 @@ def test_021_1_insan_format_bit_uyumlu(
     assert "[LLM backend]" in out
     assert "[Retry & fiyat]" in out
     assert "[Depolama]" in out
+
+
+# ---------- SPEC 021.2: doctor --ping ----------
+
+
+class _FakePingResponse:
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    def __enter__(self) -> _FakePingResponse:
+        return self
+
+    def __exit__(self, *_a: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self._body
+
+
+def test_021_2_ping_non_anthropic_uyari(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--ping stub backend'de uyarı verir, request atmaz."""
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "stub")
+    rc = main(["doctor", "--ping"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[!] --ping yalnız anthropic backend'de çalışır" in out
+
+
+def test_021_2_ping_happy_insan_format(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Happy: --ping anthropic + key → latency + tokens raporlanır."""
+    import json as _json
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-123456")
+
+    # cli_mod içindeki lazy urllib import'unu doğrudan yakalayamayız —
+    # `atlas_core.cli._run_anthropic_ping` içeriye alıyor. Onun yerine
+    # planner_mod'da _extract_usage/_fmt_cost zaten test edilmiş,
+    # burada urlopen çağrısını sysconftext'te patch'leyelim.
+    from urllib import request as _urllib_request
+    monkeypatch.setattr(
+        _urllib_request, "urlopen",
+        lambda *_a, **_kw: _FakePingResponse(_json.dumps({
+            "content": [{"type": "text", "text": "hello!"}],
+            "usage": {"input_tokens": 8, "output_tokens": 3},
+        }).encode("utf-8")),
+    )
+    rc = main(["doctor", "--ping"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[Ping]" in out
+    assert "latency:" in out
+    assert "input_tokens: 8" in out
+    assert "output_tokens: 3" in out
+
+
+def test_021_2_ping_hata_uyari(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """URLError → warnings + exit 0."""
+    from urllib import error as _urllib_error
+    from urllib import request as _urllib_request
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-123456")
+
+    def raiser(*_a: object, **_kw: object):
+        raise _urllib_error.URLError("dns yok")
+
+    monkeypatch.setattr(_urllib_request, "urlopen", raiser)
+    rc = main(["doctor", "--ping"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[!] ping başarısız: dns yok" in out
+
+
+def test_021_2_ping_json(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--ping --json → JSON'da `ping` alanı."""
+    import json as _json
+    from urllib import request as _urllib_request
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLAS_LLM", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-123456")
+
+    monkeypatch.setattr(
+        _urllib_request, "urlopen",
+        lambda *_a, **_kw: _FakePingResponse(_json.dumps({
+            "content": [{"type": "text", "text": "hi"}],
+            "usage": {"input_tokens": 5, "output_tokens": 2},
+        }).encode("utf-8")),
+    )
+    rc = main(["doctor", "--ping", "--json"])
+    assert rc == 0
+    data = _json.loads(capsys.readouterr().out.strip())
+    assert "ping" in data
+    assert data["ping"]["input_tokens"] == 5
+    assert data["ping"]["output_tokens"] == 2
+    assert isinstance(data["ping"]["latency_ms"], int)

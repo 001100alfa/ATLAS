@@ -539,6 +539,92 @@ def _mask_secret(value: str, keep_prefix: int = 3, keep_suffix: int = 3) -> str:
     return f"{value[:keep_prefix]}***{value[-keep_suffix:]}"
 
 
+_PING_TIMEOUT_S = 10
+_PING_MAX_TOKENS = 8
+
+
+def _run_anthropic_ping(warnings: list[str]) -> dict[str, Any] | None:
+    """SPEC 021.2: minimum 'hello' request'i at, latency + usage döner.
+
+    Backend anthropic değilse None + warnings uyarı.
+    Hata (URLError, HTTPError, timeout) → None + warnings uyarı.
+    Başarılı: `{"latency_ms", "input_tokens", "output_tokens",
+    "cache_creation_input_tokens", "cache_read_input_tokens",
+    "cost_estimate"}`.
+    """
+    import json as _json
+    import time as _time
+    from urllib import error as _urllib_error
+    from urllib import request as _urllib_request
+
+    backend = os.environ.get("ATLAS_LLM", "stub")
+    if backend != "anthropic":
+        warnings.append("--ping yalnız anthropic backend'de çalışır")
+        return None
+
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not key:
+        warnings.append("ping başarısız: ANTHROPIC_API_KEY yok")
+        return None
+
+    url = (
+        os.environ.get("ATLAS_LLM_ANTHROPIC_URL", "").strip()
+        or "https://api.anthropic.com/v1/messages"
+    )
+    model = (
+        os.environ.get("ATLAS_LLM_MODEL", "").strip()
+        or "claude-3-5-sonnet-latest"
+    )
+    body = _json.dumps({
+        "model": model,
+        "max_tokens": _PING_MAX_TOKENS,
+        "messages": [{"role": "user", "content": "hello"}],
+    }).encode("utf-8")
+    req = _urllib_request.Request(  # noqa: S310 - env kontrollü URL
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+        },
+    )
+    t0 = _time.monotonic()
+    try:
+        with _urllib_request.urlopen(req, timeout=_PING_TIMEOUT_S) as resp:  # noqa: S310
+            raw = resp.read()
+    except _urllib_error.HTTPError as exc:
+        warnings.append(f"ping başarısız: HTTP {exc.code}")
+        return None
+    except _urllib_error.URLError as exc:
+        warnings.append(f"ping başarısız: {exc.reason}")
+        return None
+    except TimeoutError:
+        warnings.append(f"ping başarısız: timeout ({_PING_TIMEOUT_S}s)")
+        return None
+    latency_ms = int((_time.monotonic() - t0) * 1000)
+
+    try:
+        data = _json.loads(raw.decode("utf-8", errors="replace"))
+    except _json.JSONDecodeError:
+        warnings.append("ping başarısız: geçersiz JSON")
+        return None
+
+    # 015.1 4-tuple ile fiyat hesabı
+    from atlas_core.orchestrator.planner import _extract_usage, _fmt_cost
+    in_tok, out_tok, cc, cr = _extract_usage(data)
+    cost = _fmt_cost(in_tok, out_tok, cc, cr)
+    return {
+        "latency_ms": latency_ms,
+        "input_tokens": in_tok,
+        "output_tokens": out_tok,
+        "cache_creation_input_tokens": cc,
+        "cache_read_input_tokens": cr,
+        "cost_estimate": cost,
+    }
+
+
 def _collect_doctor_report() -> dict[str, Any]:
     """SPEC 021 + 021.1: env sağlık özetini yapılandırılmış dict olarak topla.
 
@@ -641,12 +727,17 @@ def _collect_doctor_report() -> dict[str, Any]:
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
-    """SPEC 021 + 021.1: env sağlık özeti (read-only, exit 0).
+    """SPEC 021 + 021.1 + 021.2: env sağlık özeti (read-only, exit 0).
 
-    `--json` bayrağı verilirse tek satır JSON; yoksa insan-okunur
-    üç bölüm.
+    `--json` bayrağı verilirse tek satır JSON; yoksa insan-okunur.
+    `--ping` bayrağı Anthropic'e minimum request atar, latency+cost raporlar.
     """
     report = _collect_doctor_report()
+
+    if getattr(args, "ping", False):
+        ping_info = _run_anthropic_ping(report["warnings"])
+        if ping_info is not None:
+            report["ping"] = ping_info
 
     if getattr(args, "json", False):
         import json as _json
@@ -703,6 +794,19 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print(f"  ATLAS_SANDBOX: {storage['ATLAS_SANDBOX']}")
     print(f"  ATLAS_CONTEXT: {storage['ATLAS_CONTEXT']}")
     print(f"  ATLAS_ARCHIVE_AGE_DAYS: {storage['ATLAS_ARCHIVE_AGE_DAYS']} gün")
+
+    # SPEC 021.2: --ping bilgisi ve yeni uyarılar
+    ping = report.get("ping")
+    if ping is not None:
+        print("\n[Ping]")
+        print(f"  latency: {ping['latency_ms']}ms")
+        print(f"  input_tokens: {ping['input_tokens']}")
+        print(f"  output_tokens: {ping['output_tokens']}")
+        print(f"  cost_estimate: {ping['cost_estimate']}")
+    # Ping uyarıları (varsa) — insan formatta [!] prefix'iyle göster
+    for w in warnings:
+        if w.startswith(("--ping ", "ping başarısız")):
+            print(f"[!] {w}")
 
     return 0
 
@@ -802,6 +906,8 @@ def main(argv: list[str] | None = None) -> int:
     p_doc = sub.add_parser("doctor", help="Env sağlık özeti (SPEC 021)")
     p_doc.add_argument("--json", action="store_true",
                        help="JSON çıktı (CI/pre-flight uyumlu) — SPEC 021.1")
+    p_doc.add_argument("--ping", action="store_true",
+                       help="Anthropic'e minimum request at, latency+cost raporla — SPEC 021.2")
     p_doc.set_defaults(func=_cmd_doctor)
 
     args = parser.parse_args(argv)

@@ -1,6 +1,31 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 021.2 — `atlas doctor --ping` canlılık kontrolü)
+- [KARAR] Ping **anthropic-özel** — claude/acp subprocess başlatmak
+  pahalı ve karmaşık; anthropic HTTP ping yeter. Diğer backend'lerde
+  `[!] --ping yalnız anthropic backend'de çalışır` uyarı.
+- [KARAR] Payload minimum: `max_tokens=8`, mesaj `"hello"`, sistem
+  prompt YOK, streaming YOK. Cost neredeyse sıfır (~0.00001 USD);
+  latency saf network + model boot ölçer.
+- [KARAR] Timeout **sabit 10s** — env'i (`ATLAS_LLM_TIMEOUT` 60s
+  varsayılan) yok say. `doctor --ping` hızlı feedback ister; 60s
+  bekletmenin anlamı yok.
+- [KARAR] Retry YOK — 008 sarmalayıcı devrede değil. Ping tek deneme;
+  hata varsa hemen görülsün (network sorunu mu, key mi, model mi
+  belirsiz kalmasın).
+- [KARAR] Cost hesabı `_extract_usage` + `_fmt_cost` (015.1 kalıbı) —
+  cache alanları da yakalanır (varsa). Fiyat env'i yoksa cost `?`.
+- [KARAR] Ping başarısızsa exit hâlâ **0** — 021 read-only kalıbı.
+  Warnings'e uyarı düşer; CI script'i `warnings` array'i kontrol
+  edip karar verir. Exit farkı `--exit-on-warnings` gibi bir
+  bayrağa ihtiyaç duyar; YAGNI şimdilik.
+- Kapsam: 1 modül düzenleme (cli.py: +2 sabit + _run_anthropic_ping
+  ~80 sat + _cmd_doctor ping dallanma + insan format [Ping] +
+  parser --ping), 1 test dosyası genişleme (+4 test). Toplam
+  498 test yeşil (494 → +4). mypy strict + ruff temiz. Artefaktlar
+  `pipeline/tasks/021-2-doctor-ping/`.
+
 ## 2026-07-29 (Görev 021.1 — `atlas doctor --json`)
 - [KARAR] Refactor: **veri toplama sunumdan ayrıldı** —
   `_collect_doctor_report()` dict döner; `_cmd_doctor` sunum tarafını
