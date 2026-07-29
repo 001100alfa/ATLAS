@@ -388,6 +388,109 @@ def test_teardown_wait_takilirsa_kill(
     assert fake.kill_called is True
 
 
+# ---------- SPEC 016: tool_call açık red ----------
+
+
+def _notif_tool_call(session_id: str, tool_name: str) -> str:
+    return json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": session_id,
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "title": tool_name,
+                    "toolCall": {"name": tool_name, "input": {}},
+                },
+            },
+        }
+    ) + "\n"
+
+
+def _notif_tool_call_update(session_id: str, tool_name: str) -> str:
+    return json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": session_id,
+                "update": {
+                    "sessionUpdate": "tool_call_update",
+                    "toolCall": {"name": tool_name, "status": "in_progress"},
+                },
+            },
+        }
+    ) + "\n"
+
+
+def test_016_tool_call_acik_red(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SPEC 016: agent tool_call gönderirse LLMPlannerError."""
+    _prep_bin(monkeypatch, tmp_path)
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _notif_tool_call("s1", "read_file"),
+        # buradan sonra ulaşılmıyor
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    with pytest.raises(LLMPlannerError, match=r"tool-use şu an desteklenmiyor"):
+        p("g", [])
+    # Süreç kill'lenmiş olmalı (teardown wait+kill)
+    assert fake._wait_called >= 1
+
+
+def test_016_tool_call_update_acik_red(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _prep_bin(monkeypatch, tmp_path)
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        _notif_tool_call_update("s1", "shell"),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    with pytest.raises(LLMPlannerError, match=r"tool-use şu an desteklenmiyor"):
+        p("g", [])
+
+
+def test_016_bilinmeyen_session_update_yok_sayilir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Bilinmeyen sessionUpdate (ör. plan_update) sessizce atlanır — regresyon."""
+    _prep_bin(monkeypatch, tmp_path)
+    unknown_notif = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "s1",
+                "update": {"sessionUpdate": "plan_update", "some": "data"},
+            },
+        }
+    ) + "\n"
+    lines = [
+        _rpc(1, {"protocolVersion": 1}),
+        _rpc(2, {"sessionId": "s1"}),
+        unknown_notif,  # sessizce atlanmalı
+        _notif_agent_chunk("s1", "write:x.txt:1"),
+        _rpc(3, {"stopReason": "end_turn"}),
+    ]
+    fake = _FakePopen(lines)
+    monkeypatch.setattr(planner_mod.subprocess, "Popen", lambda *a, **kw: fake)
+
+    p = make_planner(_goal_llm())
+    assert p("g", []) == "write:x.txt:1"  # bilinmeyen notif atlandı
+
+
 # ---------- SPEC 003.2: özel llm_prompt acp session/prompt gövdesinde ----------
 
 def test_003_2_ozel_prompt_prompt_de_gorunur(

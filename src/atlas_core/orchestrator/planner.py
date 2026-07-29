@@ -656,20 +656,31 @@ def _call_acp(bin_path: str, extra: list[str], prompt: str, timeout_s: int) -> s
             if not isinstance(msg, dict):
                 continue
 
-            # notification: session/update ile agent_message_chunk
+            # notification: session/update
             if msg.get("method") == "session/update":
                 params = msg.get("params")
                 if isinstance(params, dict):
                     upd = params.get("update")
-                    if (
-                        isinstance(upd, dict)
-                        and upd.get("sessionUpdate") == "agent_message_chunk"
-                    ):
-                        chunk = upd.get("content")
-                        if isinstance(chunk, dict) and chunk.get("type") == "text":
-                            t = chunk.get("text")
-                            if isinstance(t, str):
-                                collected.append(t)
+                    if isinstance(upd, dict):
+                        kind = upd.get("sessionUpdate")
+                        # SPEC 016: tool-use şu an desteklenmiyor — açık red.
+                        if kind in ("tool_call", "tool_call_update"):
+                            tool_call = upd.get("toolCall")
+                            tool_name = (
+                                tool_call.get("name")
+                                if isinstance(tool_call, dict)
+                                else None
+                            ) or upd.get("title") or "?"
+                            raise LLMPlannerError(
+                                f"acp: tool-use şu an desteklenmiyor "
+                                f"(Görev 016.1+); agent tool_name={tool_name!r} istedi"
+                            )
+                        if kind == "agent_message_chunk":
+                            chunk = upd.get("content")
+                            if isinstance(chunk, dict) and chunk.get("type") == "text":
+                                t = chunk.get("text")
+                                if isinstance(t, str):
+                                    collected.append(t)
                 continue
 
             # response

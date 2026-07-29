@@ -1,6 +1,28 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-29 (Görev 016 — ACP `tool_call` açık red)
+- [KARAR] Agent tool_call'ı **sessizce yok saymak** yerine
+  **açık red** — kullanıcı fake plan sonucu görmesin, yanlış
+  ilerlemesin. Sessiz yok sayma sonsuz beklemeye veya boş cevaba
+  yol açardı; her ikisi de zor debug'lanır.
+- [KARAR] Tool_name'i mesaja koy — kullanıcı hangi tool'un
+  istendiğini görsün (`agent tool_name='read_file' istedi`).
+  Debug için altın; Görev 016.1'de hangi tool'ları desteklememiz
+  gerektiğini önceliklendirmeye yardımcı.
+- [KARAR] `tool_call_update` de red — tool sonucu güncellemesidir;
+  agent tool başlattıysa update de gelir. İkisini birleştirdik ki
+  kısmi tool-use vermeyelim.
+- [KARAR] Diğer `sessionUpdate` türleri (bilinmeyen, ör. `plan_update`,
+  `available_commands_update`) **sessizce atlanır** — ACP forward-
+  compatible olmalı; agent yeni türler eklerse ATLAS kırılmasın.
+  Yalnız `tool_call` (üye izin/güvenlik sorunu) ve `agent_message_chunk`
+  (ana yol) özel işlem görür.
+- Kapsam: 1 modül düzenleme (planner.py: _call_acp session/update
+  dispatcher ~15 sat), 1 test dosyası genişleme (+3 test). Toplam
+  440 test yeşil (437 → +3). mypy strict + ruff temiz. Artefaktlar
+  `pipeline/tasks/016-acp-tool-reject/`.
+
 ## 2026-07-29 (Görev 015 — Anthropic prompt caching)
 - [KARAR] `Goal.prompt_cache: bool = False` — 003.2 kalıbıyla
   simetrik, yeni alan son sırada + default'lu. Eski YAML'lar hiç
