@@ -1,11 +1,11 @@
 # DEVAM NOKTASI — ATLAS
 
-**Son çalışma:** 2026-07-29 (2. tur)
-**Branch:** `main` (10 commit önde, `origin/main` = f93b2d5 değişmedi)
+**Son çalışma:** 2026-07-29 (3. tur — merge + push + temizlik)
+**Branch:** `main` (origin/main ile senkron)
 **Working tree:** temiz
-**Durum:** 002 → 004 → 005 → 003 → 006 zinciri local main'e **fast-forward
-merge edildi**. Uzağa push YAPILMADI (kullanıcı onayı beklendi, gelmedi).
-Test 319/319 yeşil, coverage %94.85, mypy strict + ruff temiz.
+**Durum:** 002 → 004 → 005 → 003 → 006 zinciri **main'e ff merge + push
+edildi** (`origin/main = 1a3601f`). 5 feature branch (002/003/004/005/006)
+silindi. Test 319/319 yeşil, coverage %94.85, mypy strict + ruff temiz.
 
 ---
 
@@ -15,45 +15,47 @@ Yeni oturumda tek cümle: **"DEVAM_NOKTASI.md'yi oku ve kaldığı yerden devam 
 
 ---
 
-## Bu turda yapılan (2026-07-29 2. tur)
+## Bu turda yapılan (2026-07-29 — 2. + 3. tur)
 
-- Test suite bir kez daha yeşil doğrulandı (319/319).
+- 003 (LLM planner) + 006 (auto-context) tamamlandı, 35 yeni test.
 - `git checkout main` + `git merge --ff-only feat/006-auto-context` →
-  10 commit lineer main'e taşındı, merge commit YOK (temiz history).
-- **`origin/main` dokunulmadı** — uzakta hâlâ f93b2d5.
-- Feature branch'ler (feat/002, 004, 005, 003, 006) silinmedi — tutuldu.
+  10 commit lineer main'e taşındı (merge commit YOK, temiz history).
+- `git push origin main` → 11 commit uzağa gitti (`f93b2d5..1a3601f`),
+  branch protection yok.
+- 5 feature branch silindi (`feat/002-orkestrator-canlanma`, `feat/003-llm-planner`,
+  `feat/004-workflow-handlers`, `feat/005-gbrain-fts`, `feat/006-auto-context`).
 
 ---
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-İki bağımsız yıkıcı iş kaldı, ikisi de kullanıcı onayı ister:
+**Yeni görev seçimi.** Pipeline'da açık iş yok; 002/003/004/005/006 kapandı.
+Olası yönler (DEVAM_NOKTASI'nde beklenen adı geçmiş görevler):
 
-### 1. Push
-- **A) Push et:** `git push origin main` → 10 commit uzağa gider. GitHub'da
-  main branch protection varsa reddedilir; o durumda PR yoluna geçilir.
-- **B) Local'de kalsın (mevcut):** Elle sonra push edersin. Geri alınmak
-  isterse `git reset --hard f93b2d5` yeter (henüz push edilmediği için güvenli).
-- **C) PR yolu:** Local main'i geri al, `feat/006-auto-context`'ı push et,
-  `gh pr create --base main --head feat/006-auto-context` ile PR aç.
+- **Görev 003.1 — `acp` ve `anthropic` LLM backend'leri:** planner.py'de
+  NotImplementedError bekleyen iki backend.
+- **Görev 003.2 — YAML'da `Goal.llm_prompt` opsiyonel alanı:** sabit prompt
+  yerine görev-başına özelleştirme.
+- **Görev 007 — Ne olabilir?** Örn. context'in Judge'a enjekte edilmesi;
+  arşivleme handler'ının gerçek arşivlemesi; yeni skills entegrasyonu.
+- **Kırık/flaky düzeltme:** `test_doctor_gui.py::test_restore_defaults_to_newest_and_can_pick_by_name`
+  Windows mtime granülerliğinde flaky — kalıcı fix (sleep veya bileşik key).
 
-### 2. Branch temizliği
-- **A) Sil:** `git branch -d feat/{002-orkestrator-canlanma, 004-workflow-handlers,
-  005-gbrain-fts, 003-llm-planner, 006-auto-context}` — main'de var, kayıp yok.
-- **B) Tut (mevcut):** Silme, ilerideki fixlere referans olarak kalsın.
+Ya da başka bir öncelik varsa net söyle.
 
 ---
 
 ## Hızlı Bağlam (yeni oturum için ajanın okuması yeterli)
 
-**Local branch grafı (main güncellendi):**
+**Branch grafı:**
 ```
-origin/main (f93b2d5) — uzakta hâlâ eski
-main (d1a7686) ← local main; 10 commit önde
-  └─ (aynı SHA'lar) feat/002 → 004 → 005 → 003 → 006 zinciri
+origin/main (1a3601f) = main (1a3601f) ← senkron
 ```
+Kalan local branch'ler (bu turların dışı, önceki oturumların işi):
+`feat/paketleme-bulut-secenegi`, `feat/tasinabilir-kurulum`,
+`fix/{arsivleyici-arama, kimi-yeniden-etkinlestirme, ollama-kimligi-tasinabilir, surum-etiketli-yedek}`.
 
-**Local main'deki 10 commit (main..origin/main):**
+**main'e giren 11 commit (2026-07-29 turu):**
 ```
 d1a7686 docs: DEVAM_NOKTASI.md — 2026-07-29 kapanis
 821ffae feat(006): otomatik GBrain context injection
@@ -125,5 +127,5 @@ SPEC onayı olmadan kod yazılmaz.
 - Ollama / Juggler / ACP kimlikleri `.juggler/` altında (gitignored) — dokunulmadı.
 - Portable bundle son sürüm: `D:\ATLAS.rar` (önceki oturum, 1.9 GB).
 - Herhangi bir aksama olursa DECISIONS.md 2026-07-29 girdileri tam bağlamı verir.
-- **Bu turda hiçbir uzak/yıkıcı işlem yapılmadı** — local main güncellendi
-  (geri alınabilir), origin/main dokunulmadı, hiçbir branch silinmedi.
+- Bu turda main güncellendi, uzağa push edildi, 5 feature branch silindi
+  (kullanıcı açık onayıyla). origin/main = local main = 1a3601f.
