@@ -197,3 +197,74 @@ def test_0261_resource_yok_gibi_davran(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATLAS_SANDBOX_CPU_S", "5")
     # sys.platform Windows olmasa bile _resource None ise None dönmeli
     assert _build_preexec_fn() is None
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 026.4 — Unix MAX_PROC (RLIMIT_NPROC)
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_0264_env_max_proc_yalniz_none_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows'ta MAX_PROC verilse de _build_preexec_fn None döner."""
+    if sys.platform != "win32":
+        pytest.skip("Windows-only guard")
+    monkeypatch.setenv("ATLAS_SANDBOX_MAX_PROC", "5")
+    assert _build_preexec_fn() is None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-only")
+def test_0264_unix_max_proc_verili_callable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unix'te MAX_PROC verildiyse _build_preexec_fn callable döner."""
+    monkeypatch.delenv("ATLAS_SANDBOX_CPU_S", raising=False)
+    monkeypatch.delenv("ATLAS_SANDBOX_MEM_MB", raising=False)
+    monkeypatch.setenv("ATLAS_SANDBOX_MAX_PROC", "10")
+    fn = _build_preexec_fn()
+    assert callable(fn)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-only")
+def test_0264_unix_rlimit_nproc_yok_sessiz(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_resource.RLIMIT_NPROC` platformda yoksa yine callable (getattr None)."""
+    import types
+
+    fake_resource = types.SimpleNamespace(
+        RLIMIT_CPU=0,
+        RLIMIT_AS=9,
+        setrlimit=lambda *_a: None,
+        # RLIMIT_NPROC KASITEN yok
+    )
+    monkeypatch.setattr(actions_mod, "_resource", fake_resource)
+    monkeypatch.setenv("ATLAS_SANDBOX_MAX_PROC", "5")
+    fn = _build_preexec_fn()
+    assert callable(fn)
+    # Çağrı da patlamamalı (RLIMIT_NPROC atlanır)
+    fn()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix-only")
+def test_0264_unix_setrlimit_mock_cagirir(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RLIMIT_NPROC set edildiği ampirik doğrulanır (mock ile)."""
+    calls: list[tuple[int, tuple[int, int]]] = []
+
+    import types
+
+    fake_resource = types.SimpleNamespace(
+        RLIMIT_CPU=0,
+        RLIMIT_AS=9,
+        RLIMIT_NPROC=6,
+        setrlimit=lambda which, lims: calls.append((which, lims)),
+    )
+    monkeypatch.setattr(actions_mod, "_resource", fake_resource)
+    monkeypatch.delenv("ATLAS_SANDBOX_CPU_S", raising=False)
+    monkeypatch.delenv("ATLAS_SANDBOX_MEM_MB", raising=False)
+    monkeypatch.setenv("ATLAS_SANDBOX_MAX_PROC", "12")
+
+    fn = _build_preexec_fn()
+    assert fn is not None
+    fn()  # child prosess içinde çağrılacak fonksiyon; test'te doğrudan.
+
+    assert calls == [(6, (12, 12))]

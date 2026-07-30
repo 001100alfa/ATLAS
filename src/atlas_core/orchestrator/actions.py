@@ -90,21 +90,28 @@ def _read_positive_int_env(name: str) -> int | None:
 
 
 def _build_preexec_fn() -> Callable[[], None] | None:
-    """SPEC 026.1: Unix'te RLIMIT_CPU + RLIMIT_AS ayarlayan preexec_fn.
+    """SPEC 026.1 + 026.4: Unix'te RLIMIT_CPU + RLIMIT_AS + RLIMIT_NPROC
+    ayarlayan preexec_fn.
 
     - Windows'ta (`_resource is None` veya `sys.platform == "win32"`)
       HER ZAMAN None döner — `subprocess.run(preexec_fn=...)` Windows'ta
       ValueError verir.
-    - Env yoksa (`CPU_S` ve `MEM_MB` her ikisi de None) → None
+    - Env yoksa (`CPU_S`, `MEM_MB` VE `MAX_PROC` üçü de None) → None
       (varsayılan davranış, ekstra fork maliyeti yok).
-    - Bir tanesi verilirse setrlimit çağıran callable döner.
+    - Herhangi biri verilirse setrlimit çağıran callable döner.
+    - `RLIMIT_NPROC` bazı platformlarda yok — `getattr` ile koruma.
     """
     if _resource is None or sys.platform == "win32":
         return None
     cpu_s = _read_positive_int_env("ATLAS_SANDBOX_CPU_S")
     mem_mb = _read_positive_int_env("ATLAS_SANDBOX_MEM_MB")
-    if cpu_s is None and mem_mb is None:
+    max_proc = _read_positive_int_env("ATLAS_SANDBOX_MAX_PROC")
+    if cpu_s is None and mem_mb is None and max_proc is None:
         return None
+
+    # SPEC 026.4: RLIMIT_NPROC bazı platformlarda bulunmaz (örn. bazı
+    # BSD varyantları). getattr(None) → sessiz atla; env verilse de.
+    rlimit_nproc = getattr(_resource, "RLIMIT_NPROC", None)
 
     def _apply_limits() -> None:  # pragma: no cover - fork child, coverage görmez
         if cpu_s is not None:
@@ -112,6 +119,8 @@ def _build_preexec_fn() -> Callable[[], None] | None:
         if mem_mb is not None:
             mem_bytes = mem_mb * 1024 * 1024
             _resource.setrlimit(_resource.RLIMIT_AS, (mem_bytes, mem_bytes))
+        if max_proc is not None and rlimit_nproc is not None:
+            _resource.setrlimit(rlimit_nproc, (max_proc, max_proc))
 
     return _apply_limits
 
