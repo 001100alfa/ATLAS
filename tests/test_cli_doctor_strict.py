@@ -390,3 +390,122 @@ def test_0321_doctor_json_quality_alanlari_var(
     assert "vault_health" in data["quality"]
     assert "count" in data["quality"]["entry_count"]
     assert "note_count" in data["quality"]["vault_health"]
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 032.2 — atlas doctor --scan-src birleşme
+# ═════════════════════════════════════════════════════════════════════
+
+
+def _prep_temiz_doctor_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Ortak setup: DECISIONS bugün + vault dolu (drift/entry/vault temiz)."""
+    p = tmp_path / "d.md"
+    _write_decisions(p, date.today().isoformat())
+    monkeypatch.setattr(cli_mod, "_DECISIONS_MD_DEFAULT", p)
+    vault = tmp_path / "v"
+    vault.mkdir(exist_ok=True)
+    (vault / "note.md").write_text("# not", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_VAULT", str(vault))
+
+
+def test_0322_scan_src_yoksa_alan_yok(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--scan-src` verilmezse `quality.scan_src` alanı JSON'da YOK."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    rc = main(["doctor", "--json"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out.strip())
+    assert "scan_src" not in data["quality"]  # bit-uyumluluk
+
+
+def test_0322_scan_src_bayrak_temiz_alan_var(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--scan-src` (bulgu yok) → alan var, warning None."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    src = tmp_path / "src-clean"
+    src.mkdir()
+    (src / "ok.py").write_text("x = 1\n", encoding="utf-8")
+    rc = main(["doctor", "--scan-src", str(src), "--json"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out.strip())
+    assert "scan_src" in data["quality"]
+    assert data["quality"]["scan_src"]["total"] == 0
+    assert data["quality"]["scan_src"]["warning"] is None
+
+
+def test_0322_scan_src_sir_bulundu_warning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--scan-src` bulgu > 0 → warning gövdesi + sample_files."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    src = tmp_path / "src-dirty"
+    src.mkdir()
+    # scan_secrets tanıdığı bir kalıp — Anthropic API key formatı
+    (src / "config.py").write_text(
+        'ANTHROPIC_API_KEY = "sk-ant-api03-abcdef1234567890ABCDEF1234567890"\n',
+        encoding="utf-8",
+    )
+    rc = main(["doctor", "--scan-src", str(src), "--json"])
+    assert rc == 0  # strict yok, uyarı bilgi
+    data = json.loads(capsys.readouterr().out.strip())
+    assert data["quality"]["scan_src"]["total"] >= 1
+    assert data["quality"]["scan_src"]["warning"] is not None
+    assert "config.py" in " ".join(data["quality"]["scan_src"]["sample_files"])
+
+
+def test_0322_scan_src_strict_sir_exit_9(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`--scan-src --strict` + sır → exit 9 (tek kanal _has_quality_warning)."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    src = tmp_path / "src-dirty"
+    src.mkdir()
+    (src / "config.py").write_text(
+        'ANTHROPIC_API_KEY = "sk-ant-api03-abcdef1234567890ABCDEF1234567890"\n',
+        encoding="utf-8",
+    )
+    rc = main(["doctor", "--scan-src", str(src), "--strict"])
+    assert rc == 9
+
+
+def test_0322_scan_src_dizin_yok_warning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--scan-src <yok>` → warning ('scan hedefi yok')."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    rc = main(["doctor", "--scan-src", str(tmp_path / "olmayan-src"), "--json"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out.strip())
+    assert data["quality"]["scan_src"]["warning"] is not None
+    assert "yok" in data["quality"]["scan_src"]["warning"]
+
+
+def test_0322_scan_src_insan_format(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--scan-src` insan format → '[Kalite kapıları]' altında 'sır taraması:' satırı."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    src = tmp_path / "src-clean"
+    src.mkdir()
+    rc = main(["doctor", "--scan-src", str(src)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "sır taraması:" in out
+    assert "0 bulgu" in out
+
+
+def test_0322_atlas_scan_komutu_korundu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`atlas scan <path>` bağımsız komutu SÖZLEŞMESİ değişmez (regresyon)."""
+    src = tmp_path / "src-clean"
+    src.mkdir()
+    (src / "ok.py").write_text("x = 1\n", encoding="utf-8")
+    rc = main(["scan", str(src)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Sır bulunamadı." in out

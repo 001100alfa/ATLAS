@@ -1014,6 +1014,48 @@ def _check_vault_health(vault_path: Path | None = None) -> dict[str, Any]:
     return result
 
 
+def _check_scan_src(scan_path: Path | None = None) -> dict[str, Any]:
+    """SPEC 032.2: Kaynak dizininde `scan_secrets` çalıştır.
+
+    Şema: `{path, total, sample_files, warning}`.
+    - `total > 0` → uyarı gövdesi + ilk 5 dosya özet.
+    - Yol yoksa uyarı ("dizin yok").
+    """
+    path = scan_path or Path("src")
+    result: dict[str, Any] = {
+        "path": str(path),
+        "total": 0,
+        "sample_files": [],
+        "warning": None,
+    }
+    if not path.exists():
+        result["warning"] = f"scan hedefi yok: {path}"
+        return result
+    files = [path] if path.is_file() else sorted(path.rglob("*"))
+    sample: list[str] = []
+    total = 0
+    for f in files:
+        if not f.is_file():
+            continue
+        try:
+            text = f.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        hits = list(scan_secrets(text))
+        if hits:
+            total += len(hits)
+            if len(sample) < 5:
+                sample.append(str(f))
+    result["total"] = total
+    result["sample_files"] = sample
+    if total > 0:
+        result["warning"] = (
+            f"scan {total} olası sır buldu ({path}); "
+            f"ilk dosya(lar): {', '.join(sample[:3])}"
+        )
+    return result
+
+
 def _has_quality_warning(report: dict[str, Any]) -> bool:
     """SPEC 032 + 032.1: `quality.*` alanlarından birinde uyarı var mı."""
     quality = report.get("quality", {})
@@ -1063,8 +1105,11 @@ def _check_decisions_drift(
     return result
 
 
-def _collect_doctor_report() -> dict[str, Any]:
-    """SPEC 021 + 021.1 + 032: env sağlık özetini yapılandırılmış dict olarak topla.
+def _collect_doctor_report(
+    scan_src_path: Path | None = None,
+) -> dict[str, Any]:
+    """SPEC 021 + 021.1 + 032 + 032.2: env sağlık özetini yapılandırılmış
+    dict olarak topla.
 
     Şema:
     ```
@@ -1073,10 +1118,18 @@ def _collect_doctor_report() -> dict[str, Any]:
       "retry_pricing": {...},
       "storage": {...},
       "warnings": [str, ...],
-      "quality": {"decisions_drift": {...}}  # SPEC 032
+      "quality": {
+          "decisions_drift": {...},     # SPEC 032
+          "entry_count": {...},          # SPEC 032.1
+          "vault_health": {...},         # SPEC 032.1
+          "scan_src": {...}              # SPEC 032.2 (yalnız istenirse)
+      }
     }
     ```
     API key maskeli. Uyarılar warnings listesinde.
+
+    `scan_src_path` verilirse `quality.scan_src` alanı EKLENİR;
+    verilmezse alan yer almaz (bit-uyumluluk + ekstra IO maliyeti yok).
     """
     import shutil as _shutil
 
@@ -1160,11 +1213,14 @@ def _collect_doctor_report() -> dict[str, Any]:
     # SPEC 032 + 032.1: DECISIONS.md drift + entry count + vault sağlık
     # denetimleri (her zaman raporlanır; --strict yalnız exit koduna
     # dönüştürür).
-    quality = {
+    quality: dict[str, Any] = {
         "decisions_drift": _check_decisions_drift(),
         "entry_count": _count_recent_decisions(),
         "vault_health": _check_vault_health(),
     }
+    # SPEC 032.2: --scan-src opt-in — bayrak yoksa alan hiç eklenmez.
+    if scan_src_path is not None:
+        quality["scan_src"] = _check_scan_src(scan_src_path)
 
     return {
         "backend": backend_info,
@@ -1176,14 +1232,20 @@ def _collect_doctor_report() -> dict[str, Any]:
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
-    """SPEC 021 + 021.1 + 021.2 + 032: env sağlık özeti + quality gate.
+    """SPEC 021 + 021.1 + 021.2 + 032 + 032.2: env sağlık özeti + quality gate.
 
     `--json` bayrağı verilirse tek satır JSON; yoksa insan-okunur.
     `--ping` bayrağı Anthropic'e minimum request atar, latency+cost raporlar.
     `--strict` bayrağı DECISIONS drift uyarısı varsa exit 9 döner
     (SPEC 032). `--strict` yoksa mevcut davranış (exit 0) korunur.
+    `--scan-src [PATH]` (SPEC 032.2) bayrağı verilirse `scan_secrets`
+    kaynak dizinine uygulanır ve `quality.scan_src` alanı eklenir;
+    bulgu varsa `--strict` altında exit 9 (tek kanal `_has_quality_warning`).
     """
-    report = _collect_doctor_report()
+    # SPEC 032.2: --scan-src bayrağı → Path; yoksa None (bit-uyumlu).
+    scan_src = getattr(args, "scan_src", None)
+    scan_src_path = Path(scan_src) if scan_src else None
+    report = _collect_doctor_report(scan_src_path=scan_src_path)
 
     if getattr(args, "ping", False):
         ping_info = _run_anthropic_ping(report["warnings"])
@@ -1289,8 +1351,15 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
           f"({vhealth.get('note_count', 0)} not)")
     if vhealth.get("warning"):
         print(f"  [!] {vhealth['warning']}")
+    # SPEC 032.2: scan_src (opsiyonel, yalnız --scan-src verildiyse)
+    scan_info = quality.get("scan_src")
+    if scan_info is not None:
+        print(f"  sır taraması: {scan_info.get('path', '(yok)')} "
+              f"({scan_info.get('total', 0)} bulgu)")
+        if scan_info.get("warning"):
+            print(f"  [!] {scan_info['warning']}")
 
-    # SPEC 032 + 032.1: --strict → herhangi bir quality.* uyarısı varsa exit 9
+    # SPEC 032 + 032.1 + 032.2: --strict → herhangi bir quality.* uyarısı varsa exit 9
     if getattr(args, "strict", False) and _has_quality_warning(report):
         return 9
 
@@ -1935,7 +2004,10 @@ def main(argv: list[str] | None = None) -> int:
     p_doc.add_argument("--ping", action="store_true",
                        help="Anthropic'e minimum request at, latency+cost raporla — SPEC 021.2")
     p_doc.add_argument("--strict", action="store_true",
-                       help="SPEC 032: DECISIONS drift uyarısı varsa exit 9")
+                       help="SPEC 032: quality.* uyarısı varsa exit 9")
+    p_doc.add_argument("--scan-src", nargs="?", const="src", default=None,
+                       help="SPEC 032.2: sır taramasını doctor'a dahil et "
+                            "(varsayılan yol: src)")
     p_doc.set_defaults(func=_cmd_doctor)
 
     args = parser.parse_args(argv)
