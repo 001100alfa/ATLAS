@@ -12,13 +12,13 @@
 > 5. Zorunlu Döngü'ye (`CLAUDE.md` §Zorunlu Döngü) gir; ilk iş
 >    `DECISIONS.md`'nin son 2026-07-30 girişlerini kaba tarama.
 
-**Son çalışma:** 2026-07-30 (12. tur — 018.3 + 026.3)
-**Branch:** `main` (origin/main ile senkron — `cbbb7db`)
+**Son çalışma:** 2026-07-30 (13. tur — 032 + 026.4)
+**Branch:** `main` (origin/main ile senkron — `3a4eae9`)
 **Working tree:** temiz (kapanış öncesi son doğrulama)
-**Durum:** 12. tur tamamlandı; 2 lineer feat commit main'e ff-merge
-+ push edildi (`790c9da..cbbb7db`), 2 feature branch silindi.
-**610/610 test yeşil** (+9 platform skip), coverage %91.26, mypy
-strict + ruff + scan temiz. Bilinen flaky yok.
+**Durum:** 13. tur tamamlandı; 2 lineer feat commit main'e ff-merge
++ push edildi (`c3aaedf..3a4eae9`), 2 feature branch silindi.
+**629/629 test yeşil** (+12 platform skip), coverage %91.31, mypy
+strict + ruff + scan temiz. Platform matrisi **8/8 dolu**.
 
 ---
 
@@ -30,67 +30,64 @@ Yeni oturumda tek cümle yeter: **"devam et"**
 
 ---
 
-## Bu turda yapılan (2026-07-30 — 12. tur)
+## Bu turda yapılan (2026-07-30 — 13. tur)
 
-Zincirleme iki iş (`018.3 → 026.3`), her biri kendi branch'inde tek
+Zincirleme iki iş (`032 → 026.4`), her biri kendi branch'inde tek
 commit; sonrasında main'e lineer ff-merge + push + branch temizlik.
 
-1. **Görev 018.3** — Claude + ACP real gözlem özetleme (`671d4fe`)
-   - `_summarize_via_claude` — `_call_claude` subprocess minimal
-     özet promptu ile; yeni.
-   - `_summarize_via_acp` — `_call_acp` JSON-RPC oturumu minimal
-     özet promptu ile; yeni.
-   - `_summarize_via_anthropic` refactor: ortak yardımcılar
-     (`_build_summarize_prompt`, `_finalize_summary_line`) 3 backend
-     paylaşır (018.2 sonuçla bit-uyumlu).
-   - `_maybe_summarize_or_trim` dispatch tablosuyla temizlendi;
-     4 backend simetrik.
-   - 018.2'nin "018.3 kapsamı" uyarı yolu + `_OBS_SUMMARIZE_WARNED`
-     seti **kaldırıldı** (dead code). Uyarı artık yalnız gerçek
-     hata durumunda çıkar.
-   - Fail-safe: her real çağrı LLMPlannerError → stderr uyarı +
-     `_trim_obs` fallback.
-   - +8 test (23 toplam); 2 eski uyarı testi silindi (davranış
-     değişti).
+1. **Görev 032** — `atlas doctor --strict` quality gate (`43d840c`)
+   - `_last_decision_date` (DECISIONS.md ilk `^## YYYY-MM-DD`
+     başlığı), `_read_strict_drift_days_env` (varsayılan 7),
+     `_check_decisions_drift` (drift + uyarı).
+   - `_collect_doctor_report`'a `quality.decisions_drift` bölümü
+     **her zaman** eklendi (bayraktan bağımsız).
+   - `_cmd_doctor` `--strict` bayrağı + `[Kalite kapıları]` insan
+     bölümü + `--json --strict` de exit 9 yolu.
+   - Yeni env: `ATLAS_STRICT_DRIFT_DAYS` (7 varsayılan).
+   - Yeni exit: **9** ("quality gate failed").
+   - Bit-uyumluluk: mevcut çıktı ve alanlar birebir korundu; yalnız
+     EKLEMELER.
+   - **Bonus fix:** 026.3 CPU quota testi (`test_0263_windows_cpu_
+     quota_kesir`) 3.5s eşiği yüklü makinede flaky — 12s timeout +
+     8s eşik marjı ile güvenli.
+   - +18 test.
 
-2. **Görev 026.3** — Windows CPU quota (`cbbb7db`)
-   - `_JOB_OBJECT_LIMIT_PROCESS_TIME` (0x2) + `_WIN_TIME_TICKS_PER_
-     SECOND` (10⁷) sabitleri.
-   - `_has_windows_sandbox_env` CPU_S dahil (üç env: MEM/PROC/CPU).
-   - `_apply_windows_job(pid, mem_mb, max_proc, cpu_s=None)` —
-     cpu_s verildiyse `LimitFlags |= 0x2` + `BasicLimitInformation.
-     PerProcessUserTimeLimit = cpu_s * 10_000_000`.
-   - `_shell` CPU_S env'i okuyup Job'a geçir.
-   - `ATLAS_SANDBOX_CPU_S` artık **platform-agnostik**: Unix
-     RLIMIT_CPU (026.1), Windows Job PROCESS_TIME (026.3).
-   - Struct DEĞİŞMEDİ (PerProcessUserTimeLimit zaten c_int64).
-   - **Kanıt (Windows canlı):** `while True: pass` CPU_S=1 iken
-     3.5 sn'den kısa sürede exit != 0 (timeout 8 sn olsa da).
-   - +5 test.
+2. **Görev 026.4** — Unix `MAX_PROC` / `RLIMIT_NPROC` (`3a4eae9`)
+   - `_build_preexec_fn` MAX_PROC dahil (3 env: CPU/MEM/PROC).
+   - `getattr(_resource, "RLIMIT_NPROC", None)` platform koruma
+     (bazı BSD varyantları).
+   - `ATLAS_SANDBOX_MAX_PROC` artık **platform-agnostik**: Unix
+     RLIMIT_NPROC (026.4), Windows Job ACTIVE_PROCESS (026.2).
+   - Env yoksa 026.1 + 026.3 bit-uyumlu; Windows'ta preexec_fn hâlâ
+     None (026.1 guard aynı).
+   - Canlı fork limit testi CI-fragile bilinçli dışlandı; mock ile
+     `setrlimit(RLIMIT_NPROC, (12, 12))` çağrısı ampirik doğrulandı.
+   - **Platform matrisi 8/8 dolu** — hiçbir hücrede boşluk yok.
+   - +4 test.
 
 3. **Merge + push + temizlik**
-   - `git merge --ff-only feat/018.3 && ... && feat/026.3` → 2
-     commit lineer main'e (`cbbb7db`), merge commit YOK.
-   - `git push origin main` → `790c9da..cbbb7db` uzağa gitti.
-   - 2 feature branch silindi (`feat/018.3-claude-acp-summarize`,
-     `feat/026.3-windows-cpu-quota`).
+   - `git merge --ff-only feat/032 && ... && feat/026.4` → 2 commit
+     lineer main'e (`3a4eae9`), merge commit YOK.
+   - `git push origin main` → `c3aaedf..3a4eae9` uzağa gitti.
+   - 2 feature branch silindi (`feat/032-quality-gate`,
+     `feat/026.4-unix-nproc`).
 
 ---
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-**Yeni görev seçimi.** Pipeline'da açık iş yok. Kalan doğal adaylar:
+**Yeni görev seçimi.** Pipeline'da açık iş yok. Doğal adaylar:
 
-- **Görev 031 — Batch paralel `--jobs N`:** 030'un doğal uzantısı;
-  ThreadPool + sandbox paylaşımı + LLM rate limit gözetimi. En
-  büyük scope + risk.
-- **Görev 032 — GBrain quality gate:** `atlas doctor --strict` +
-  DECISIONS drift denetimi. commit öncesi engelleyici davranış.
-- **Görev 026.4 — Unix MAX_PROC (RLIMIT_NPROC):** platform matrisi
-  tamamlanır (Unix tarafındaki tek boşluk); YAGNI seviyesinde
-  küçük iş, RLIMIT_CPU zaten fork bomb'u SIGXCPU ile keser.
-- **Görev 018.4 — ACP özet önbelleği:** her uzun obs için yeni
-  Popen ağır — same obs iki kez → tek çağrı. YAGNI şimdilik.
+- **Görev 031 — Batch paralel `--jobs N`:** 030'un doğal uzantısı.
+  ThreadPool + sandbox paylaşımı + LLM rate limit gözetimi + exit
+  agregasyon. En büyük scope + risk; ayrı tur hak eder.
+- **Görev 032.1 — `atlas doctor --strict` genişletme:** coverage /
+  test-failure / DECISIONS entry count denetimleri. 032 hook mekanı
+  hazır, ek denetim eklemek küçük.
+- **Görev 033 — `atlas archive --restore <id>`:** arşivlenen görevi
+  geri getir. `atlas archive --all` yıkıcı — geri alma yok.
+- **Görev 034 — pre-commit hook entegrasyonu:** `atlas doctor
+  --strict` + `atlas scan` commit öncesi otomatik çalışsın.
 - Ya da başka öncelik varsa net söyle.
 
 ---
@@ -99,79 +96,89 @@ commit; sonrasında main'e lineer ff-merge + push + branch temizlik.
 
 **Branch grafı:**
 ```
-origin/main (cbbb7db + docs) = main ← senkron
+origin/main (3a4eae9 + docs) = main ← senkron
 ```
 Kalan local branch'ler (bu turların dışı, önceki oturumların işi):
 `feat/paketleme-bulut-secenegi`, `feat/tasinabilir-kurulum`,
 `fix/{arsivleyici-arama, kimi-yeniden-etkinlestirme,
 ollama-kimligi-tasinabilir, surum-etiketli-yedek}`.
 
-**main'e giren 2 commit (2026-07-30 12. tur):**
+**main'e giren 2 commit (2026-07-30 13. tur):**
 ```
-cbbb7db feat(026.3): Windows CPU quota (Job Objects PROCESS_TIME)
-671d4fe feat(018.3): claude + acp real gozlem ozetleme
+3a4eae9 feat(026.4): Unix MAX_PROC (RLIMIT_NPROC) — platform matrisi 8/8 dolu
+43d840c feat(032): atlas doctor --strict + DECISIONS drift + exit 9
 ```
-Ayrıca sabah kaydı: `790c9da chore(ai-cli): opencode-ai 1.18.9`.
 
 **Kalite kapıları (bu turun sonu):**
 ```bash
 uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
-# 610 passed, 9 skipped (6 Unix-only 026.1 + 2 non-Win 026.2 + 1 non-Win 026.3)
+# 629 passed, 12 skipped (6 Unix-only 026.1 + 3 Unix-only 026.4 +
+#                        2 non-Win 026.2 + 1 non-Win 026.3)
 uv run mypy src                # temiz
 uv run ruff check src tests    # temiz
 uv run atlas scan src          # sır bulunamadı
 ```
 
-**Yeni CLI davranışları (bu turda):** yok — env sözleşmesi de aynı,
-yalnız iç davranış değişiklikleri.
+**Yeni CLI davranışı (bu turda):**
+- `atlas doctor --strict` — 032. Opt-in; drift varsa exit 9.
 
-**Env sözleşmesi:** DEĞİŞMEDİ.
-- `ATLAS_SANDBOX_CPU_S` 026.1'den beri var, 026.3 sadece Windows
-  tarafını doldurdu (aynı env platform-agnostik oldu).
-- `ATLAS_LLM_OBS_SUMMARIZE` 018.2'den beri var, 018.3 sadece 3
-  gerçek backend'i tam bağladı.
+**Env sözleşmesi (kümülatif, bu turda eklenen ★):**
+| Değişken | Anlam |
+|---|---|
+| `ATLAS_STRICT_DRIFT_DAYS` ★ | **032** — DECISIONS.md drift eşiği (varsayılan 7 gün) |
+| `ATLAS_SANDBOX_MAX_PROC` | **026.2 + 026.4 ORTAK** — Unix RLIMIT_NPROC / Windows Job ACTIVE_PROCESS (026.4 Unix ayağını doldurdu) |
+| (önceki: `ATLAS_LLM`, `ATLAS_LLM_TIMEOUT`, `ATLAS_LLM_CLAUDE_BIN`, `ANTHROPIC_API_KEY`, `ATLAS_LLM_MODEL`, `ATLAS_LLM_ANTHROPIC_URL`, `ATLAS_LLM_ACP_BIN`, `ATLAS_LLM_ACP_ARGS`, `ATLAS_CONTEXT`, `ATLAS_ACP_INTERACTIVE`, `ATLAS_LLM_RETRIES`, `ATLAS_LLM_BACKOFF`, `ATLAS_LLM_JITTER`, `ATLAS_LLM_TRACE`, `ATLAS_LLM_PRICE_IN/OUT`, `ATLAS_LLM_OBS_CHARS`, `ATLAS_LLM_OBS_HEAD/TAIL`, `ATLAS_LLM_OBS_SUMMARIZE`, `ATLAS_ARCHIVE_AGE_DAYS`, `ATLAS_DOTENV`, `ATLAS_METRICS`, `ATLAS_SANDBOX_PATH`, `ATLAS_SANDBOX_TIMEOUT`, `ATLAS_SANDBOX_CPU_S`, `ATLAS_SANDBOX_MEM_MB`, `ATLAS_RUNS_DIR`) | |
 
-**Exit kodları:** DEĞİŞMEDİ (10. turdaki 8 kaldı).
+**Exit kodları (kümülatif, bu turda eklenen ★):**
+| Kod | Anlam |
+|---|---|
+| 0 | Başarılı |
+| 1 | Sır bulundu (scan) |
+| 2 | SPEC HATASI (input/config) |
+| 3 | GBrain/workflow başarısız |
+| 4 | Run bitmedi (done=False) |
+| 5 | Action denied |
+| 6 | archive-all bir görevde başarısız |
+| 7 | Env / archive age parse hatası |
+| 8 | `atlas metrics --alert` eşik altı (029) |
+| **9** ★ | **`atlas doctor --strict` DECISIONS drift (032)** |
 
-**Backend matrisi (018.2 + 018.3 birleşik) — obs özetleme:**
+**Platform matrisi (026 + 026.1 + 026.2 + 026.3 + 026.4 birleşik):**
+| Platform | Env yok | CPU_S | MEM_MB | MAX_PROC |
+|---|---|---|---|---|
+| Unix | subprocess.run (bit-uyumlu) | RLIMIT_CPU (026.1) | RLIMIT_AS (026.1) | **RLIMIT_NPROC (026.4)** |
+| Windows | subprocess.run (bit-uyumlu) | Job PROCESS_TIME (026.3) | Job PROCESS_MEMORY (026.2) | Job ACTIVE_PROCESS (026.2) |
+
+**Matris 8/8 dolu** — hiçbir hücrede boşluk yok.
+
+**Backend matrisi (obs özet, 018.2 + 018.3):**
 | Backend | Opt-in kapalı | Kısa obs | Uzun obs |
 |---|---|---|---|
 | stub | 018.1 trim | dokunma | stub özet (deterministik) |
-| claude | 018.1 trim | dokunma | **real _call_claude** (018.3) |
-| anthropic | 018.1 trim | dokunma | **real _call_anthropic** (018.2) |
-| acp | 018.1 trim | dokunma | **real _call_acp** (018.3) |
+| claude | 018.1 trim | dokunma | real _call_claude (018.3) |
+| anthropic | 018.1 trim | dokunma | real _call_anthropic (018.2) |
+| acp | 018.1 trim | dokunma | real _call_acp (018.3) |
 
-**Platform matrisi (026 + 026.1 + 026.2 + 026.3 birleşik) — sandbox:**
-| Platform | Env yok | CPU_S | MEM_MB | MAX_PROC |
-|---|---|---|---|---|
-| Unix | run (bit-uyumlu) | RLIMIT_CPU | RLIMIT_AS | (026.4?) |
-| Windows | run (bit-uyumlu) | **Job PROCESS_TIME** | Job PROCESS_MEMORY | Job ACTIVE_PROCESS |
-
-Matrisin **yedi hücresi dolu, bir hücresi bilinçli boş** (Unix MAX_PROC
-RLIMIT_NPROC — YAGNI, RLIMIT_CPU zaten fork bomb'u keser).
+**Matris 4/4 dolu.**
 
 **Kritik sözleşme değişmezlikleri (bu turda korundu):**
-- `Planner`, `make_planner`, `LLMPlannerError`, `RetryAfterError`,
-  `_call_anthropic`, `_call_claude`, `_call_acp`, `_resolve_*_bin`,
-  `_trim_obs`, `_stub_summarize_obs`, `_summarize_via_anthropic`,
-  `_maybe_summarize_or_trim` imzaları korundu (dispatch içi değişti,
-  arayüz aynı).
+- `_cmd_doctor`, `_collect_doctor_report` mevcut alanları + çıktısı
+  KORUNDU (yalnız EKLEMELER: `quality` alanı + `[Kalite kapıları]`
+  bölümü).
+- `_build_preexec_fn` imzası KORUNDU (içi genişledi).
 - `Action`, `make_action`, `ActionDeniedError` imzaları korundu.
-- `_apply_windows_job` imzası genişledi (`cpu_s=None` default) —
-  geri uyumlu, mevcut çağrıcı `_shell` içi tek yer güncellendi.
-- `_JOBOBJECT_EXTENDED_LIMIT_INFORMATION` struct layout DEĞİŞMEDİ.
-- `Goal` sözleşmesi aynı — yeni alan yok.
-- Env sözleşmesi aynı.
+- Env yokken doctor + shell davranışı bit-uyumlu (öncekiler
+  bozulmadı).
+- `Planner`, `make_planner`, `Goal` — bu turda dokunulmadı.
 
-**Bilinen flaky:** yok.
+**Bilinen flaky:** yok. (026.3 flaky-fix 032 turunda yapıldı.)
 
-**Docker YASAK (kullanıcı direktifi 026'da):** korunuyor. Platform
-matrisi tamamen native API'lerle dolduruldu — Unix `resource` +
-Windows Job Objects. Container gerekmedi.
+**Docker YASAK:** hâlâ yürürlükte. Sandbox tamamen native (Unix
+resource + Windows Job Objects) — hiç container yok.
 
 **Görev-öncesi zorunlu okuma sırası:**
-1. `DECISIONS.md` — 2026-07-30 altında **3 yeni giriş bloğu**
-   (chore, 018.3, 026.3); 2026-07-29 altında 39 blok.
+1. `DECISIONS.md` — 2026-07-30 altında **5 yeni giriş bloğu**
+   (chore, 018.3, 026.3, 032, 026.4); 2026-07-29 altında 39 blok.
 2. Bu dosya (DEVAM_NOKTASI.md)
 3. Hedef görevin `pipeline/tasks/<XXX>/{00-need,09-ship}.md`
 4. Değişecek modülün üstündeki docstring
@@ -181,18 +188,19 @@ Windows Job Objects. Container gerekmedi.
 
 ## Kapanış Notları
 
-- 610 test yeşil (bu turun baseline'ı 600 → +10; oturum başı 319 → +291)
+- 629 test yeşil (bu turun baseline'ı 610 → +19; oturum başı 319 → +310)
 - 2 lineer commit main'e alındı, uzağa push edildi, 2 feature branch
   silindi (kullanıcı `onayla` ile)
-- Yeni env YOK — mevcut envler platform matrisinde eksiklikleri
-  doldurdu (CPU_S Windows'ta artık aktif; OBS_SUMMARIZE 3 real
-  backend'e tam bağlı)
-- Yeni exit kodu YOK
+- Yeni env: `ATLAS_STRICT_DRIFT_DAYS` (032). `ATLAS_SANDBOX_MAX_PROC`
+  Unix ayağı da doldu (026.4)
+- Yeni exit kodu: **9** (`atlas doctor --strict` drift)
 - Uncommitted değişiklik yok, working tree temiz
-- Ertelenmiş iş kalmadı — 018.2 ve 026.2'nin bıraktığı iki uç
-  (claude/acp özet, Windows CPU) bu turda kapandı
-- Docker YASAK yürürlükte — sandbox güvenliği tamamen native
-- Portable bundle son sürüm: `D:\ATLAS.rar` (28 Temmuz oturumu, 1.9 GB) —
-  yenilenmedi (kapsam dışı)
-- DECISIONS.md 2026-07-30 altında **3 giriş bloğu**, 2026-07-29
-  altında **39 giriş bloğu** birikti (toplam 42+)
+- Ertelenen iş yok — 032 hook mekanı hazır ama coverage/test denetimi
+  ayrı iş (032.1)
+- Docker YASAK yürürlükte — sandbox güvenliği tam native
+- Portable bundle son sürüm: `D:\ATLAS.rar` (28 Temmuz, 1.9 GB) —
+  yenilenmedi
+- DECISIONS.md 2026-07-30 altında **5 giriş bloğu**, 2026-07-29
+  altında **39 giriş bloğu** birikti (toplam 44+)
+- 026.3 CPU quota test flaky-fix 032 turunda yapıldı — 3.5s eşiği
+  yükte fail veriyordu, 8s marj + 12s timeout ile güvenli

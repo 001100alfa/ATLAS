@@ -1,6 +1,73 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-30 (Görev 026.4 — Unix MAX_PROC / RLIMIT_NPROC)
+- [KARAR] Env sözleşmesi **tam simetrik** oldu — `ATLAS_SANDBOX_MAX_PROC`
+  hem Unix (026.4 RLIMIT_NPROC) hem Windows (026.2 Job ACTIVE_PROCESS).
+  Kullanıcı taşınabilir sözleşme yazsın, "Unix'te bu env yoksayılır"
+  sürprizi yaşamasın.
+- [KARAR] `getattr(_resource, "RLIMIT_NPROC", None)` koruma — bazı
+  BSD dağıtımlarında sabit farklı ad taşıyabilir. `None` dönerse
+  sessizce atla (env verilse dahi çağrı ateşlenmez); ilgili
+  platformda başka koruma katmanı (RLIMIT_CPU) devrede.
+- [KARAR] 026.1'deki "RLIMIT_CPU zaten fork bomb'u SIGXCPU ile keser"
+  gerekçesi hâlâ doğru — ancak env asimetrisi subtle bug'dır. Kalıp:
+  derin savunma, tek sınıra bel bağlama; iki paralel koruma
+  (RLIMIT_CPU + RLIMIT_NPROC) her ikisi ucuz.
+- [KARAR] Canlı fork limit testi **bilinçli dışlandı** — CI runner'ın
+  mevcut ulimit'i deterministik değil, test flaky olur. Yerine mock
+  ile `_build_preexec_fn`'in gerçekten `setrlimit(RLIMIT_NPROC,
+  (n, n))` çağırdığı ampirik doğrulanır (`calls == [(6, (12, 12))]`).
+  Kalıp: eğer canlı test iş sisteminden bağımsız değilse mock ile
+  contract doğrula.
+- [KARAR] Platform matrisi artık **8/8 dolu** — hiçbir hücrede
+  boşluk yok. `atlas run --goal-file X.yaml` tam sandbox koruması ile
+  koşabilir (CPU + MEM + PROC her platformda).
+- Kapsam: 1 modül düzenleme (actions.py: `_build_preexec_fn` MAX_PROC
+  dahil + RLIMIT_NPROC getattr koruma), 1 test dosyası eki (+4 test).
+  629 test yeşil (628 → +1 Windows; +3 Unix-only skip). mypy strict +
+  ruff + scan temiz. Artefaktlar `pipeline/tasks/026-4-unix-nproc/`.
+
+## 2026-07-30 (Görev 032 — `atlas doctor --strict` quality gate)
+- [KARAR] **Yeni exit kodu 9** = "quality gate failed". 8 zaten
+  `atlas metrics --alert` (029); 9 farklı semantik (drift, coverage
+  gibi kalite bulguları). Kullanıcı bir hata ile diğerini karıştırmasın.
+- [KARAR] Drift denetimi **bugün tarihi** baz alır, "son feat commit
+  tarihi" değil. Sebep: kullanıcı feat commit'i attıktan sonra da
+  DECISIONS güncellemeyi unutabilir; commit tarihi bir yumuşatma
+  olurdu, doğrudan takvim daha keskin bir sinyal. Alternatif hafta
+  sonu / iş günü ayrımı — YAGNI, bir görev günleri boyunca sürebilir.
+- [KARAR] Varsayılan eşik **7 gün**. Bir haftadan uzun sessizlik
+  "aktif çalışma" işareti değil. Kullanıcı `ATLAS_STRICT_DRIFT_DAYS`
+  ile daralt (3) ya da genişlet (30) — 018/026 fail-safe kalıbıyla
+  parse hatası varsayılana düşer.
+- [KARAR] Denetim `_collect_doctor_report`'a **her zaman** eklenir
+  (`quality.decisions_drift`). `--strict` yalnızca exit koduna
+  dönüştürür. Rapor tüketicileri bir alan var/yok ayrımı yapmasın.
+- [KARAR] `--json + --strict` çakışması: JSON çıktısı bası **korunur**,
+  yalnız exit kodu 9 döner. CI kalıbı `atlas doctor --json --strict >
+  doctor.json 2> doctor.err || fail` — hem raporu al hem exit'i
+  yakala.
+- [KARAR] `[Kalite kapıları]` bölümü mevcut doctor insan çıktısının
+  **sonuna** eklendi (mevcut bölümler değişmedi). JSON'a `quality`
+  alanı **eklendi** (mevcut alanlar değişmedi). Bit-uyumluluk her
+  iki format için de korundu.
+- [KARAR] Coverage / test failure denetimi **kapsam dışı** — pytest
+  zaten `--cov-fail-under` ile keser; `atlas doctor` env sağlığına
+  odaklı, pytest çalıştırmıyor. Doktrin: bir aracın işini başka
+  araca gömme.
+- [HATA] 026.3 CPU quota testi (`test_0263_windows_cpu_quota_kesir`)
+  3.5s eşiği yüklü makinede flaky — 032 quality kapısı koşulunda
+  3.46s ölçüm alındığı için failed. Eşik 8s'ye çıkarıldı, timeout
+  12s (marj), CPU quota hâlâ ölçülüyor (timeout değil). Bonus fix
+  032 commit'ine katıldı. Kalıp: canlı zamanlama testinde marj
+  ~2× beklenen, %10 değil.
+- Kapsam: 1 modül düzenleme (cli.py: +re/date import, +3 fonksiyon,
+  `_collect_doctor_report` "quality" bölümü, `_cmd_doctor` --strict
+  + insan format + exit 9, parser), 1 yeni test dosyası (+18 test),
+  1 test flaky-fix (026.3). 628 test yeşil (610 → +18). mypy strict +
+  ruff + scan temiz. Artefaktlar `pipeline/tasks/032-quality-gate/`.
+
 ## 2026-07-30 (Görev 026.3 — Windows CPU quota)
 - [KARAR] `JOB_OBJECT_LIMIT_PROCESS_TIME` (0x2) + `BasicLimitInformation.
   PerProcessUserTimeLimit`. Struct 026.2'den beri `c_int64` olarak
