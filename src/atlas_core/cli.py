@@ -449,16 +449,76 @@ def _read_ship_summary(task_dir: Path) -> str:
     return text or f"{task_dir.name} arşivlendi"
 
 
+def _cmd_archive_restore(args: argparse.Namespace) -> int:
+    """SPEC 033: `atlas archive --restore <id>` — arşivi geri aç.
+
+    Dry-run varsayılan (yıkıcı: mevcut task klasörü olabilir → yazma
+    yok, --apply zorunlu).
+    Exit kodları:
+      - 0: başarılı (veya dry-run)
+      - 2: SPEC HATASI (task_id yok)
+      - 3: çakışma (hedef zaten var)
+      - 6: extract hatası (RestoreError, path traversal, I/O)
+    """
+    from atlas_core.memory.archive import (
+        RestoreError,
+        _find_archive_for_task,
+        restore_task,
+    )
+    task_id = args.restore
+    tasks_root = Path(args.tasks_root)
+    archive_root = Path(args.archive_root)
+
+    tar_path = _find_archive_for_task(archive_root, task_id)
+    if tar_path is None:
+        print(
+            f"ARŞİV HATASI: arşiv bulunamadı: "
+            f"{archive_root}/{task_id}-*.tar.gz",
+            file=sys.stderr,
+        )
+        return 6
+    restored_dir = tasks_root / task_id
+
+    if not args.apply:
+        print("[dry-run] geri yükleme planı:")
+        print(f"  arşiv:  {tar_path}")
+        print(f"  hedef:  {restored_dir}")
+        if restored_dir.exists():
+            print("  UYARI:  hedef zaten var — --apply patlar (exit 3)")
+        print(f"Uygulamak için: atlas archive --restore {task_id} --apply")
+        return 0
+
+    audit = AuditLog(_audit_path())
+    try:
+        tar_out, restored_out = restore_task(task_id, archive_root, tasks_root)
+    except RestoreError as exc:
+        msg = str(exc)
+        audit.record("atlas-archive", "restore-error", f"{task_id}: {msg[:180]}")
+        print(f"ARŞİV HATASI: {msg}", file=sys.stderr)
+        # Çakışma → exit 3; diğerleri → exit 6
+        if "zaten var" in msg:
+            return 3
+        return 6
+
+    audit.record("atlas-archive", "restore", task_id)
+    print(f"geri yüklendi: {restored_out}")
+    print(f"kaynak:        {tar_out}")
+    return 0
+
+
 def _cmd_archive(args: argparse.Namespace) -> int:
-    """SPEC 007+012: `atlas archive <task> | --all [--apply] [--yes] ...`.
+    """SPEC 007+012+033: `atlas archive <task> | --all | --restore <id> ...`.
 
     Dry-run varsayılan (yıkıcı işlem). Tekil: `--apply` yeter. Toplu:
-    `--all --apply --yes` (çift onay).
+    `--all --apply --yes` (çift onay). Geri yükleme: `--restore <id>
+    [--apply]`.
     """
+    if getattr(args, "restore", None):
+        return _cmd_archive_restore(args)
     if getattr(args, "all", False):
         return _cmd_archive_all(args)
     if not args.task:
-        print("SPEC HATASI: <task> ya da --all zorunlu", file=sys.stderr)
+        print("SPEC HATASI: <task> ya da --all ya da --restore zorunlu", file=sys.stderr)
         return 2
 
     tasks_root = Path(args.tasks_root)
@@ -2190,7 +2250,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p_arc = sub.add_parser("archive", help="Tamamlanmış görevi arşive taşı")
     p_arc.add_argument("task", nargs="?", default=None,
-                       help="pipeline/tasks/ altındaki klasör adı (--all yoksa zorunlu)")
+                       help="pipeline/tasks/ altındaki klasör adı "
+                            "(--all/--restore yoksa zorunlu)")
     p_arc.add_argument("--all", action="store_true",
                        help="09-ship.md dosyası olan tüm görevleri sıraya al (SPEC 012)")
     p_arc.add_argument("--auto", action="store_true",
@@ -2200,6 +2261,9 @@ def main(argv: list[str] | None = None) -> int:
                        help="--all --apply için ikinci onay (çift kapı)")
     p_arc.add_argument("--apply", action="store_true",
                        help="dry-run yerine gerçek taşımayı çalıştır (yıkıcı)")
+    p_arc.add_argument("--restore", default=None, metavar="TASK_ID",
+                       help="SPEC 033: <TASK_ID> arşivini pipeline/tasks/ "
+                            "altına geri aç (dry-run varsayılan)")
     p_arc.add_argument("--summary", default=None,
                        help="vault notunun gövdesi (yoksa 09-ship.md okunur)")
     p_arc.add_argument("--tasks-root", default="pipeline/tasks",
