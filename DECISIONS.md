@@ -1,6 +1,84 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-30 (chore: `claudecode_Run.cmd` baslatici)
+- [KARAR] `opencode_Run.cmd` / `kilo_Run.cmd` kalibi ile simetrik bir
+  `claudecode_Run.cmd` eklendi. Farkli olarak XDG/HOME override YOK —
+  memory ve DECISIONS 2026-07-24: "Claude Code CLI tasinabilirlik
+  istisnasidir; hesap kullanicinin `~/.claude`'unda". Launcher yalniz
+  bin arama + PATH + cwd.
+- [KARAR] Bin arama sirasi `ATLAS_LLM_CLAUDE_BIN` -> `where claude` ->
+  `where claude.cmd`. Uc katman: opsiyonel override, PATH, Windows npm
+  shim. Her uc de yoksa net cozum satirlari (npm/PATH/env).
+- [HATA] Ilk yazimda nested parantezli `if defined ... ( ... )` bloklari
+  CMD parser'inda garip bir `'m' is not recognized` uyarisi urekiyordu
+  (islevsel calisir, ama gurultulu). Duzeltme: nested if'leri kaldirip
+  `call :find_bin` altprosedurune donusturdum. Kalip: batch'te derin
+  nested if'ten kacin, `goto`/`call` ile hat ayrimi yap.
+- [KARAR] `PATH=%H%;%PATH%` ile ATLAS launcher'lari (opencode_Run.cmd,
+  atlas.exe vb.) Claude Code oturumundan cagirilabilir. `cd /d %H%`
+  ile CLAUDE.md depo kokunden okunur.
+- [KANIT] Smoke: `cmd /c claudecode_Run.cmd --version` -> `2.1.133
+  (Claude Code)`, stderr temiz.
+
+## 2026-07-30 (Görev 032.1 — `atlas doctor --strict` ek denetimler)
+- [KARAR] Uc kanal, tek exit — `_has_quality_warning(report)` yardimcisi
+  `quality.*` altindaki HER `warning` alanina bakar. Kullanici "3 farkli
+  bulgu, 3 farkli exit" yerine tek "kalite gate" gorur. Alternatif her
+  denetime ayri exit (9/10/11) — semantik siserdi; drift ve vault ayni
+  aile (dokuman disiplini).
+- [KARAR] Vault sagligi esigi **>= 1 `.md`** — sifir dosya "hiç vault
+  kullanmadin" anlamina gelir, uyari; bir dosya bile disiplin belirtisi.
+  Alternatif "en az N not" — makul ama keyfi, YAGNI.
+- [KARAR] Entry count varsayilan pencere **30 gun**, min entry **1**.
+  Bir ayda tek karar bile birakmadiysan proje pratik olarak sessiz —
+  drift'ten (7 gun) daha genis pencere ama tamamlayici sinyal.
+- [KARAR] Ek env: `ATLAS_STRICT_ENTRY_WINDOW_DAYS`, `ATLAS_STRICT_MIN_
+  ENTRIES` — 018/026 fail-safe kalibi (parse hatasi -> varsayilan;
+  negatif -> varsayilan). Uc env (drift/entry/vault yok) ile kullanici
+  quality gate'i istedigi kadar sikilastirir.
+- [KARAR] **Sozlesme davranissal degisikligi:** `--strict` artik uc
+  kanaldan tetiklenir. Bunu belgelendirdim; mevcut 032 testi (`test_032_
+  doctor_strict_temiz_exit_0`) vault + `.md` eklemeye guncellendi
+  (yeni "temiz" tanimi). 034 pre-commit hook shim'i bunu otomatik
+  yakalar — yani pre-commit + 032.1 birbirini destekler.
+- [KARAR] Coverage / test failure denetimi hala **kapsam disi** (032
+  karari): "doctor pytest calistirmaz". 032.1 disari cikmadi bu
+  kuraldan.
+- Kapsam: 1 modül düzenleme (cli.py: 4 yeni yardimci, `_collect_doctor
+  _report` quality 3 alanli, `_cmd_doctor` insan format ek 4 satir +
+  JSON+strict tek kanal), 1 test dosyasi eki (+10 test; mevcut 1 test
+  guncellendi). 656 test yesil (646 -> +10). mypy strict + ruff + scan
+  temiz. Artefaktlar `pipeline/tasks/032-1-doctor-strict-plus/`.
+
+## 2026-07-30 (Görev 034 — git pre-commit hook + `atlas hooks`)
+- [KARAR] `.git/hooks/pre-commit` **tracked degil** — kaynagi
+  `tools/hooks/pre-commit` olarak repoda tut, `atlas hooks install`
+  ile kopyala. Alternatif `git config core.hooksPath` — proje-basi
+  bir kez set etmek gerekir, kullanici unutabilir; explicit `install`
+  komutu daha kesin.
+- [KARAR] Shim imzasi `# atlas-hook v1` **ilk 5 satirda** — uninstall
+  guvenli tanima. Kullanicinin kendi hook'una dokunmaz. Surum evrimi
+  (v2, v3) icin ayri iterasyon; simdilik tek surum.
+- [KARAR] Install idempotent: ayni icerik = no-op; ATLAS imzali eski
+  icerik = sessiz guncelleme; yabanci hook = `--force` gerektir. `--
+  force` YIKICI ("kullanicinin kendi shim'i eziliyor") — bilincli
+  onay.
+- [KARAR] Shim POSIX sh — git-bash Windows'ta standart (memory: kimi'nin
+  bash yolu). PowerShell shim ayri is (YAGNI); git-bash kurulu her
+  makinede calisir.
+- [KARAR] Shim `atlas scan src` + `atlas doctor --strict` calistirir.
+  Herhangi biri exit != 0 -> `exit 1` (git commit engellenir). Cikti
+  stdout/stderr'e yonlendirilir (kullanici gorsun; suslenmemis).
+- [KARAR] Yeni exit kodu YOK — hook `exit 1` git standardi; `atlas
+  hooks *` komutlari mevcut kodlar (0, 2). Yeni bir exit yaratmak
+  gereksiz komplekslik.
+- Kapsam: 1 yeni sh script (tools/hooks/pre-commit), 1 modül düzenleme
+  (cli.py: +5 yardimci, +3 komut, parser hooks alt-alt-komutlarla),
+  1 yeni test dosyasi (+17 test). 646 test yesil (629 -> +17). mypy
+  strict + ruff + scan temiz. Artefaktlar `pipeline/tasks/034-precommit-
+  hook/`.
+
 ## 2026-07-30 (Görev 026.4 — Unix MAX_PROC / RLIMIT_NPROC)
 - [KARAR] Env sözleşmesi **tam simetrik** oldu — `ATLAS_SANDBOX_MAX_PROC`
   hem Unix (026.4 RLIMIT_NPROC) hem Windows (026.2 Job ACTIVE_PROCESS).
