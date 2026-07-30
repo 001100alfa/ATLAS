@@ -719,3 +719,88 @@ def test_0323_check_scan_src_unique_sample_files(tmp_path: Path) -> None:
     assert r["total"] == 2  # iki bulgu
     assert len(r["sample_files"]) == 1  # tek unique dosya
     assert r["sample_files"][0].endswith("leaky.py")
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 038 — scan_src unique_hits alanı
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_038_check_scan_src_unique_hits_alani(tmp_path: Path) -> None:
+    """`_check_scan_src`: unique_hits = tekil dosya sayısı; total = ham
+    bulgu (bir dosyada çok bulgu olabilir → total > unique_hits).
+    """
+    from atlas_core.cli import _check_scan_src
+
+    src = tmp_path / "src"
+    src.mkdir()
+    # 3 dosya: leaky1 iki bulgu, leaky2 bir bulgu, temiz bir dosya
+    (src / "leaky1.py").write_text(
+        'A = "sk-ant-api03-aaaaaa1234567890AAAAAA1234567890"\n'
+        'B = "sk-ant-api03-bbbbbb1234567890BBBBBB1234567890"\n',
+        encoding="utf-8",
+    )
+    (src / "leaky2.py").write_text(
+        'C = "sk-ant-api03-cccccc1234567890CCCCCC1234567890"\n',
+        encoding="utf-8",
+    )
+    (src / "clean.py").write_text("x = 1\n", encoding="utf-8")
+
+    r = _check_scan_src(src)
+    assert r["total"] == 3          # 2 + 1 ham bulgu
+    assert r["unique_hits"] == 2    # 2 tekil dosya (clean.py sayılmaz)
+    assert len(r["sample_files"]) == 2
+
+
+def test_038_scan_src_json_unique_hits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`atlas doctor --scan-src <path> --json` → unique_hits alanı görünür."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "leak.py").write_text(
+        'K = "sk-ant-api03-abcdef1234567890ABCDEF1234567890"\n',
+        encoding="utf-8",
+    )
+    rc = main(["doctor", "--scan-src", str(src), "--json"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out.strip())
+    scan = data["quality"]["scan_src"]
+    assert "unique_hits" in scan
+    assert scan["unique_hits"] == 1
+    assert scan["total"] == 1
+
+
+def test_038_scan_src_insan_format_tekil_dosya(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """İnsan format → 'sır taraması:' satırında '(N bulgu, M tekil dosya)'."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "leak.py").write_text(
+        'K = "sk-ant-api03-abcdef1234567890ABCDEF1234567890"\n',
+        encoding="utf-8",
+    )
+    rc = main(["doctor", "--scan-src", str(src)])
+    # strict yok → uyarı 0
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "sır taraması:" in out
+    assert "1 bulgu" in out
+    assert "1 tekil dosya" in out
+
+
+def test_038_scan_src_yol_yok_unique_hits_sifir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Yol yoksa unique_hits = 0 (warning: 'scan hedefi yok')."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    rc = main(["doctor", "--scan-src", str(tmp_path / "yok"), "--json"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out.strip())
+    scan = data["quality"]["scan_src"]
+    assert scan["unique_hits"] == 0
+    assert scan["total"] == 0
+    assert "yok" in scan["warning"]

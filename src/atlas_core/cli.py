@@ -1050,11 +1050,14 @@ def _iter_scan_hits(scan_path: Path) -> list[tuple[Path, str, str]]:
 
 
 def _check_scan_src(scan_path: Path | None = None) -> dict[str, Any]:
-    """SPEC 032.2 + 032.3: Kaynak dizininde `scan_secrets` çalıştır.
+    """SPEC 032.2 + 032.3 + 038: Kaynak dizininde `scan_secrets` çalıştır.
 
-    Şema: `{path, total, sample_files, warning}`.
-    - `total > 0` → uyarı gövdesi + ilk 5 unique dosya özet.
-    - Yol yoksa uyarı ("scan hedefi yok").
+    Şema: `{path, total, unique_hits, sample_files, warning}`.
+    - `total`        → ham bulgu sayısı (bir dosyada birden çok olabilir)
+    - `unique_hits`  → tekil dosya sayısı (SPEC 038; tıklanabilir hedef)
+    - `sample_files` → ilk 5 unique dosya (özet)
+    - `total > 0`    → uyarı gövdesi
+    - Yol yoksa uyarı ("scan hedefi yok"); `unique_hits=0`.
 
     Bulgu döngüsü `_iter_scan_hits` yardımcısında (SPEC 032.3 DRY).
     Path varlık kontrolü burada kalır çünkü uyarı gövdesi özel.
@@ -1063,6 +1066,7 @@ def _check_scan_src(scan_path: Path | None = None) -> dict[str, Any]:
     result: dict[str, Any] = {
         "path": str(path),
         "total": 0,
+        "unique_hits": 0,
         "sample_files": [],
         "warning": None,
     }
@@ -1072,6 +1076,9 @@ def _check_scan_src(scan_path: Path | None = None) -> dict[str, Any]:
     hits = _iter_scan_hits(path)
     # sample_files: ilk 5 UNIQUE dosya (bir dosyada birden çok bulgu
     # olabilir — aynı dosyayı iki kez basmasın).
+    # SPEC 038: unique_hits = tam unique set'in büyüklüğü (sample_files
+    # sadece ilk 5'i gösteriyor; kullanıcı toplam tekil dosya sayısına
+    # ihtiyaç duyabiliyor — "unique hit" tıklanabilir birim).
     seen: set[str] = set()
     sample: list[str] = []
     for f, _name, _masked in hits:
@@ -1083,6 +1090,7 @@ def _check_scan_src(scan_path: Path | None = None) -> dict[str, Any]:
             sample.append(s)
     total = len(hits)
     result["total"] = total
+    result["unique_hits"] = len(seen)
     result["sample_files"] = sample
     if total > 0:
         result["warning"] = (
@@ -1395,11 +1403,15 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
           f"({vhealth.get('note_count', 0)} not)")
     if vhealth.get("warning"):
         print(f"  [!] {vhealth['warning']}")
-    # SPEC 032.2: scan_src (opsiyonel, yalnız --scan-src verildiyse)
+    # SPEC 032.2 + 038: scan_src (opsiyonel, yalnız --scan-src verildiyse)
+    # unique_hits = tekil dosya sayısı; total = ham bulgu (dosyalar
+    # arasında toplam) — ikisi de raporlanır.
     scan_info = quality.get("scan_src")
     if scan_info is not None:
+        total = scan_info.get("total", 0)
+        unique = scan_info.get("unique_hits", 0)
         print(f"  sır taraması: {scan_info.get('path', '(yok)')} "
-              f"({scan_info.get('total', 0)} bulgu)")
+              f"({total} bulgu, {unique} tekil dosya)")
         if scan_info.get("warning"):
             print(f"  [!] {scan_info['warning']}")
 
