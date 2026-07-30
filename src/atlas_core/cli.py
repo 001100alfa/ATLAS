@@ -301,6 +301,60 @@ class _ThreadCaptureStream:
         return False
 
 
+def _summarize_dry_run_captures(captures: list[str]) -> dict[str, Any]:
+    """SPEC 031.1: Worker captured output'larından step agregasyonu.
+
+    `_cmd_run_goal` her step'i `  <kind:<8s> <text[:120]>` biçiminde
+    basıyor (`kind in {plan, act, observe, reflect}`). Regex ile
+    sayar.
+
+    Döner:
+        {
+          "total_steps": int,
+          "by_kind": {"plan": N, "act": N, "observe": N, "reflect": N},
+          "actions": ["write:...", "read:...", ...]   # act step text'leri
+        }
+    """
+    step_re = re.compile(r"^\s{2}(plan|act|observe|reflect)\s+(.*)$")
+    by_kind = {"plan": 0, "act": 0, "observe": 0, "reflect": 0}
+    actions: list[str] = []
+    total = 0
+    for cap in captures:
+        for raw in cap.splitlines():
+            m = step_re.match(raw)
+            if not m:
+                continue
+            kind, text = m.group(1), m.group(2).strip()
+            by_kind[kind] = by_kind.get(kind, 0) + 1
+            total += 1
+            if kind == "act":
+                actions.append(text[:80])
+    return {
+        "total_steps": total,
+        "by_kind": by_kind,
+        "actions": actions,
+    }
+
+
+def _print_dry_run_summary(summary: dict[str, Any]) -> None:
+    """SPEC 031.1: Toplu dry-run özetini insan formatında bas."""
+    by_kind = summary["by_kind"]
+    kinds_str = ", ".join(
+        f"{k}={by_kind[k]}" for k in ("plan", "act", "observe", "reflect")
+    )
+    print("=== ATLAS batch dry-run özeti ===")
+    print(f"  toplam step: {summary['total_steps']} ({kinds_str})")
+    if summary["actions"]:
+        # İlk 5 eylem — daha uzunsa "…N daha"
+        acts = summary["actions"]
+        first = acts[:5]
+        for a in first:
+            print(f"    · {a}")
+        remaining = len(acts) - len(first)
+        if remaining > 0:
+            print(f"    · …{remaining} eylem daha")
+
+
 def _run_single_goal_captured(
     file_path: str, run_id_i: str, dry_run: bool,
     stdout_cap: _ThreadCaptureStream, stderr_cap: _ThreadCaptureStream,
@@ -390,6 +444,8 @@ def _cmd_run_batch(args: argparse.Namespace, files: list[str]) -> int:
 
     results: list[tuple[str, int | None, str]] = []
     # (dosya, exit_code veya None="atlandı", run_id_or_skip_reason)
+    # SPEC 031.1: dry-run modunda worker çıktılarını topla → toplu özet
+    captured_outputs: list[str] = []
 
     if parallel:
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -432,9 +488,28 @@ def _cmd_run_batch(args: argparse.Namespace, files: list[str]) -> int:
                 if not captured.endswith("\n"):
                     sys.stdout.write("\n")
             results.append((file_out, rc_out, rid))
+            if dry_run:
+                captured_outputs.append(captured)
             print()
     else:
-        # SPEC 030 mevcut seri döngü (bit-uyumlu)
+        # SPEC 030 mevcut seri döngü (bit-uyumlu).
+        # SPEC 031.1: dry-run'da tee-capture — stdout'a real-time yazar
+        # + buf'a kopyalar → toplu özet için parse edilir.
+        import contextlib as _contextlib
+        import io as _io
+
+        class _Tee:
+            def __init__(self, primary: Any, mirror: Any) -> None:
+                self._primary = primary
+                self._mirror = mirror
+
+            def write(self, s: str) -> int:
+                self._mirror.write(s)
+                return int(self._primary.write(s))
+
+            def flush(self) -> None:
+                self._primary.flush()
+
         for i, f in enumerate(files, start=1):
             run_id_i = f"{base_run_id}_{i}"
             print(f"--- [{i}/{len(files)}] {f}  (run_id={run_id_i}) ---")
@@ -443,7 +518,13 @@ def _cmd_run_batch(args: argparse.Namespace, files: list[str]) -> int:
                 run_id=run_id_i,
                 dry_run=dry_run,
             )
-            rc = _cmd_run_goal(goal_args)
+            if dry_run:
+                buf = _io.StringIO()
+                with _contextlib.redirect_stdout(_Tee(sys.stdout, buf)):
+                    rc = _cmd_run_goal(goal_args)
+                captured_outputs.append(buf.getvalue())
+            else:
+                rc = _cmd_run_goal(goal_args)
             results.append((f, rc, run_id_i))
             print()
             if rc != 0 and not continue_on_error:
@@ -466,6 +547,15 @@ def _cmd_run_batch(args: argparse.Namespace, files: list[str]) -> int:
             if rc_val > max_rc:
                 max_rc = rc_val
     print(f"batch exit: {max_rc}")
+
+    # SPEC 031.1: dry-run toplu özeti (worker step count'ları
+    # captured output'lardan regex ile agregasyon)
+    if dry_run and captured_outputs:
+        summary = _summarize_dry_run_captures(captured_outputs)
+        if summary["total_steps"] > 0:
+            print()
+            _print_dry_run_summary(summary)
+
     return max_rc
 
 

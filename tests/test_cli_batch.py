@@ -369,3 +369,91 @@ def test_031_jobs_5_kucuk_liste(
     assert rc == 0
     out = capsys.readouterr().out
     assert out.count("+ done") == 2
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 031.1 — batch dry-run toplu özet
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_0311_seri_dry_run_ozet_basar(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--dry-run` + 2 goal (seri) → batch dry-run özeti tabloda görünür."""
+    _env(monkeypatch, tmp_path)
+    a = tmp_path / "a.yaml"
+    b = tmp_path / "b.yaml"
+    _write_ok_goal(a, "A", "a.txt")
+    _write_ok_goal(b, "B", "b.txt")
+    rc = main([
+        "run", "--goal-file", str(a), str(b),
+        "--run-id", "R", "--dry-run",
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Batch dry-run özet başlığı
+    assert "=== ATLAS batch dry-run özeti ===" in out
+    # Toplam step: her worker ~4 step (plan, act, observe, reflect)
+    # veya benzeri; en az plan sayısı 2
+    assert "toplam step:" in out
+    assert "plan=" in out and "act=" in out
+
+
+def test_0311_paralel_dry_run_ozet_basar(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--jobs 2 --dry-run` → özet basılır (paralel dal)."""
+    _env(monkeypatch, tmp_path)
+    a = tmp_path / "a.yaml"
+    b = tmp_path / "b.yaml"
+    _write_ok_goal(a, "A", "a.txt")
+    _write_ok_goal(b, "B", "b.txt")
+    rc = main([
+        "run", "--goal-file", str(a), str(b),
+        "--run-id", "R", "--jobs", "2", "--dry-run",
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "=== ATLAS batch dry-run özeti ===" in out
+    assert "toplam step:" in out
+
+
+def test_0311_dry_run_yok_ozet_yok(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--dry-run` YOK → özet BASILMAZ (bit-uyumlu)."""
+    _env(monkeypatch, tmp_path)
+    a = tmp_path / "a.yaml"
+    b = tmp_path / "b.yaml"
+    _write_ok_goal(a, "A", "a.txt")
+    _write_ok_goal(b, "B", "b.txt")
+    rc = main([
+        "run", "--goal-file", str(a), str(b), "--run-id", "R",
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "batch dry-run özeti" not in out
+
+
+def test_0311_summarize_dry_run_regex() -> None:
+    """`_summarize_dry_run_captures` regex parse — birim testi."""
+    from atlas_core.cli import _summarize_dry_run_captures
+
+    captured1 = (
+        "  plan     write:a.txt:ok\n"
+        "  act      [dry-run] eylem yürütülmedi: write:a.txt:ok\n"
+        "  observe  yazildi: a.txt\n"
+        "  reflect  hedef sağlandı\n"
+    )
+    captured2 = (
+        "  plan     read:b.txt\n"
+        "  act      [dry-run] eylem yürütülmedi: read:b.txt\n"
+    )
+    s = _summarize_dry_run_captures([captured1, captured2])
+    assert s["total_steps"] == 6
+    assert s["by_kind"]["plan"] == 2
+    assert s["by_kind"]["act"] == 2
+    assert s["by_kind"]["observe"] == 1
+    assert s["by_kind"]["reflect"] == 1
+    assert len(s["actions"]) == 2
+    assert "write:a.txt:ok" in s["actions"][0]
