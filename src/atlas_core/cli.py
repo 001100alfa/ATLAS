@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
 from collections.abc import Callable
 from datetime import date, datetime
@@ -1911,6 +1912,100 @@ def _cmd_hooks_status(args: argparse.Namespace) -> int:
     return 0
 
 
+# ─────────────────────────────────────────────────────────────────────
+# SPEC 037: `atlas ai-cli diff-summary` — package-lock diff → commit msg
+# ─────────────────────────────────────────────────────────────────────
+
+_AI_CLI_PACKAGE_LOCK = Path("tools/ai-cli/package-lock.json")
+
+
+def _run_git_diff_package_lock() -> tuple[str, str | None]:
+    """SPEC 037: `git diff --unified=0 tools/ai-cli/package-lock.json` çalıştır.
+
+    Döner: `(stdout, error)`. Hata varsa `error` doldu; `stdout` boş
+    olabilir. Git yoksa / repo değil / dosya yok → error dolu.
+    """
+    if not _AI_CLI_PACKAGE_LOCK.is_file():
+        return "", f"dosya yok: {_AI_CLI_PACKAGE_LOCK}"
+    try:
+        proc = subprocess.run(  # noqa: S603 - sabit argv
+            ["git", "diff", "--unified=0", str(_AI_CLI_PACKAGE_LOCK)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return "", f"git çağrısı başarısız: {exc}"
+    if proc.returncode != 0:
+        return "", f"git exit={proc.returncode}: {(proc.stderr or '').strip()[:200]}"
+    return proc.stdout or "", None
+
+
+def _parse_package_lock_diff(diff_text: str) -> list[tuple[str, str, str]]:
+    """SPEC 037: package-lock diff'inden `(paket, eski, yeni)` bumpları çıkar.
+
+    Basit heuristik: `-        "version": "X"` ve `+        "version": "Y"`
+    çifti; en yakın önceki `"name": "..."` satırı paket adını verir.
+
+    Yalnızca `AUTO_AGENTS` (opencode/kilo/cline/kimi) benzeri **tanıdık
+    üst-seviye paketler**  ile filtreleme YAPILMAZ — package-lock'ta
+    "opencode-ai" gibi npm paket adları görünür; bağımlıklar da bump
+    olabilir. Kullanıcı commit mesajında hepsini görsün.
+    """
+    lines = diff_text.splitlines()
+    bumps: list[tuple[str, str, str]] = []
+    version_re = re.compile(r'^([-+])\s*"version":\s*"([^"]+)"')
+    name_re = re.compile(r'^\s*"([^"]+)":\s*\{')
+
+    # Her `-version + version` çifti için, en son gördüğümüz "name":
+    last_name: str | None = None
+    pending_old: str | None = None
+    for line in lines:
+        # Yeni bir paket bloğu başlıyor (name satırı) — hem `-` hem `+`
+        # hem contextte olabilir. Sadece isim yakala.
+        stripped = line[1:] if line[:1] in "-+ " else line
+        m_name = name_re.match(stripped)
+        if m_name:
+            last_name = m_name.group(1)
+        m_ver = version_re.match(line)
+        if not m_ver:
+            continue
+        sign, ver = m_ver.group(1), m_ver.group(2)
+        if sign == "-":
+            pending_old = ver
+        elif sign == "+" and pending_old is not None:
+            pkg = last_name or "(bilinmeyen)"
+            # package-lock'ta anahtar `node_modules/<paket>` şeklinde;
+            # commit mesajı için sade paket adı istiyoruz.
+            if pkg.startswith("node_modules/"):
+                pkg = pkg[len("node_modules/"):]
+            bumps.append((pkg, pending_old, ver))
+            pending_old = None
+    return bumps
+
+
+def _format_bumps(bumps: list[tuple[str, str, str]]) -> str:
+    """SPEC 037: bump listesini commit mesaj biçimine çevir."""
+    if not bumps:
+        return "(diff yok)"
+    parts = [f"{pkg} {old} → {new}" for pkg, old, new in bumps]
+    return "chore(ai-cli): " + "; ".join(parts)
+
+
+def _cmd_ai_cli_diff_summary(_args: argparse.Namespace) -> int:
+    """SPEC 037: `atlas ai-cli diff-summary` — package-lock bumpları özet."""
+    diff_text, err = _run_git_diff_package_lock()
+    if err is not None:
+        print(f"(diff okunamadı: {err})")
+        return 0
+    bumps = _parse_package_lock_diff(diff_text)
+    print(_format_bumps(bumps))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # SPEC 022: `.env` otomatik yükleme (proje kökü veya ATLAS_DOTENV).
     # Shell env override etmez; yalnız eksik değişkenleri doldurur.
@@ -2024,6 +2119,15 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 029: cache-hit oranı bu %'den düşükse "
                             "stderr UYARI + exit 8 (0 kapatır)")
     p_met.set_defaults(func=_cmd_metrics)
+
+    p_ai = sub.add_parser(
+        "ai-cli",
+        help="Taşınabilir AI CLI'ları (opencode/kilo/cline/kimi) yönetimi (SPEC 037)",
+    )
+    ai_sub = p_ai.add_subparsers(dest="ai_cmd", required=True)
+    p_ai_ds = ai_sub.add_parser("diff-summary",
+                                help="package-lock.json diff'inden commit mesajı önerisi")
+    p_ai_ds.set_defaults(func=_cmd_ai_cli_diff_summary)
 
     p_hooks = sub.add_parser("hooks", help="Git pre-commit hook yönetimi (SPEC 034)")
     hooks_sub = p_hooks.add_subparsers(dest="hooks_cmd", required=True)
