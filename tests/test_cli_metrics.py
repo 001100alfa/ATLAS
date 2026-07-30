@@ -236,3 +236,86 @@ def test_029_alert_sinir_disi_exit_2(
 
     rc = main(["metrics", "--alert", "-5"])
     assert rc == 2
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 023.2 — metrics inflight istatistiği
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_0232_inflight_avg_max_basar(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """3 kayıt (inflight 1, 2, 3) → avg=2.00, max=3, 3 kayıtta."""
+    metrics = _env(monkeypatch, tmp_path)
+    _write_metrics_file(metrics, [
+        {"ts": "2026-07-30T10:00:00", "in": 100, "out": 50,
+         "cache_c": 0, "cache_r": 0, "cost": "0.001", "inflight": 1},
+        {"ts": "2026-07-30T10:01:00", "in": 100, "out": 50,
+         "cache_c": 0, "cache_r": 0, "cost": "0.001", "inflight": 2},
+        {"ts": "2026-07-30T10:02:00", "in": 100, "out": 50,
+         "cache_c": 0, "cache_r": 0, "cost": "0.001", "inflight": 3},
+    ])
+    rc = main(["metrics"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "inflight avg/max: 2.00 / 3" in out
+    assert "3 kayıtta" in out
+
+
+def test_0232_inflight_alani_yok_gorunmez(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Eski kayıtlarda inflight yok → satır BASILMAZ (bit-uyumluluk)."""
+    metrics = _env(monkeypatch, tmp_path)
+    _write_metrics_file(metrics, [
+        {"ts": "2026-07-30T10:00:00", "in": 100, "out": 50,
+         "cache_c": 0, "cache_r": 0, "cost": "0.001"},
+        # inflight alanı YOK
+    ])
+    rc = main(["metrics"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "inflight avg/max" not in out
+
+
+def test_0232_karma_inflight_ile_ilesiz(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """2 kayıt inflight'lı (1, 2), 1 kayıt inflight'sız → sadece 2 sayılır."""
+    metrics = _env(monkeypatch, tmp_path)
+    _write_metrics_file(metrics, [
+        {"ts": "2026-07-30T10:00:00", "in": 100, "out": 50,
+         "cache_c": 0, "cache_r": 0, "cost": "0.001", "inflight": 1},
+        {"ts": "2026-07-30T10:01:00", "in": 100, "out": 50,
+         "cache_c": 0, "cache_r": 0, "cost": "0.001"},
+        {"ts": "2026-07-30T10:02:00", "in": 100, "out": 50,
+         "cache_c": 0, "cache_r": 0, "cost": "0.001", "inflight": 2},
+    ])
+    rc = main(["metrics"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    # avg=1.5, max=2, 2 kayıtta
+    assert "inflight avg/max: 1.50 / 2" in out
+    assert "2 kayıtta" in out
+
+
+def test_0232_json_bit_uyumlu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--json` ham kayıtları döndürür (bit-uyumluluk); inflight alanı
+    kayıtta olduğu gibi görünür."""
+    metrics = _env(monkeypatch, tmp_path)
+    _write_metrics_file(metrics, [
+        {"ts": "2026-07-30T10:00:00", "in": 10, "out": 5,
+         "cache_c": 0, "cache_r": 0, "cost": "0.001", "inflight": 4},
+    ])
+    rc = main(["metrics", "--json"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out.strip())
+    assert isinstance(data, list)
+    assert data[0]["inflight"] == 4

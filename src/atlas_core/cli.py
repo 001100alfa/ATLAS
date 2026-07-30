@@ -1956,6 +1956,24 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
     denom = total_in + total_cc + total_cr
     hit_ratio = (total_cr / denom * 100) if denom else 0.0
 
+    # SPEC 023.2: inflight istatistiği (SPEC 039 alanının tüketimi).
+    # `inflight` alanı olmayan satırlar skip (bit-uyumluluk: eski
+    # kayıtlar veya inflight yayımı kapalı çağrılar). Tüm inflight
+    # değerleri 0 ise ortalama 0, max 0 gösterilir.
+    inflight_values = [
+        int(r["inflight"])
+        for r in tail
+        if isinstance(r.get("inflight"), int) and r["inflight"] >= 0
+    ]
+    if inflight_values:
+        inflight_avg = sum(inflight_values) / len(inflight_values)
+        inflight_max = max(inflight_values)
+        inflight_samples = len(inflight_values)
+    else:
+        inflight_avg = 0.0
+        inflight_max = 0
+        inflight_samples = 0
+
     if args.json:
         print(_json.dumps(tail, ensure_ascii=False))
     else:
@@ -1966,6 +1984,12 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
         print(f"  cache creation: {total_cc}")
         print(f"  cache read:     {total_cr}")
         print(f"  cache-hit oranı: {hit_ratio:.1f}% ({total_cr} / {denom})")
+        # SPEC 023.2: inflight istatistiği — yalnız veri varsa göster
+        if inflight_samples > 0:
+            print(
+                f"  inflight avg/max: {inflight_avg:.2f} / {inflight_max} "
+                f"({inflight_samples} kayıtta)"
+            )
         # Cost hesabı için env'den fiyat oku
         price_in, price_out = _read_llm_prices()
         if price_in > 0 or price_out > 0:
