@@ -1,6 +1,78 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-30 (Görev 041 — atlas vault backup/restore)
+- [KARAR] Yeni modül `atlas_core/memory/vault_backup.py` — SPEC 033
+  archive kalıbının kardeşi ama vault-özelinde. Ortak yardımcıya
+  çıkarmadım (henüz iki kullanım için orantısız).
+- [KARAR] Tar kökü sabit `vault/` (arcname). Restore beklenmedik bir
+  kök gördüğünde reddeder — yanlış tar (örn. archive/003) vault'a
+  bulaşmaz.
+- [KARAR] Restore **temp dir'e extract + rename** kalıbı — mevcut
+  vault'un üstüne kısmi extract yazmaz. Path traversal doğrulaması
+  extract'ten önce; extract sırasında bir hata olursa temp dir
+  temizlenir (finally).
+- [KARAR] Hedef mevcut + boş değil → exit 3 (SPEC 033 kalıbı: çakışma).
+  Hedef yok VEYA boş → devam. Kullanıcı `rmdir` ile boşaltıp yeniden
+  deneyebilir.
+- [KARAR] Varsayılan yedek yolu: `<archive_root>/vault-YYYY-MM-DD-HHMM.tar.gz`.
+  Aynı dakikada iki yedek → aynı ada denk gelir; ikinci overwrite.
+  Kullanıcı `--out` ile özel isim verebilir. YAGNI: milisaniye
+  eklemek şu an gereksiz.
+- [KARAR] Audit satırları: `atlas-vault` / `backup|restore` / `<path>`.
+  `atlas-archive` altında değil — arşiv ≠ vault kavramları.
+- [VARSAYIM] `os.replace` (rename) aynı volume içinde çalışır. Windows'ta
+  `ATLAS_VAULT` farklı disk gösterirse rename patlarsa `shutil.move`
+  fallback düşünülür (YAGNI, testte tmp_path her zaman aynı disk).
+
+## 2026-07-30 (Görev 040 — atlas doctor --schema)
+- [KARAR] `--schema` **kısa devre** — sağlık kontrolü YAPMAZ, dizinlere
+  dokunmaz, `_collect_doctor_report` çağrılmaz. Idempotent + IO'suz +
+  hızlı (bir sabit dict basıp döner).
+- [KARAR] `_doctor_schema_descriptor` module-scope fonksiyon (sabit
+  değil) — string literalleri f-string açmıyor, ileride koşullu
+  alanları destekleyebilir.
+- [KARAR] Şema tanımı ayrı bir sabit içinde tutulmuyor — bakım yükü
+  fonksiyonda: `_collect_doctor_report` alan eklerken
+  `_doctor_schema_descriptor` da güncellenir. Kabul: küçük yük, tek
+  yerde koleyi olmayan bir yorum satırıyla belgeledim.
+- [KARAR] Diğer doctor bayrakları (`--strict`, `--ping`, `--scan-src`)
+  ile birleşmez — `--schema` gördüğünde erken return. Sözleşme temiz:
+  bir komut = bir eylem.
+- [KARAR] `--pretty` `--schema` ile birlikte çalışır (indent=2) — 032.5'in
+  --json --pretty'siyle tutarlı davranış.
+
+## 2026-07-30 (Görev 023.2 — atlas metrics inflight istatistiği)
+- [KARAR] Sadece **insan formatı** çıktısına eklendi (`inflight avg/max: A / N (K kayıtta)`).
+  `--json` bit-uyumlu (ham kayıt listesi) — tüketiciler kendi
+  agregasyonlarını yapabilir. Ayrı bir `--summary` bayrağı YAGNI.
+- [KARAR] `inflight` alanı olmayan kayıtlar (SPEC 039 öncesi run'lar)
+  skip — bit-uyumluluk. Hiç inflight yoksa satır BASILMAZ (gürültü yok).
+- [KARAR] `isinstance(r.get("inflight"), int) and r["inflight"] >= 0`
+  filtresi — negatif değer defensif olarak reddedilir (ideal olarak
+  hiç görülmez ama audit-log okuyucularının fail-safe olma alışkanlığı
+  bu tarafta da).
+- [KARAR] `avg` `sum/len` — decimal.Decimal yok (2 haneli hassasiyet
+  yeter, `f"{avg:.2f}"`).
+
+## 2026-07-30 (Görev 037.3 — atlas ai-cli exec launcher)
+- [KARAR] `tools/ai-cli/node_modules/.bin/<name>` — npm'in kanonik shim
+  yeri. Windows'ta `.cmd`, Unix'te çıplak isim. Ayrıca `.exe` denemek
+  için ekstra bir yol (native shim'ler).
+- [KARAR] Windows `.cmd` shim'i `subprocess.run([str_path, *args])` ile
+  argv liste olarak başlatılıyor — Python 3.12+ `.cmd`/`.bat` için
+  cmd.exe altında çalıştırır (dokümanlı davranış). `shell=True` YOK
+  (shell injection riski + argv escape zorluğu).
+- [KARAR] `argparse.REMAINDER` seçildi (`nargs`) — kullanıcı `-`'lu
+  flag'leri (`--version`, `-h`) forward edebiliyor. Python REMAINDER
+  deprecated niyetinde ama `nargs='*'` bunu yapmaz (flag'ler kendi
+  parser'ında yakalanır).
+- [KARAR] Bin yok → `atlas ai-cli list` önerisi. Kullanıcı SPEC 037.2
+  ile hemen paket listesini görebilir; ekosistem tutarlı.
+- [KARAR] `.exe` de aranıyor (Windows) — bazı npm paketleri native
+  binary shim koyar (opencode-ai bin dizininde `opencode.exe`
+  yok ama `.cmd` var — bu esneklik gelecek paketler için).
+
 ## 2026-07-30 (Görev 039 — LLM inflight metriği)
 - [KARAR] Global `_INFLIGHT_COUNT` + `threading.Lock` — module scope
   planner.py'de. SPEC 031'in "N paralel çağrı" gerçeğini metriğe
