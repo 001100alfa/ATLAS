@@ -1,6 +1,61 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-30 (Görev 035 — `opencode_Run.cmd` + `kilo_Run.cmd` thin shim)
+- [KARAR] 14-15. tur launcher kalıbı (claudecode/goose/cline/kimi)
+  ile simetri: 6 kök launcher hepsi `tools/agents/<name>.cmd`
+  sarmalayıcısına `call` eden **thin shim**. DRY — kurulum
+  sihirbazı sarmalayıcıyı güncellediğinde kök launcher otomatik
+  yararlanır.
+- [KARAR] Tarihsel `opencode_Run.cmd` ve `kilo_Run.cmd`
+  yazımları (`node_modules/.bin/opencode.cmd` npm shim; kilo için
+  HOMEDRIVE/HOMEPATH override) **kaldırıldı**. Sarmalayıcılar zaten
+  daha güçlü: `tools/agents/opencode.cmd` native `opencode.exe`
+  çağırıyor (memory 2026-07-24 Node CLI direkt bin kalıbı);
+  `tools/agents/kilo.cmd` HOME + USERPROFILE + XDG ile yeter
+  (HOMEDRIVE/HOMEPATH cmd yerleşiği; Node os.homedir()
+  USERPROFILE'a bakar — cmd env değişkenlerini okumaz).
+- [KARAR] `claudecode_Run.cmd` istisna kalıyor — Claude Code
+  taşınabilirlik istisnası (memory 2026-07-24), `where claude` +
+  kullanıcı home'u kullanır. `tools/agents/claudecode.cmd` YOK.
+- [KANIT] Smoke: `opencode_Run.cmd --version` → `1.18.8`;
+  `kilo_Run.cmd --version` → `7.4.16`. Davranış regresyon yok.
+- [HATA/NOT] Smoke opencode 1.18.8 gösterdi ama `package.json` 14.
+  turda `^1.18.9`'a bump edildi — `node_modules/opencode-ai/bin/
+  opencode.exe` gerçek sürümü package-lock ile senkron değil (`npm
+  install` çalıştırılmamış). Bu bir başka drift; **035 kapsamı
+  değil** (launcher refactor). Bir sonraki `BASLAT.cmd` auto-update
+  turu ya da elle `npm install` bunu düzeltir.
+- Kapsam: 2 launcher rewrite (opencode_Run.cmd, kilo_Run.cmd —
+  toplam ~50 satır → ~20 satır each). Pytest regresyon 676 aynen
+  (Python kod dokunulmadı). Artefaktlar `pipeline/tasks/
+  035-opencode-kilo-shim/`.
+
+## 2026-07-30 (Görev 032.3 — `scan_secrets` döngüsü DRY refactor)
+- [KARAR] `_iter_scan_hits(scan_path) -> list[tuple[Path, str, str]]`
+  ortak yardımcısı: hem `_cmd_scan` (atlas scan CLI) hem
+  `_check_scan_src` (032.2 doctor kanalı) bunu tüketir. İki yerde
+  aynı `scan_secrets` döngüsünü tutmak DRY ihlaliydi — bug'lar
+  desenkron kalırdı.
+- [KARAR] Dönüş tipi `list`, `Iterable` değil. Sebep: hem `_cmd_scan`
+  `len(hits)` istiyor hem `_check_scan_src` total + unique sample
+  ister; iterator tekrar tüketilemez. Bellek endişesi yok (bir
+  ATLAS repo'sunda binlerce bulgu değil, birkaç düzine ihtimali).
+- [KARAR] `_check_scan_src` içinde `path.exists()` kontrolü kaldı
+  (yardımcıya iteltilmedi) — özel warning gövdesi ("scan hedefi
+  yok") çünkü yardımcı sessiz boş liste dönüyor.
+- [KARAR] Bir dosyada birden çok bulgu varsa `sample_files` **unique**
+  (bugfix — önceki 032.2 sürümünde de aslında de-facto tekildi ama
+  garantisiz; şimdi `set` ile explicit).
+- [KANIT] Regresyon: `test_scan_sir_bulur` + `test_scan_temiz`
+  (`_cmd_scan` sözleşmesi) + 7 032.2 test (`_check_scan_src`
+  şeması) aynen geçiyor. Yeni +6 test doğrudan `_iter_scan_hits`
+  davranışını doğrular.
+- Kapsam: 1 modül düzenleme (cli.py: +yardımcı, 2 fonksiyon refactor),
+  1 test dosyası eki (+6 test). 676 test yeşil (670 → +6). mypy
+  strict + ruff + scan temiz. Artefaktlar
+  `pipeline/tasks/032-3-scan-dry/`.
+
 ## 2026-07-30 (Görev 032.2 — `atlas doctor --scan-src` birleştirme)
 - [KARAR] Sır taraması `atlas doctor` çatısı altına EKLENDI (--scan-src
   opt-in) ama `atlas scan` bağımsız komutu SİLİNMEDİ — kullanıcı
