@@ -1,6 +1,54 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-30 (Görev 037 — `atlas ai-cli diff-summary` commit disiplin)
+- [KARAR] `atlas ai-cli` **yeni alt-grup** — `hooks` gibi genişlemeye
+  hazır (`ai-cli update`, `ai-cli list` gelecek). `diff-summary` ilk
+  komut.
+- [KARAR] Sadece `tools/ai-cli/package-lock.json` diff'ini parse
+  eder — `package.json` bump'ları ve diğer dosyalar YAGNI. Auto-update
+  yolunda gerçek değişiklik burada.
+- [KARAR] Çıktı formatı **düz metin, tek satır** (commit mesajına
+  doğrudan pipe edilebilir); JSON/YAML seçenekleri YAGNI. `$(atlas
+  ai-cli diff-summary)` shell substitution kalıbı bilinen.
+- [KARAR] Unicode `→` — ASCII `->` da olurdu ama `→` git commit
+  mesajlarında yaygın kalıp; konsol UTF-8 reconfigure mevcut.
+- [KARAR] `node_modules/` prefix strip edilir — package-lock'ta
+  anahtar `node_modules/opencode-ai` şeklinde ama insan okuru sade
+  ad ister. Commit mesajında `chore(ai-cli): opencode-ai 1.18.8 →
+  1.18.9`.
+- [KARAR] İsim `diff-summary` seçildi, `commit-msg` değil. Sebep:
+  komut daha genel — kullanıcı hangi paketin bump olduğunu görmek
+  isteyebilir (commit atmadan). Commit mesajı bir kullanım kalıbı,
+  başka biçimler eklenirse ad zorlanmaz.
+- [KARAR] Git subprocess ile parse — `git diff --unified=0`
+  belirlenimci format. Timeout 10 sn; fail-safe: git yok / patlarsa
+  `(diff okunamadı: ...)` + exit 0. Kullanıcının iş akışını KESMEZ.
+- [HATA] 17. tur bulgu (`790c9da`) çözümü kısmi — bu komut kullanıcının
+  commit mesajını üretmesini kolaylaştırır ama disiplini garanti etmez.
+  Full otomatik commit atmak (mesaj + `git commit` çağrısı) YAGNI;
+  kullanıcı review yapmak isteyebilir.
+- Kapsam: 1 modül düzenleme (cli.py: +subprocess import, +5 fonksiyon,
+  parser ai-cli alt-grup), 1 yeni test dosyası (+10 test). 693 test
+  yeşil (683 → +10). Artefaktlar `pipeline/tasks/037-ai-cli-diff-
+  summary/`.
+
+## 2026-07-30 (Görev 032.5 — `atlas doctor --json --pretty`)
+- [KARAR] `json.dumps(indent=2, ensure_ascii=False)` — mevcut
+  `ensure_ascii=False` korunuyor (Türkçe karakter destek).
+- [KARAR] `--pretty` `--json` OLMADAN sessizce yoksayılır (insan
+  format zaten çok satırlı). Tek başına bir "kimlik" bayrağı gibi.
+  Alternatif error ("--pretty --json olmadan anlamsız") — YAGNI,
+  kullanıcı sessizce alıştığı formatı görsün.
+- [KARAR] Strict davranışı bayraktan bağımsız — `--pretty + --strict
+  + drift` → exit 9 hala. Biçim sadece çıktı biçimi; kalite gate'in
+  davranışını değiştirmez.
+- [KARAR] Bit-uyumluluk mutlak — `--pretty` yoksa `json.dumps(indent=
+  None)` mevcut çıktıyla birebir. Mevcut CI script'leri kırılmaz.
+- Kapsam: 1 modül düzenleme (cli.py: parser --pretty + JSON yolu
+  indent parametrik), 1 test dosyası eki (+3 test). 683 test yeşil
+  (680 → +3). Artefaktlar `pipeline/tasks/032-5-doctor-pretty/`.
+
 ## 2026-07-30 (Görev 032.4 — `atlas doctor` JSON `schema_version` alanı)
 - [KARAR] Şema versiyonu **string sabit `"1"`** — semver değil.
   Sebep: minor bump'lar ("1.1", "1.2") disiplin açısından belirsiz;
