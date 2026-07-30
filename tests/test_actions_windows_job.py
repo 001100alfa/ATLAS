@@ -183,3 +183,65 @@ def test_0262_windows_invalid_pid_uyari(
     assert "026.2" in err
     assert "başarısız" in err
     assert "WinError" in err
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 026.3 — Windows CPU quota (JOB_OBJECT_LIMIT_PROCESS_TIME)
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_0263_env_cpu_s_detection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`CPU_S` verilirse `_has_windows_sandbox_env` True döner (026.3)."""
+    monkeypatch.setenv("ATLAS_SANDBOX_CPU_S", "3")
+    assert _has_windows_sandbox_env() is True
+
+
+def test_0263_apply_erken_cikis_uc_none() -> None:
+    """`mem_mb=None VE max_proc=None VE cpu_s=None` → hemen False."""
+    assert _apply_windows_job(1, None, None, None) is False
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only canlı test")
+def test_0263_windows_cpu_quota_kesir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`CPU_S=1` iken sonsuz döngü CPU quota'da ölür (3.5 sn'den kısa)."""
+    py = _py_cmd()
+    monkeypatch.setenv("ATLAS_SANDBOX_CPU_S", "1")
+    monkeypatch.setenv("ATLAS_SANDBOX_TIMEOUT", "8.0")  # timeout > cpu_s
+    action = make_action(_goal_shell(), tmp_path)
+    t0 = time.monotonic()
+    obs, _ = action(f"shell:{py} -c \"while True: pass\"")
+    elapsed = time.monotonic() - t0
+    assert "exit=" in obs, obs
+    exit_str = obs.split("exit=")[1].split()[0]
+    exit_code = int(exit_str)
+    assert exit_code != 0, f"CPU quota calışmadı, exit={exit_code}"
+    # 3.5 sn'den kısa: CPU quota kesti, timeout değil
+    assert elapsed < 3.5, f"CPU quota çok yavaş: {elapsed:.1f}s"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_0263_windows_cpu_s_altinda_kucuk_i_calisir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`CPU_S=5` + hafif iş → başarı (kısıt altında)."""
+    py = _py_cmd()
+    monkeypatch.setenv("ATLAS_SANDBOX_CPU_S", "5")
+    monkeypatch.setenv("ATLAS_SANDBOX_TIMEOUT", "10.0")
+    action = make_action(_goal_shell(), tmp_path)
+    obs, _ = action(f"shell:{py} -c \"print(1+1)\"")
+    assert "exit=0" in obs, obs
+    assert "2" in obs
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Non-Windows")
+def test_0263_non_windows_cpu_s_verili_run_yolu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Non-Windows: CPU_S verilirse Unix 026.1 RLIMIT_CPU yolu; Job Objects YOK."""
+    monkeypatch.setenv("ATLAS_SANDBOX_CPU_S", "1")
+    action = make_action(_goal_shell(), tmp_path)
+    obs, _ = action("shell:echo unix-yol")
+    assert "exit=0" in obs
+    assert "unix-yol" in obs

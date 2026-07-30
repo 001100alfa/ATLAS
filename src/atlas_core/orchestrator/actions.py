@@ -121,28 +121,41 @@ def _build_preexec_fn() -> Callable[[], None] | None:
 # ─────────────────────────────────────────────────────────────────────
 
 # Windows API sabitleri
+_JOB_OBJECT_LIMIT_PROCESS_TIME = 0x00000002       # SPEC 026.3
 _JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008
 _JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 _JobObjectExtendedLimitInformation = 9
 _PROCESS_SET_QUOTA = 0x0100
 _PROCESS_TERMINATE = 0x0001
+# SPEC 026.3: `PerProcessUserTimeLimit` 100-nanosaniye tick birimindedir.
+# 1 saniye = 10_000_000 tick.
+_WIN_TIME_TICKS_PER_SECOND = 10_000_000
 
 
 def _has_windows_sandbox_env() -> bool:
-    """SPEC 026.2: MEM_MB veya MAX_PROC env verildi mi."""
+    """SPEC 026.2 + 026.3: MEM_MB, MAX_PROC veya CPU_S env verildi mi."""
     return (
         _read_positive_int_env("ATLAS_SANDBOX_MEM_MB") is not None
         or _read_positive_int_env("ATLAS_SANDBOX_MAX_PROC") is not None
+        or _read_positive_int_env("ATLAS_SANDBOX_CPU_S") is not None
     )
 
 
-def _apply_windows_job(pid: int, mem_mb: int | None, max_proc: int | None) -> bool:
-    """SPEC 026.2: pid'yi bir Job Object'a atar ve limit uygular.
+def _apply_windows_job(
+    pid: int,
+    mem_mb: int | None,
+    max_proc: int | None,
+    cpu_s: int | None = None,
+) -> bool:
+    """SPEC 026.2 + 026.3: pid'yi bir Job Object'a atar ve limit uygular.
 
     Yalnız Windows'ta çağrılmalı — non-Windows'ta anında False döner.
     Başarı → True; başarısızlık → stderr uyarı + False (subprocess devam
     eder, ekstra hata değil).
+
+    `cpu_s` verilirse `PerProcessUserTimeLimit` 100ns tick olarak
+    yazılır ve `JOB_OBJECT_LIMIT_PROCESS_TIME` (0x2) flag'i ateşlenir.
 
     NOT: `subprocess.Popen` process'i başlatıp pid verir; Job Object
     hemen sonra atanır. Kısa bir race window var ama Python startup
@@ -150,7 +163,7 @@ def _apply_windows_job(pid: int, mem_mb: int | None, max_proc: int | None) -> bo
     """
     if sys.platform != "win32":
         return False
-    if mem_mb is None and max_proc is None:
+    if mem_mb is None and max_proc is None and cpu_s is None:
         return False
 
     import ctypes
@@ -210,6 +223,12 @@ def _apply_windows_job(pid: int, mem_mb: int | None, max_proc: int | None) -> bo
     if max_proc is not None:
         flags |= _JOB_OBJECT_LIMIT_ACTIVE_PROCESS
         info.BasicLimitInformation.ActiveProcessLimit = max_proc
+    if cpu_s is not None:
+        # SPEC 026.3: PerProcessUserTimeLimit 100ns tick; 1s = 10_000_000 tick
+        flags |= _JOB_OBJECT_LIMIT_PROCESS_TIME
+        info.BasicLimitInformation.PerProcessUserTimeLimit = (
+            cpu_s * _WIN_TIME_TICKS_PER_SECOND
+        )
     info.BasicLimitInformation.LimitFlags = flags
 
     kernel32.SetInformationJobObject.argtypes = [
@@ -355,6 +374,7 @@ def make_action(
             if use_win_job:
                 mem_mb = _read_positive_int_env("ATLAS_SANDBOX_MEM_MB")
                 max_proc = _read_positive_int_env("ATLAS_SANDBOX_MAX_PROC")
+                cpu_s = _read_positive_int_env("ATLAS_SANDBOX_CPU_S")
                 popen = subprocess.Popen(  # noqa: S603 - shell=False, arg listesi
                     shlex.split(cmd),
                     shell=False,
@@ -368,7 +388,7 @@ def make_action(
                 )
                 # Process başlar başlamaz Job Object'a ata. Hata durumunda
                 # subprocess yine yürür (fail-safe).
-                _apply_windows_job(popen.pid, mem_mb, max_proc)
+                _apply_windows_job(popen.pid, mem_mb, max_proc, cpu_s)
                 try:
                     out_txt, err_txt = popen.communicate(timeout=timeout_s)
                 except subprocess.TimeoutExpired as exc:
