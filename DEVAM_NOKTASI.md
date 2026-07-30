@@ -12,11 +12,11 @@
 > 5. Zorunlu Döngü'ye (`CLAUDE.md` §Zorunlu Döngü) gir; ilk iş
 >    `DECISIONS.md`'nin son 2026-07-30 girişlerini kaba tarama.
 
-**Son çalışma:** 2026-07-30 (16. tur — 032.3 + 035)
-**Branch:** `main` (origin/main ile senkron — `58ab0b1` + docs)
+**Son çalışma:** 2026-07-30 (17. tur — 036 + 032.4)
+**Branch:** `main` (origin/main ile senkron — `6a9c34c` + docs)
 **Working tree:** temiz (kapanış öncesi son doğrulama)
-**Durum:** 16. tur tamamlandı; 2 lineer commit main'e ff-merge + push
-edildi (`1f66a7a..58ab0b1`), 2 feature branch silindi. **676/676
+**Durum:** 17. tur tamamlandı; 2 lineer commit main'e ff-merge + push
+edildi (`ae11fe5..6a9c34c`), 2 feature branch silindi. **680/680
 test yeşil** (+12 platform skip), coverage %91.17, mypy strict +
 ruff + scan temiz.
 
@@ -28,43 +28,39 @@ Yeni oturumda tek cümle yeter: **"devam et"**
 
 ---
 
-## Bu turda yapılan (2026-07-30 — 16. tur)
+## Bu turda yapılan (2026-07-30 — 17. tur)
 
-Zincirleme iki iş (`032.3 → 035`), her biri kendi branch'inde tek
+Zincirleme iki iş (`036 → 032.4`), her biri kendi branch'inde tek
 commit; sonrasında main'e lineer ff-merge + docs + push + branch
 temizlik.
 
-1. **Görev 032.3** — `scan_secrets` döngüsü DRY refactor (`4a3a9c7`)
-   - `_iter_scan_hits(path) -> list[tuple[Path, str, str]]` yeni
-     ortak yardımcı.
-   - `_cmd_scan` (atlas scan) ve `_check_scan_src` (032.2 doctor
-     kanalı) bunu tüketir — iki yerdeki aynı döngü tek yerde.
-   - `_check_scan_src` bonus bugfix: `sample_files` **unique** (bir
-     dosyada birden çok bulgu → tek defa listelenir).
-   - Regresyon: 2 scan + 7 032.2 test aynen geçiyor.
-   - +6 test.
+1. **chore/036** — `tools/ai-cli/` opencode npm drift fix (`7ec5156`)
+   - 035 turunda not düşülen drift: `package.json ^1.18.8` semver
+     1.18.9'u kapsıyor ama node_modules 1.18.8 kalmıştı (auto-update
+     package-lock'a yansımamıştı).
+   - `npm update opencode-ai --prefix tools/ai-cli` (portable npm)
+     → package-lock 1.18.9'a senkron.
+   - Smoke: `opencode_Run.cmd --version` 1.18.8 → **1.18.9**.
+   - Bulgu: `790c9da` commit mesajı gerçek diff ile senkron değildi
+     (mesaj "opencode 1.18.9" diyor, diff aslında cline bump'ı).
+     Auto-update mesaj disiplini not düşüldü.
 
-2. **Görev 035** — `opencode_Run.cmd` + `kilo_Run.cmd` thin shim
-   refactor (`58ab0b1`)
-   - Tarihsel yazımlar (`node_modules/.bin/*.cmd` + kendi XDG/HOME
-     satırları) **thin shim'e** çekildi: `tools/agents/<name>.cmd`
-     sarmalayıcısını `call` eder.
-   - Kilo HOMEDRIVE/HOMEPATH override kaldırıldı — Node os.homedir()
-     USERPROFILE'a bakar; HOMEDRIVE/HOMEPATH cmd yerleşiği (Node
-     okumaz).
-   - **6 kök launcher tam simetri:** opencode / kilo / claudecode /
-     goose / cline / kimi. Hepsi `tools/agents/<name>.cmd` üzerine
-     thin shim (claudecode istisna — Claude Code taşınabilirlik
-     istisnası).
-   - Smoke: opencode 1.18.8, kilo 7.4.16.
-   - Regresyon: 676 pytest aynen (Python kod dokunulmadı).
+2. **Görev 032.4** — `atlas doctor` JSON `schema_version` (`6a9c34c`)
+   - `_DOCTOR_SCHEMA_VERSION = "1"` modül sabiti.
+   - `_collect_doctor_report`'a en üst alan `"schema_version": "1"`.
+   - İnsan format başlığı `=== ATLAS doctor — env sağlık kontrolü
+     (şema v1) ===`.
+   - Bump kuralları: alan ekleme = aynı; kaldırma/rename/tip = major
+     bump.
+   - Bit-uyumluluk: mevcut JSON alanları BİREBİR (yalnız EKLEMELER).
+   - +4 test (JSON alan, JSON regresyon, insan format, modül sabiti).
 
 3. **Merge + push + temizlik**
-   - `git merge --ff-only feat/032.3 && feat/035` → 2 commit lineer
-     main'e (`58ab0b1`), merge commit YOK.
-   - `git push origin main` → `1f66a7a..58ab0b1` uzağa gitti.
-   - 2 feature branch silindi (`feat/032.3-scan-dry`,
-     `feat/035-opencode-kilo-shim`).
+   - `git merge --ff-only feat/036 && feat/032.4` → 2 commit lineer
+     main'e (`6a9c34c`), merge commit YOK.
+   - `git push origin main` → `ae11fe5..6a9c34c` uzağa gitti.
+   - 2 feature branch silindi (`feat/036-opencode-npm-install`,
+     `feat/032.4-doctor-schema-version`).
 
 ---
 
@@ -77,12 +73,11 @@ temizlik.
   çakışması + LLM rate limit + exit agregasyon. Tek turluk.
 - **Görev 033 — `atlas archive --restore <id>`:** arşivlenen görevi
   geri getir; `.tar.gz` extract + Windows kolon çakışması. Orta.
-- **Görev 036 — opencode npm install drift fix:** package.json
-  `^1.18.9` ama node_modules 1.18.8 (035 turunda not düşüldü). Küçük
-  chore.
-- **Görev 032.4 — `atlas doctor --strict --json` şema versiyonu:**
-  JSON çıktısına `schema_version` alanı; CI tüketicileri şema
-  değişiminde uyarabilsin. Küçük.
+- **Görev 037 — auto-update commit mesaj disiplini:** 036 turunda
+  bulunan hata: `atlas-portable.json` auto-update commit mesajları
+  gerçek diff ile senkron değil. Küçük fix (msg template düzelt).
+- **Görev 032.5 — `atlas doctor --json --pretty`:** JSON çıktısını
+  girintili bas (CI/insan hibrit tüketim). Çok küçük.
 - Ya da başka öncelik varsa net söyle.
 
 ---
@@ -91,53 +86,51 @@ temizlik.
 
 **Branch grafı:**
 ```
-origin/main (58ab0b1 + docs) = main ← senkron
+origin/main (6a9c34c + docs) = main ← senkron
 ```
 Kalan local branch'ler (bu turların dışı, önceki oturumların işi):
 `feat/paketleme-bulut-secenegi`, `feat/tasinabilir-kurulum`,
 `fix/{arsivleyici-arama, kimi-yeniden-etkinlestirme,
 ollama-kimligi-tasinabilir, surum-etiketli-yedek}`.
 
-**main'e giren 2 commit (2026-07-30 16. tur):**
+**main'e giren 2 commit (2026-07-30 17. tur):**
 ```
-58ab0b1 chore(launcher): opencode+kilo thin shim (SPEC 035) - 6 launcher tam simetri
-4a3a9c7 feat(032.3): _iter_scan_hits DRY yardimcisi + _cmd_scan/_check_scan_src refactor
+6a9c34c feat(032.4): atlas doctor JSON schema_version alani (v1)
+7ec5156 chore(ai-cli): opencode-ai node_modules 1.18.8 -> 1.18.9 (035 drift fix)
 ```
 
 **Kalite kapıları (bu turun sonu):**
 ```bash
 uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
-# 676 passed, 12 skipped
+# 680 passed, 12 skipped
 uv run mypy src                # temiz
 uv run ruff check src tests    # temiz
 uv run atlas scan src          # sır bulunamadı
 ```
 
-**Yeni CLI davranışı (bu turda):** yok — iç refactor + launcher
-simetrisi.
+**Yeni CLI davranışı (bu turda):**
+- `atlas doctor` çıktısında `schema_version` alanı + başlıkta "(şema v1)"
+  (032.4).
+- opencode 1.18.9 (chore/036).
 
 **Env sözleşmesi:** DEĞİŞMEDİ.
 
 **Exit kodları:** DEĞİŞMEDİ.
 
 **Kritik sözleşme değişmezlikleri (bu turda korundu):**
-- `_cmd_scan` çıktı sözleşmesi BİREBİR — stdout satır formatı +
-  stderr uyarı + exit 0/1.
-- `_check_scan_src` dönüş şeması BİREBİR + küçük iyileşme
-  (sample_files unique explicit).
-- 6 launcher CLI davranışı BİREBİR — kullanıcı `--version` çıktıları,
-  alt-komutlar hepsi çalışıyor.
-- `tools/agents/*.cmd` sarmalayıcıları hiç dokunulmadı (kurulum
-  sihirbazı üretiyor).
-- Ana Python kod tabanı: 676 aynen; hiçbir Python davranışı
-  değişikliği yok.
+- `_cmd_doctor` mevcut çıktı BİREBİR + `schema_version` alanı yeni
+  eklendi.
+- `_collect_doctor_report` şeması EKLEMELER (backend/retry/storage/
+  warnings/quality aynen, ilk alan `schema_version`).
+- Diğer CLI komutları dokunulmadı.
+- opencode CLI davranışı (`--version` dışında) değişmedi.
 
 **Bilinen flaky:** yok.
 
 **Docker YASAK:** hâlâ yürürlükte.
 
 **Görev-öncesi zorunlu okuma sırası:**
-1. `DECISIONS.md` — 2026-07-30 altında **13 giriş bloğu** (kümülatif);
+1. `DECISIONS.md` — 2026-07-30 altında **15 giriş bloğu** (kümülatif);
    2026-07-29 altında 39 blok.
 2. Bu dosya (DEVAM_NOKTASI.md)
 3. Hedef görevin `pipeline/tasks/<XXX>/{00-need,09-ship}.md`
@@ -148,18 +141,18 @@ simetrisi.
 
 ## Kapanış Notları
 
-- 676 test yeşil (bu turun baseline'ı 670 → +6; oturum başı 319 → +357)
+- 680 test yeşil (bu turun baseline'ı 676 → +4; oturum başı 319 → +361)
 - 2 lineer commit main'e alındı, uzağa push edildi, 2 feature branch
   silindi (kullanıcı `onayla` ile)
-- Yeni env YOK, yeni exit kodu YOK, yeni CLI davranışı YOK — bu tur
-  **temizlik odaklı**: DRY refactor + launcher simetrisi
+- Yeni env YOK, yeni exit kodu YOK — bu tur da temizlik + iyileştirme
 - Uncommitted değişiklik yok, working tree temiz
-- 6 kök launcher tam simetri: opencode / kilo / claudecode / goose /
-  cline / kimi (claudecode istisna — Claude Code taşınabilirlik
-  istisnası, tools/agents/'da wrapper yok)
+- opencode 1.18.9 hizalı (035 drift kapandı)
+- `atlas doctor` şeması artık `schema_version` alanıyla evrimi
+  disipline aldı
 - Docker YASAK yürürlükte
 - Portable bundle son sürüm: `D:\ATLAS.rar` (28 Temmuz, 1.9 GB)
-- DECISIONS.md 2026-07-30 altında **13 giriş bloğu**, 2026-07-29
-  altında **39 giriş bloğu** birikti (toplam 52+)
-- Not düşülen küçük drift (036 adayı): opencode `package.json` `^1.18.9`
-  ama `node_modules` 1.18.8 — `npm install` çalıştırılmamış.
+- DECISIONS.md 2026-07-30 altında **15 giriş bloğu**, 2026-07-29
+  altında **39 giriş bloğu** birikti (toplam 54+)
+- Bulgu (037 adayı): `atlas-portable.json` auto-update commit
+  mesajları gerçek diff ile senkron değil (790c9da mesaj cline yerine
+  opencode diyordu). Küçük iş.

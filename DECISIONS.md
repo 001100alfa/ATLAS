@@ -1,6 +1,50 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-30 (Görev 032.4 — `atlas doctor` JSON `schema_version` alanı)
+- [KARAR] Şema versiyonu **string sabit `"1"`** — semver değil.
+  Sebep: minor bump'lar ("1.1", "1.2") disiplin açısından belirsiz;
+  string ile "bumpı düşün ya da düşünme" ikilisi kalır. Alan
+  ekleme = aynı sürüm; kaldırma/rename/tip değişikliği = major
+  bump ("2", "3"...).
+- [KARAR] Modül seviyesinde sabit `_DOCTOR_SCHEMA_VERSION`. Tek
+  yerden bump; JSON + insan format + test hepsi bunu okur. `grep -w
+  _DOCTOR_SCHEMA_VERSION` bumpların tarihçesini gösterir.
+- [KARAR] Yalnız `atlas doctor` için şema versiyonu — `atlas metrics
+  --json`, `atlas replay --list --json`, `atlas hooks status --json`
+  YAGNI. Doctor'un şeması iterasyon boyunca en çok büyüyen; diğerleri
+  dar. İhtiyaç doğarsa aynı kalıp taşınır.
+- [KARAR] İnsan format başlığa **parantezli** ekle (`=== ATLAS
+  doctor — env sağlık kontrolü (şema v1) ===`) — mevcut başlığı
+  bozmadan görünür. `[!]` ile karışmasın diye ilk satırda.
+- [KARAR] Bit-uyumluluk: mevcut JSON alanları BİREBİR korundu;
+  yalnız EKLEMELER. Eski tüketiciler eski alanları görmeye devam.
+  Yeni tüketiciler `schema_version` ile karar verebilir.
+- Kapsam: 1 modül düzenleme (cli.py: +sabit, +alan, +başlık), 1
+  test dosyası eki (+4 test). 680 test yeşil (676 → +4). mypy strict
+  + ruff + scan temiz. Artefaktlar
+  `pipeline/tasks/032-4-doctor-schema-version/`.
+
+## 2026-07-30 (chore/036: `tools/ai-cli/` npm install drift fix)
+- [KARAR] `npm update opencode-ai --prefix tools/ai-cli` ile
+  `package-lock.json` upstream 1.18.9'a senkron edildi. `package.json`
+  `^1.18.8` semver aralığı 1.18.9'u zaten kapsıyordu — DEĞİŞMEDİ.
+  Alternatif `npm install opencode-ai@latest --save` package.json'u
+  da bump ederdi; YAGNI, semver istikrarı bozar.
+- [KARAR] **Portable npm** kullanıldı (`tools/node/npm.cmd`) —
+  makine bağımsız davranış; kullanıcının global npm sürümüne bağlı
+  olmayan, deterministik.
+- [KANIT] Smoke: `opencode_Run.cmd --version` 1.18.8 → 1.18.9;
+  cline/kilo etkilenmedi (3.0.47, 7.4.16). Pytest regresyon 676
+  aynen (Python kod dokunulmadı).
+- [HATA/NOT] Beklenmedik bulgu: `790c9da` commit mesajı "opencode
+  1.18.8 -> 1.18.9" diyor ama gerçek diff **cline 3.0.46 -> ^3.0.47**
+  bump'ıydı — auto-update mekanizmasının başka bir mesaj/diff
+  eşleşmesi. Kalıp: commit mesajları gerçek diff ile senkron olmalı.
+  Auto-update politikasının mesajını gelecek turda düzeltmek isteriz.
+- Kapsam: `package-lock.json` regenerate; `pipeline/tasks/
+  036-opencode-npm-install/00-need.md`. Pytest regresyon 676 aynen.
+
 ## 2026-07-30 (Görev 035 — `opencode_Run.cmd` + `kilo_Run.cmd` thin shim)
 - [KARAR] 14-15. tur launcher kalıbı (claudecode/goose/cline/kimi)
   ile simetri: 6 kök launcher hepsi `tools/agents/<name>.cmd`
