@@ -12,12 +12,12 @@
 > 5. Zorunlu Döngü'ye (`CLAUDE.md` §Zorunlu Döngü) gir; ilk iş
 >    `DECISIONS.md`'nin son 2026-07-30 girişlerini kaba tarama.
 
-**Son çalışma:** 2026-07-30 (19. tur — 038 + 037.1 + 033 + 031)
+**Son çalışma:** 2026-07-30 (20. tur — 037.2 + 031.1 + 034.2 + 039)
 **Branch:** `main` (4 lineer commit ff-merge, push bekliyor)
 **Working tree:** temiz
-**Durum:** 19. tur tamamlandı; 4 görev tek turluk zincirleme yapıldı;
-tümü main'e lineer ff-merge edildi. **722/722 test yeşil** (+12
-platform skip), coverage %90.71, mypy strict + ruff + scan temiz.
+**Durum:** 20. tur tamamlandı; 4 görev tek turluk zincirleme;
+tümü main'e lineer ff-merge. **742/742 test yeşil** (+12 platform skip),
+coverage %90.87, mypy strict + ruff + scan temiz.
 
 ---
 
@@ -27,49 +27,53 @@ Yeni oturumda tek cümle yeter: **"devam et"**
 
 ---
 
-## Bu turda yapılan (2026-07-30 — 19. tur)
+## Bu turda yapılan (2026-07-30 — 20. tur)
 
-Zincirleme **4 iş**, küçükten büyüğe: `038 → 037.1 → 033 → 031`. Her
-biri kendi branch'inde tek commit; sonra main'e lineer ff-merge (her
-rebase sonrası tam kalite kapısı).
+Zincirleme **4 iş** — sıra: `037.2 → 031.1 → 034.2 → 039` (küçükten
+büyüğe / bağımsızlığa göre).
 
-1. **Görev 038** — `doctor --scan-src` unique_hits (`ad73010`)
-   - `quality.scan_src` şemasına `unique_hits: int` eklendi.
-   - `total` = ham bulgu; `unique_hits` = tekil dosya sayısı.
-   - İnsan format `(N bulgu, M tekil dosya)`.
-   - Şema v1 korundu (yalnız alan eklendi).
+1. **Görev 037.2** — `atlas ai-cli list` (`9339976`)
+   - `tools/ai-cli/package.json` deps + `node_modules/<n>/package.json`
+     version cross-check.
+   - Şema: `{path, packages[{name, expected, installed}]}`.
+   - `--json` bayrağı; hizalı sütunlar; `(kurulu değil)` etiketi.
+   - Bozuk package.json → exit 2 SPEC HATASI.
+   - +5 test.
+
+2. **Görev 031.1** — batch `--dry-run` toplu step özeti (`5751d6d`)
+   - Batch özet tablosundan sonra `=== ATLAS batch dry-run özeti ===`.
+   - İçerik: `toplam step: N (plan=X, act=Y, observe=Z, reflect=W)` +
+     ilk 5 act eylem.
+   - Seri dal: `_Tee(sys.stdout, buf) + contextlib.redirect_stdout`
+     (tek thread güvenli). Paralel dal: TLS-captured metinler.
+   - `--dry-run` YOK → özet BASILMAZ (bit-uyumluluk).
    - +4 test.
 
-2. **Görev 037.1** — `atlas ai-cli update` (`ab01e4d`)
-   - Portable npm wrap: `tools/node/npm.cmd` (win) / `tools/node/npm`
-     (unix) öncelik; yoksa `shutil.which("npm")` (PATH).
-   - `--dry-run` → `npm outdated --long` (npm exit 1 = bulgu, CLI
-     exit 0); `update` → npm exit doğrudan yansıtılır.
-   - `tools/ai-cli/` yok / npm yok → exit 2 + SPEC HATASI.
+3. **Görev 034.2** — pre-commit shim canlı regresyon (`991625c`)
+   - `test_cli_hooks_regression.py`: shim subprocess ile shell
+     üzerinden çalıştırılır (mock atlas + `_find_hook_shell()`).
+   - Mock exit 0/9/2 → shim exit 0/1/1 doğrulandı.
+   - Statik regresyon: şablon `atlas doctor --strict --scan-src` +
+     `exit 1` + "commit engellendi" içerir.
+   - Yerelde `tools/git/usr/bin/sh.exe` portable → 4 test canlı geçti.
+   - Baremetal Windows sh yoksa `pytest.skip`.
+   - +4 test.
+
+4. **Görev 039** — LLM inflight metriği (`223154b`)
+   - `planner.py`: `_INFLIGHT_COUNT + threading.Lock` module-global.
+   - `_inflight_begin/end/snapshot` API — thread-safe.
+   - `_call_anthropic` **wrapper/inner** ayrımı; wrapper `try/finally`
+     ile `_inflight_end()` garanti.
+   - `_write_metric_for_data(data, inflight: int | None = None)` —
+     `inflight` opt-in (None → alan yazılmaz, bit-uyumlu).
+   - Snapshot çağrıyı **dahil** sayar; end `max(0, N-1)` defensive.
    - +7 test.
 
-3. **Görev 033** — `atlas archive --restore <id>` (`31cf934`)
-   - `.tar.gz` extract `filter="data"` güvenli mod + her üye elle
-     kontrol (path traversal, kolon `:`, beklenmeyen kök).
-   - En yeni mtime sürümü seçilir (aynı id için birden çok tar).
-   - Exit 3 çakışma, 6 arşiv yok / extract hatası.
-   - `RestoreError` yeni tip (N818 uyumlu).
-   - +12 test.
-
-4. **Görev 031** — `atlas run --jobs N` (`cfc201b`) — **büyük**
-   - N=1 seri (bit-uyumlu); N>1 `ThreadPoolExecutor`.
-   - `_ThreadCaptureStream`: TLS StringIO (contextlib.redirect_stdout
-     process-global; thread-safe değil).
-   - `AuditLog` **thread-safe** yapıldı: `_lock_for(path)` module-level
-     path bazlı lock + `verify()` boş satır fail-safe.
-   - Paralel modda fail-fast implicit KAPALI (worker'lar zaten koşuyor).
-   - `--jobs 0` → SPEC HATASI + exit 2.
-   - +6 test.
-
-5. **Merge + temizlik**
-   - Sıra: `038 → 037.1 → 033 → 031` (her biri main'e rebase + ff-merge).
-   - 4 commit lineer main'e: `ad73010 → ab01e4d → 31cf934 → cfc201b`.
-   - Feature branch'ler henüz silinmedi (bu turun sonunda temizlik).
+5. **Merge + kalite kapıları**
+   - Sıra: `037.2 → 031.1 → 034.2 → 039` (her biri main'e rebase +
+     ff-merge + tam pytest/mypy/ruff/scan).
+   - 4 commit lineer main'e: `9339976 → 5751d6d → 991625c → 223154b`.
+   - Feature branch'ler push + temizlik onayı bekliyor.
 
 ---
 
@@ -77,15 +81,16 @@ rebase sonrası tam kalite kapısı).
 
 **Yeni görev seçimi.** Pipeline'da açık iş yok. Doğal adaylar:
 
-- **Görev 037.2 — `atlas ai-cli list`:** hangi AI CLI'lar kurulu
-  (opencode/kilo/cline/kimi), sürümleri, güncelleme adayları.
+- **Görev 037.3 — `atlas ai-cli exec <name> [args]`:** kurulu AI CLI'yı
+  taşınabilir binary ile çalıştır (`tools/ai-cli/node_modules/.bin/<name>`).
+  Tek komut launcher. Küçük.
+- **Görev 023.2 — metrics `inflight` toplama:** `atlas metrics` çıktısına
+  ortalama/pik inflight istatistiği ekle (SPEC 039'un tüketim tarafı).
   Küçük-orta.
-- **Görev 031.1 — `atlas run --jobs N --dry-run` özet:** paralel batch
-  dry-run'da her worker'ın plan step'lerini özetle raporla. Çok küçük.
-- **Görev 034.2 — pre-commit hook Windows PowerShell testi:** SPEC 034.1
-  (Windows PS hook) tekrar canlı çalıştırma; regresyon kontrolü. Küçük.
-- **Görev 039 — LLM connection pool metriği:** paralel LLM çağrılarında
-  eş-zamanlı inflight sayısını `.atlas/metrics.jsonl`'a yaz. Orta.
+- **Görev 040 — `atlas doctor --json --schema`:** doctor JSON şemasını
+  ayrı komut olarak yayımla (v1 → v2 planı için hazırlık). Orta.
+- **Görev 041 — Vault backup + restore:** `vault/` dizininin sıkıştırılmış
+  yedeği; `atlas vault backup / restore` alt-komutları. Orta-büyük.
 - Ya da başka öncelik varsa net söyle.
 
 ---
@@ -94,64 +99,60 @@ rebase sonrası tam kalite kapısı).
 
 **Branch grafı:**
 ```
-origin/main (fe8dea8) ← main (cfc201b, 4 commit önde, PUSH bekliyor)
+origin/main (745a007) ← main (223154b, 4 commit önde, PUSH bekliyor)
 ```
-Kalan local feature branch'ler (silinecek): `feat/031-batch-parallel`,
-`feat/033-archive-restore`, `feat/037.1-ai-cli-update`,
-`feat/038-scan-src-unique-hits`.
+Kalan local feature branch'ler (silinecek): `feat/037.2-ai-cli-list`,
+`feat/031.1-batch-dry-run-summary`, `feat/034.2-hook-regression`,
+`feat/039-llm-inflight-metric`.
 Önceki oturumların branchleri: `feat/paketleme-bulut-secenegi`,
 `feat/tasinabilir-kurulum`, `fix/{arsivleyici-arama,
 kimi-yeniden-etkinlestirme, ollama-kimligi-tasinabilir,
 surum-etiketli-yedek}`.
 
-**main'e giren 4 commit (2026-07-30 19. tur):**
+**main'e giren 4 commit (2026-07-30 20. tur):**
 ```
-cfc201b feat(031): atlas run --jobs N (batch paralel)
-31cf934 feat(033): atlas archive --restore <id>
-ab01e4d feat(037.1): atlas ai-cli update portable npm wrap
-ad73010 feat(038): doctor --scan-src unique_hits alani
+223154b feat(039): LLM inflight metrigi (.atlas/metrics.jsonl)
+991625c feat(034.2): pre-commit shim canli regresyon testi
+5751d6d feat(031.1): batch --dry-run toplu step ozeti
+9339976 feat(037.2): atlas ai-cli list — kurulu paketler + sürüm
 ```
 
 **Kalite kapıları (bu turun sonu):**
 ```bash
 uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
-# 722 passed, 12 skipped, cov 90.71%
+# 742 passed, 12 skipped, cov 90.87%
 uv run mypy src                # temiz
 uv run ruff check src tests    # temiz
 uv run atlas scan src          # sır bulunamadı
 ```
 
 **Yeni CLI davranışları (bu turda):**
-- `atlas doctor --scan-src` çıktısı: `unique_hits` alanı (JSON) +
-  `(N bulgu, M tekil dosya)` (insan)
-- `atlas ai-cli update [--dry-run]` (yeni komut)
-- `atlas archive --restore <id> [--apply]` (yeni bayrak)
-- `atlas run --goal-file A B C --jobs N` (yeni bayrak)
+- `atlas ai-cli list [--json]` (yeni komut)
+- `atlas run --goal-file A B --dry-run [--jobs N]` sonuna batch özet
+- Pre-commit shim canlı regresyon testi (yalnız test)
+- `.atlas/metrics.jsonl` satırlarına `inflight: int` alanı (opsiyonel)
 
 **Env sözleşmesi:** DEĞİŞMEDİ.
 
-**Exit kodları:**
-- **Yeni:** archive restore çakışma → **3**; archive restore arşiv
-  yok/extract hatası → **6**.
-- Mevcut kodlar (0/2/4/8/9) korundu.
+**Exit kodları:** DEĞİŞMEDİ.
 
 **Kritik sözleşme değişmezlikleri (bu turda korundu):**
-- SPEC 030 batch testleri (7 test) bit-uyumlu.
+- SPEC 030/031 batch testleri (13 test) bit-uyumlu.
 - `_cmd_run_goal` dokunulmadı.
-- `archive_task` fonksiyonu dokunulmadı; `restore_task` yeni.
-- `AuditLog` public API (record/verify) sözleşmesi aynı; iç
-  thread-safety eklendi (transparent).
-- Doctor JSON şema v1 korundu (yalnız alan eklendi).
-- `ai-cli diff-summary` bit-uyumlu.
+- `_call_anthropic` public imzası aynı (inner param dış API'ye sızmaz).
+- `_write_metric_for_data(data)` → `inflight` default None → mevcut
+  SPEC 023 testleri BİT-UYUMLU.
+- `ai-cli diff-summary` (037), `ai-cli update` (037.1) bit-uyumlu.
+- Doctor JSON şema v1 korundu.
+- `tools/hooks/pre-commit` şablon dokunulmadı.
 
 **Bilinen flaky:** yok.
 
 **Docker YASAK:** hâlâ yürürlükte.
 
 **Görev-öncesi zorunlu okuma sırası:**
-1. `DECISIONS.md` — 2026-07-30 altında **21 giriş bloğu**
-   (bu tur 4 yeni blok eklendi; toplam 17 → 21);
-   2026-07-29 altında 39 blok.
+1. `DECISIONS.md` — 2026-07-30 altında **25 giriş bloğu** (bu tur 4
+   yeni blok; toplam 21 → 25); 2026-07-29 altında 39 blok.
 2. Bu dosya (DEVAM_NOKTASI.md)
 3. Hedef görevin `pipeline/tasks/<XXX>/{00-need,09-ship}.md`
 4. Değişecek modülün üstündeki docstring
@@ -161,18 +162,16 @@ uv run atlas scan src          # sır bulunamadı
 
 ## Kapanış Notları
 
-- 722 test yeşil (bu turun baseline'ı 693 → +29; oturum başı 319 → +403)
-- 4 lineer commit main'e alındı; PUSH bekliyor
+- 742 test yeşil (bu turun baseline'ı 722 → +20; oturum başı 319 → +423)
+- 4 lineer commit main'e; PUSH bekliyor
 - 4 feature branch silinecek (kapanış temizliği)
-- Yeni env YOK
-- Yeni exit kodu var: **3** (archive restore çakışma), **6** genişledi
-- Uncommitted değişiklik yok
-- Yeni CLI komutları: `atlas archive --restore`, `atlas ai-cli update`,
-  `atlas run --jobs N`
-- Yeni şema alanları: `quality.scan_src.unique_hits`
+- Yeni env YOK, yeni exit kodu YOK
+- Yeni CLI komutu: `atlas ai-cli list`
+- Yeni şema alanları: `.atlas/metrics.jsonl` → `inflight` (opt-in)
+- Yeni test dosyaları: `test_cli_hooks_regression.py`, `test_llm_inflight.py`
 - Docker YASAK yürürlükte
 - Portable bundle son sürüm: `D:\ATLAS.rar` (28 Temmuz, 1.9 GB)
-- DECISIONS.md 2026-07-30 altında **21 giriş bloğu**, 2026-07-29
-  altında **39 giriş bloğu** (toplam 60+)
-- **AuditLog thread-safety** yeni bir platform sözleşmesi — çoklu
-  worker/thread'in aynı `audit.jsonl`'e yazması artık güvenli
+- DECISIONS.md 2026-07-30 altında **25 giriş bloğu**, 2026-07-29
+  altında **39 giriş bloğu** (toplam 64+)
+- Platform sözleşmesi genişlemesi: `_call_anthropic` wrapper/inner
+  ayrımı — future ek yan etkiler için desen (audit hook, tracing).

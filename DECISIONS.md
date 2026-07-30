@@ -1,6 +1,69 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-30 (Görev 039 — LLM inflight metriği)
+- [KARAR] Global `_INFLIGHT_COUNT` + `threading.Lock` — module scope
+  planner.py'de. SPEC 031'in "N paralel çağrı" gerçeğini metriğe
+  yansıtır. Rate limit debug'ı + API concurrent quota tuning için
+  temel veri.
+- [KARAR] `_call_anthropic` wrapper/inner ayrımı — wrapper yalnız
+  `_inflight_begin() + try/finally + _inflight_end()`; iş inner'da.
+  Fonksiyon 100+ satır olduğu için tümünü `try/finally` altına almak
+  invaziv olurdu; wrapper 8 satır, temiz.
+- [KARAR] Snapshot **çağrı başlangıcında** alınır (çağrıyı DAHİL
+  sayarak). "Bu çağrı başlarken kaç eş-zamanlı vardı" istatistiği —
+  peak farklı, snapshot-at-start daha stabil.
+- [KARAR] `_write_metric_for_data(data, inflight: int | None = None)`
+  — inflight None → alan YAZILMAZ. Mevcut SPEC 023 testleri
+  bit-uyumlu; okuma tarafı yeni alanı görmezden gelmeli (forward
+  compatible).
+- [KARAR] `_inflight_end()` `max(0, COUNT-1)` — defensive; yanlış
+  eşleştirme durumunda negatife düşmez. Wrapper try/finally garantisi
+  ile leak olmamalı ama double-end koruması bedava.
+- [KARAR] Test izolasyonu: `monkeypatch.setattr(pl, "_INFLIGHT_COUNT", 0)`
+  ile sayaç sıfırlanır — modül-globalin test paralel çalıştırmada
+  race'inden kaçınır (pytest her testte fresh state).
+
+## 2026-07-30 (Görev 034.2 — pre-commit shim canlı regresyon testi)
+- [KARAR] SPEC 034 statik test yeterli değildi — shim'i shell üzerinden
+  gerçek subprocess ile çalıştırıp exit haritasını doğrulayan
+  entegrasyon testi eklendi (`test_cli_hooks_regression.py`).
+- [KARAR] Mock atlas scripti (`#!/bin/sh; exit ${ATLAS_MOCK_EXIT:-0}`) —
+  tmpdir/bin'de; PATH başına eklenip shim'in `atlas` çağrısı bu mock'a
+  yönlendirilir. Test 4 senaryoyu kapsar: exit 0/9/2 + statik regex.
+- [KARAR] `_find_hook_shell()` None → `pytest.skip()` — baremetal
+  Windows CI'da sh.exe olmayabilir; test AŞILMAZ, atlanır. Yerel
+  makinede `tools/git/usr/bin/sh.exe` (portable) → 4 test geçti.
+- [KARAR] Kaynak kodda değişiklik YOK — yalnız test. Görev bilinçli
+  bir regresyon ağı, davranış değişikliği değil.
+
+## 2026-07-30 (Görev 031.1 — batch dry-run toplu step özeti)
+- [KARAR] Özet BLOKU yalnız `--dry-run` verildiğinde basılır —
+  bit-uyumluluk. Real batch (yıkıcı) modunda gürültü eklemez.
+- [KARAR] Regex parse (`^  (plan|act|observe|reflect)\s+(.*)`) —
+  `_cmd_run_goal` sabit çıktı formatına dayanır. Format değişirse
+  özet 0 döner (sessiz), sözleşme kırılmaz.
+- [KARAR] Seri dalda `_Tee(sys.stdout, buf)` +
+  `contextlib.redirect_stdout` — tek thread'de process-global override
+  zararsız (SPEC 031'in paralel için TLS problemi seride yok). Real-time
+  stdout korunur.
+- [KARAR] Paralel dal mevcut TLS-captured metinleri kullanır — 031'deki
+  altyapı doğrudan yeniden kullanılabilir, ekstra iş yok.
+- [KARAR] Özet çıktısı: `toplam step: N (plan=X, act=Y, observe=Z,
+  reflect=W)` + ilk 5 act eylem. 5'ten çoksa `…N eylem daha`. Sözlü
+  agregasyon; kullanıcı ne gördüğünü anlar.
+
+## 2026-07-30 (Görev 037.2 — atlas ai-cli list)
+- [KARAR] `package.json` dependencies alanı **kaynağın kanonik listesi**;
+  `node_modules/<n>/package.json` version cross-check.
+- [KARAR] Şema: `{"path": ..., "packages": [{"name","expected","installed"}]}`.
+  `installed=null` → kurulu değil (JSON); insan formatı `(kurulu değil)`.
+- [KARAR] Sütun genişliği `max(20, en uzun paket adı)` — sabit yerine
+  dinamik → uzun paket adları (`@kilocode/cli`) taşmadan hizalanır.
+- [KARAR] Deps boş → `(paket yok)` mesajı, exit 0 (uyarı değil).
+- [KARAR] Bozuk `package.json` → SPEC HATASI + exit 2. Kurulu değil
+  ile aynı sınıfta değil — repo bozukluğu vs eksik kurulum ayrımı.
+
 ## 2026-07-30 (Görev 031 — batch `--jobs N` paralel yürütme)
 - [KARAR] `--jobs N` (varsayılan 1) — N=1 mevcut seri (SPEC 030
   bit-uyumlu); N>1 `ThreadPoolExecutor(max_workers=N)`. IO/LLM bound
