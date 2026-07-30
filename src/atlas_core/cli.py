@@ -249,55 +249,222 @@ def _cmd_run_goal(args: argparse.Namespace) -> int:
     return 0 if result.done else 4
 
 
-def _cmd_run_batch(args: argparse.Namespace, files: list[str]) -> int:
-    """SPEC 030: `atlas run --goal-file A B C` sıralı yürütme + özet + tek exit.
+class _ThreadCaptureStream:
+    """SPEC 031: Thread-local stdout/stderr yakalayıcı.
 
-    Fail-fast varsayılan; `--continue-on-error` ile tümü çalışır.
+    `contextlib.redirect_stdout` PROCESS-GLOBAL'dir — thread-safe değil.
+    Bu sınıf her thread için ayrı `StringIO` tutar; TLS'de buf yoksa
+    gerçek stream'e yazar (ana thread + non-batch print'ler etkilenmez).
+
+    Kullanım:
+        cap = _ThreadCaptureStream(sys.stdout)
+        sys.stdout = cap
+        # Worker thread:
+        cap.begin()      # TLS StringIO oluşturur
+        print("x")       # → StringIO
+        text = cap.end() # → "x\n", TLS buf temizlenir
+        # Ana thread aynı anda print("y") → gerçek stdout ("y")
+    """
+
+    def __init__(self, real: Any) -> None:
+        import threading
+
+        self._real = real
+        self._tls = threading.local()
+
+    def begin(self) -> None:
+        import io as _io
+
+        self._tls.buf = _io.StringIO()
+
+    def end(self) -> str:
+        buf = getattr(self._tls, "buf", None)
+        if buf is None:
+            return ""
+        val: str = str(buf.getvalue())
+        del self._tls.buf
+        return val
+
+    def write(self, s: str) -> int:
+        buf = getattr(self._tls, "buf", None)
+        if buf is not None:
+            return int(buf.write(s))
+        return int(self._real.write(s))
+
+    def flush(self) -> None:
+        buf = getattr(self._tls, "buf", None)
+        if buf is not None:
+            return
+        self._real.flush()
+
+    def isatty(self) -> bool:
+        return False
+
+
+def _run_single_goal_captured(
+    file_path: str, run_id_i: str, dry_run: bool,
+    stdout_cap: _ThreadCaptureStream, stderr_cap: _ThreadCaptureStream,
+) -> tuple[str, int, str, str]:
+    """SPEC 031: Bir goal'ı çalıştırıp stdout+stderr'ini string olarak yakala.
+
+    Thread-local yakalayıcı kullanılır — ana thread'in `print()` çağrıları
+    ETKİLENMEZ.
+
+    Döner: `(file_path, exit_code, run_id, captured_text)`.
+    """
+    stdout_cap.begin()
+    stderr_cap.begin()
+    goal_args = argparse.Namespace(
+        goal_file=file_path,
+        run_id=run_id_i,
+        dry_run=dry_run,
+    )
+    try:
+        rc = _cmd_run_goal(goal_args)
+    except SystemExit as exc:
+        rc = int(exc.code) if isinstance(exc.code, int) else 2
+    out_text = stdout_cap.end()
+    err_text = stderr_cap.end()
+    combined = out_text + (err_text if err_text else "")
+    return (file_path, rc, run_id_i, combined)
+
+
+def _read_jobs_arg(args: argparse.Namespace) -> int:
+    """SPEC 031: `--jobs N` doğrulama; geçersiz (< 1) → 0 (SPEC HATASI sinyali).
+
+    Not: `or 1` KULLANMA — 0 truthy-değildir, hata yerine 1'e düşerdi.
+    """
+    jobs = getattr(args, "jobs", 1)
+    if jobs is None:
+        return 1
+    jobs = int(jobs)
+    if jobs < 1:
+        return 0
+    return jobs
+
+
+def _cmd_run_batch(args: argparse.Namespace, files: list[str]) -> int:
+    """SPEC 030 + 031: `atlas run --goal-file A B C [--jobs N]` batch.
+
+    - `--jobs 1` (varsayılan): mevcut seri davranış (SPEC 030 bit-uyumlu):
+      fail-fast varsayılan; `--continue-on-error` ile tümü çalışır.
+    - `--jobs N > 1`: `ThreadPoolExecutor(max_workers=N)` paralel;
+      fail-fast anlamlı değil (worker'lar zaten koşuyor), bu yüzden
+      **paralel modda fail-fast KAPALI** (implicit continue-on-error).
+      Worker stdout'ları capture edilir, ana thread sırayla basar
+      (log satırları karışmaz).
+
+    Sandbox çakışması: her goal `run_id_i = <base>_<i>` alır; goal
+    tanımındaki `sandbox = <name>-<run_id>` deseni sayesinde her
+    worker kendi alt-dizinini yazar. Path çakışması YOK (batch içi).
+
+    LLM rate limit: `--jobs N` doğrudan inflight sınırıdır — max N
+    goal (dolayısıyla max N canlı LLM çağrısı). API rate limit için
+    ayrı env yok; kullanıcı N'i düşürerek kontrol eder.
+
     Run-id çakışma: `--run-id X` → `X_1, X_2, ...`; yoksa `<TS>_<i>`.
     Exit kodu: hepsi 0 → 0; aksi → en yüksek hata kodu.
     """
     continue_on_error = getattr(args, "continue_on_error", False)
     dry_run = getattr(args, "dry_run", False)
+    jobs = _read_jobs_arg(args)
+    if jobs == 0:
+        print("SPEC HATASI: --jobs pozitif olmalı", file=sys.stderr)
+        return 2
     base_run_id = args.run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
 
+    parallel = jobs > 1
+    if parallel:
+        # SPEC 031: paralel modda fail-fast'i devre dışı bırak (worker'lar
+        # zaten koşuyor; erken çıkış temiz değil). Kullanıcıya bildir.
+        mode = f"parallel (jobs={jobs})"
+        if not continue_on_error:
+            # Bilgi amaçlı — sözleşme: paralel = tümü çalışır
+            continue_on_error = True
+    else:
+        mode = "continue-on-error" if continue_on_error else "fail-fast"
+
     print(f"=== ATLAS batch — {len(files)} goal ===")
-    print(f"mod: {'continue-on-error' if continue_on_error else 'fail-fast'}"
-          f"{' + dry-run' if dry_run else ''}")
+    print(f"mod: {mode}{' + dry-run' if dry_run else ''}")
     print()
 
     results: list[tuple[str, int | None, str]] = []
     # (dosya, exit_code veya None="atlandı", run_id_or_skip_reason)
 
-    for i, f in enumerate(files, start=1):
-        run_id_i = f"{base_run_id}_{i}"
-        print(f"--- [{i}/{len(files)}] {f}  (run_id={run_id_i}) ---")
-        goal_args = argparse.Namespace(
-            goal_file=f,
-            run_id=run_id_i,
-            dry_run=dry_run,
-        )
-        rc = _cmd_run_goal(goal_args)
-        results.append((f, rc, run_id_i))
-        print()
-        if rc != 0 and not continue_on_error:
-            # Fail-fast: kalanları "atlandı" olarak işaretle
-            for j in range(i, len(files)):
-                results.append((files[j], None, "atlandı (fail-fast)"))
-            break
+    if parallel:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    # Özet tablo
+        # Thread-local capture stream'leri kur — ana thread etkilenmez.
+        stdout_cap = _ThreadCaptureStream(sys.stdout)
+        stderr_cap = _ThreadCaptureStream(sys.stderr)
+        real_stdout = sys.stdout
+        real_stderr = sys.stderr
+        sys.stdout = stdout_cap
+        sys.stderr = stderr_cap
+
+        # Worker → tuple (file, rc, run_id, stdout)
+        run_ids = [f"{base_run_id}_{i}" for i in range(1, len(files) + 1)]
+        futures: dict[Any, tuple[int, str, str]] = {}
+        try:
+            with ThreadPoolExecutor(max_workers=jobs) as ex:
+                for i, f in enumerate(files):
+                    fut = ex.submit(
+                        _run_single_goal_captured,
+                        f, run_ids[i], dry_run, stdout_cap, stderr_cap,
+                    )
+                    futures[fut] = (i, f, run_ids[i])
+                # Bitiş sırasına göre topla ama başlangıç sırasına göre bas
+                done_by_idx: dict[int, tuple[str, int, str, str]] = {}
+                for fut in as_completed(futures):
+                    i, _f, _rid = futures[fut]
+                    done_by_idx[i] = fut.result()
+        finally:
+            sys.stdout = real_stdout
+            sys.stderr = real_stderr
+
+        # Sırayla bas (deterministik log)
+        for i, _f in enumerate(files):
+            file_out, rc_out, rid, captured = done_by_idx[i]
+            print(f"--- [{i + 1}/{len(files)}] {file_out}  (run_id={rid}) ---")
+            # Worker stdout'unu blok halinde bas — satır sonu dahil
+            if captured:
+                sys.stdout.write(captured)
+                if not captured.endswith("\n"):
+                    sys.stdout.write("\n")
+            results.append((file_out, rc_out, rid))
+            print()
+    else:
+        # SPEC 030 mevcut seri döngü (bit-uyumlu)
+        for i, f in enumerate(files, start=1):
+            run_id_i = f"{base_run_id}_{i}"
+            print(f"--- [{i}/{len(files)}] {f}  (run_id={run_id_i}) ---")
+            goal_args = argparse.Namespace(
+                goal_file=f,
+                run_id=run_id_i,
+                dry_run=dry_run,
+            )
+            rc = _cmd_run_goal(goal_args)
+            results.append((f, rc, run_id_i))
+            print()
+            if rc != 0 and not continue_on_error:
+                # Fail-fast: kalanları "atlandı" olarak işaretle
+                for j in range(i, len(files)):
+                    results.append((files[j], None, "atlandı (fail-fast)"))
+                break
+
+    # Özet tablo — hem seri hem paralel için ORTAK
     print(f"=== ATLAS batch özeti — {len(files)} goal ===")
     max_rc = 0
-    for idx, (f_out, rc_out, note_out) in enumerate(results, start=1):
+    for idx, (f_out, rc_val, note_out) in enumerate(results, start=1):
         stem = Path(f_out).stem
-        if rc_out is None:
+        if rc_val is None:
             print(f"  {idx}. {stem:<24} - {note_out}")
-        elif rc_out == 0:
+        elif rc_val == 0:
             print(f"  {idx}. {stem:<24} + done   (run_id={note_out})")
         else:
-            print(f"  {idx}. {stem:<24} x exit={rc_out} (run_id={note_out})")
-            if rc_out > max_rc:
-                max_rc = rc_out
+            print(f"  {idx}. {stem:<24} x exit={rc_val} (run_id={note_out})")
+            if rc_val > max_rc:
+                max_rc = rc_val
     print(f"batch exit: {max_rc}")
     return max_rc
 
@@ -2228,6 +2395,10 @@ def main(argv: list[str] | None = None) -> int:
                        help="planner çalıştır, action stub (yıkıcı iş yok) — SPEC 020")
     p_run.add_argument("--continue-on-error", action="store_true",
                        help="SPEC 030: batch modunda ilk hatada durma, tümünü çalıştır")
+    p_run.add_argument("--jobs", type=int, default=1,
+                       help="SPEC 031: batch paralellik (varsayılan 1 = seri, "
+                            "bit-uyumlu). N > 1 → ThreadPool; fail-fast implicit "
+                            "kapalı (worker'lar zaten koşuyor)")
     p_run.set_defaults(func=_cmd_run)
 
     p_rx = sub.add_parser("reindex", help="GBrain FTS indeksini yeniden kur")

@@ -240,3 +240,132 @@ def test_030_bos_liste_argparse_hatasi(
     with pytest.raises(SystemExit) as exc:
         main(["run", "--goal-file"])
     assert exc.value.code == 2
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 031 — Paralel batch (--jobs N)
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_031_jobs_1_seri_bit_uyumlu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--jobs 1` (varsayılan) → mevcut seri davranış (fail-fast)."""
+    _env(monkeypatch, tmp_path)
+    a = tmp_path / "a.yaml"
+    b = tmp_path / "b.yaml"
+    _write_ok_goal(a, "A", "a.txt")
+    _write_ok_goal(b, "B", "b.txt")
+    rc = main(["run", "--goal-file", str(a), str(b), "--run-id", "R"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "mod: fail-fast" in out
+    assert "parallel" not in out
+
+
+def test_031_jobs_2_paralel_iki_basari(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--jobs 2` iki başarılı goal → exit 0, tabloda 2 done."""
+    _env(monkeypatch, tmp_path)
+    a = tmp_path / "a.yaml"
+    b = tmp_path / "b.yaml"
+    _write_ok_goal(a, "A", "a.txt")
+    _write_ok_goal(b, "B", "b.txt")
+    rc = main([
+        "run", "--goal-file", str(a), str(b),
+        "--run-id", "R", "--jobs", "2",
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "parallel (jobs=2)" in out
+    assert out.count("+ done") == 2
+    assert "batch exit: 0" in out
+    # Sandbox path çakışması yok — iki farklı klasör
+    assert (tmp_path / "sb" / "a-R_1" / "a.txt").is_file()
+    assert (tmp_path / "sb" / "b-R_2" / "b.txt").is_file()
+
+
+def test_031_paralel_fail_fast_kapali(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--jobs 2` + bir fail → paralel fail-fast anlamsız, tümü çalışır."""
+    _env(monkeypatch, tmp_path)
+    a = tmp_path / "a.yaml"
+    b = tmp_path / "b.yaml"
+    c = tmp_path / "c.yaml"
+    _write_ok_goal(a, "A", "a.txt")
+    _write_fail_goal(b, "B (fail)")
+    _write_ok_goal(c, "C", "c.txt")
+    rc = main([
+        "run", "--goal-file", str(a), str(b), str(c),
+        "--run-id", "R", "--jobs", "2",
+    ])
+    assert rc == 4
+    out = capsys.readouterr().out
+    # C paralel modda ATLANMAZ — hem A hem C tamamlanır
+    assert (tmp_path / "sb" / "a-R_1" / "a.txt").is_file()
+    assert (tmp_path / "sb" / "c-R_3" / "c.txt").is_file()
+    assert "atlandı" not in out
+    assert "batch exit: 4" in out
+
+
+def test_031_paralel_log_karismaz(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--jobs 2` çıktı sırası deterministik: [1/N] önce [2/N] sonra."""
+    _env(monkeypatch, tmp_path)
+    a = tmp_path / "a.yaml"
+    b = tmp_path / "b.yaml"
+    _write_ok_goal(a, "A", "a.txt")
+    _write_ok_goal(b, "B", "b.txt")
+    rc = main([
+        "run", "--goal-file", str(a), str(b),
+        "--run-id", "R", "--jobs", "2",
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    # [1/2] a önce görünmeli
+    i1 = out.find("[1/2] " + str(a))
+    i2 = out.find("[2/2] " + str(b))
+    assert 0 < i1 < i2
+    # Özet en sonda
+    isum = out.find("=== ATLAS batch özeti")
+    assert i2 < isum
+
+
+def test_031_jobs_sifir_spec_hatasi(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--jobs 0` → SPEC HATASI + exit 2."""
+    _env(monkeypatch, tmp_path)
+    a = tmp_path / "a.yaml"
+    b = tmp_path / "b.yaml"
+    _write_ok_goal(a, "A", "a.txt")
+    _write_ok_goal(b, "B", "b.txt")
+    rc = main([
+        "run", "--goal-file", str(a), str(b),
+        "--run-id", "R", "--jobs", "0",
+    ])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "SPEC HATASI" in err
+    assert "--jobs pozitif" in err
+
+
+def test_031_jobs_5_kucuk_liste(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--jobs 5` ama 2 goal → 2 worker koşar (ThreadPool sınırlar), exit 0."""
+    _env(monkeypatch, tmp_path)
+    a = tmp_path / "a.yaml"
+    b = tmp_path / "b.yaml"
+    _write_ok_goal(a, "A", "a.txt")
+    _write_ok_goal(b, "B", "b.txt")
+    rc = main([
+        "run", "--goal-file", str(a), str(b),
+        "--run-id", "R", "--jobs", "5",
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert out.count("+ done") == 2

@@ -8,8 +8,27 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
+
+# SPEC 031: Aynı audit dosyasına birden çok thread'in append yapması
+# hash zincirini bozabilir (iki thread aynı prev hash'i okuyup farklı
+# zincir noktalarına yazar). Dosya-path bazlı lock: aynı `path`
+# üzerindeki AuditLog kayıtları serileşir.
+_AUDIT_LOCKS: dict[str, threading.Lock] = {}
+_AUDIT_LOCKS_MUTEX = threading.Lock()
+
+
+def _lock_for(path: Path) -> threading.Lock:
+    """SPEC 031: Path'e göre paylaşılan thread lock döner (module-scope)."""
+    key = str(path.resolve())
+    with _AUDIT_LOCKS_MUTEX:
+        lock = _AUDIT_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _AUDIT_LOCKS[key] = lock
+        return lock
 
 # Bilinen sır kalıpları (savunma amaçlı tespit)
 SECRET_PATTERNS: dict[str, re.Pattern[str]] = {
@@ -40,30 +59,47 @@ class AuditLog:
         return rec["hash"]
 
     def record(self, actor: str, action: str, detail: str) -> dict[str, str]:
-        """Olayı zincire ekler; kayıt sözlüğünü döndürür."""
-        prev = self._last_hash()
-        body = {
-            "ts": datetime.now(UTC).isoformat(),
-            "actor": actor,
-            "action": action,
-            "detail": detail,
-            "prev": prev,
-        }
-        digest = hashlib.sha256(
-            json.dumps(body, sort_keys=True, ensure_ascii=False).encode()
-        ).hexdigest()
-        rec = {**body, "hash": digest}
-        with self.path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        return rec
+        """Olayı zincire ekler; kayıt sözlüğünü döndürür.
+
+        SPEC 031: Aynı dosyaya yazan tüm thread'ler `_lock_for(path)`
+        üzerinde serileşir (hash zinciri race'ini engelle).
+        """
+        with _lock_for(self.path):
+            prev = self._last_hash()
+            body = {
+                "ts": datetime.now(UTC).isoformat(),
+                "actor": actor,
+                "action": action,
+                "detail": detail,
+                "prev": prev,
+            }
+            digest = hashlib.sha256(
+                json.dumps(body, sort_keys=True, ensure_ascii=False).encode()
+            ).hexdigest()
+            rec = {**body, "hash": digest}
+            with self.path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            return rec
 
     def verify(self) -> bool:
-        """Zincir bütünlüğünü doğrular; oynanmışsa False."""
+        """Zincir bütünlüğünü doğrular; oynanmışsa False.
+
+        SPEC 031: Boş satırları atlar (paralel append arasında görülen
+        yarım-satır artefaktları için fail-safe). JSON parse hatası ise
+        zincir sözleşmesi bozulmuş demektir → False.
+        """
         prev = "GENESIS"
         if not self.path.exists():
             return True
-        for line in self.path.read_text(encoding="utf-8").strip().splitlines():
-            rec: dict[str, str] = json.loads(line)
+        with _lock_for(self.path):
+            content = self.path.read_text(encoding="utf-8")
+        for line in content.strip().splitlines():
+            if not line.strip():
+                continue  # SPEC 031: boş satır — sessiz skip
+            try:
+                rec: dict[str, str] = json.loads(line)
+            except json.JSONDecodeError:
+                return False
             body = {k: rec[k] for k in ("ts", "actor", "action", "detail", "prev")}
             if rec["prev"] != prev:
                 return False
