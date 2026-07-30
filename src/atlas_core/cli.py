@@ -2432,6 +2432,72 @@ def _read_installed_version(package_name: str) -> str | None:
     return v if isinstance(v, str) else None
 
 
+def _resolve_ai_cli_bin(name: str) -> Path | None:
+    """SPEC 037.3: `tools/ai-cli/node_modules/.bin/<name>` bin yolu.
+
+    Windows önce `.cmd`; sonra çıplak isim; sonra `.exe`.
+    Unix: çıplak isim (executable bit expected).
+    Bulunamazsa `None`.
+    """
+    bin_dir = _AI_CLI_DIR / "node_modules" / ".bin"
+    if not bin_dir.is_dir():
+        return None
+    if sys.platform == "win32":
+        # Windows shim'leri npm .cmd olarak yaratır (shell exec eder)
+        for suffix in (".cmd", ".exe", ""):
+            candidate = bin_dir / f"{name}{suffix}"
+            if candidate.is_file():
+                return candidate
+        return None
+    # Unix
+    candidate = bin_dir / name
+    return candidate if candidate.is_file() else None
+
+
+def _cmd_ai_cli_exec(args: argparse.Namespace) -> int:
+    """SPEC 037.3: `atlas ai-cli exec <name> [args...]` — portable launcher.
+
+    `tools/ai-cli/node_modules/.bin/<name>` (Windows: `.cmd`)
+    shim'ini subprocess ile çalıştırır; kullanıcı argümanları forward.
+    Exit kodu doğrudan yansıtılır.
+
+    Hata durumları:
+      - `tools/ai-cli/` yok → exit 2 + SPEC HATASI
+      - bin bulunamadı → exit 2 + kullanıcıya paket adı öner
+      - subprocess başlatma hatası → exit 2
+    """
+    if not _AI_CLI_DIR.is_dir():
+        print(
+            f"SPEC HATASI: {_AI_CLI_DIR} yok — portable ai-cli kurulumu bulunamadı",
+            file=sys.stderr,
+        )
+        return 2
+    name = args.name
+    bin_path = _resolve_ai_cli_bin(name)
+    if bin_path is None:
+        print(
+            f"SPEC HATASI: '{name}' bin bulunamadı "
+            f"({_AI_CLI_DIR}/node_modules/.bin/). "
+            f"Kurulu paketleri görmek için: atlas ai-cli list",
+            file=sys.stderr,
+        )
+        return 2
+
+    extra: list[str] = list(getattr(args, "cli_args", None) or [])
+    cmd = [str(bin_path), *extra]
+    try:
+        # shell=False sabit; Windows .cmd shim'i doğrudan başlatılır
+        # (cmd.exe /c değil — Python `subprocess` .cmd/.bat için özel yol).
+        proc = subprocess.run(  # noqa: S603 - argv sabit + bin_path filtrelendi
+            cmd,
+            check=False,
+        )
+    except OSError as exc:
+        print(f"SPEC HATASI: bin başlatılamadı: {exc}", file=sys.stderr)
+        return 2
+    return proc.returncode
+
+
 def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
     """SPEC 037.2: `atlas ai-cli list [--json]` — kurulu AI CLI'ları listele.
 
@@ -2693,6 +2759,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_ai_ls.add_argument("--json", action="store_true", help="JSON çıktı")
     p_ai_ls.set_defaults(func=_cmd_ai_cli_list)
+    p_ai_ex = ai_sub.add_parser(
+        "exec",
+        help="Portable AI CLI'yı çalıştır: atlas ai-cli exec <name> [args...] (SPEC 037.3)",
+    )
+    p_ai_ex.add_argument("name", help="bin adı (ör. opencode, cline, kilo)")
+    p_ai_ex.add_argument(
+        "cli_args", nargs=argparse.REMAINDER, default=[],
+        help="CLI'ya iletilecek argümanlar (opsiyonel; tümü aynen forward)",
+    )
+    p_ai_ex.set_defaults(func=_cmd_ai_cli_exec)
 
     p_hooks = sub.add_parser("hooks", help="Git pre-commit hook yönetimi (SPEC 034)")
     hooks_sub = p_hooks.add_subparsers(dest="hooks_cmd", required=True)

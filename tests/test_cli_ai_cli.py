@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -400,3 +401,92 @@ def test_0372_package_json_bozuk_exit_2(
     err = capsys.readouterr().err
     assert "package.json" in err
     assert "SPEC HATASI" in err
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 037.3 — atlas ai-cli exec
+# ═════════════════════════════════════════════════════════════════════
+
+
+def _make_bin_layout(root: Path, bins: dict[str, str]) -> None:
+    """`root/node_modules/.bin/` altında shim script'leri oluştur."""
+    bin_dir = root / "node_modules" / ".bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    for name, content in bins.items():
+        # Windows'ta .cmd, Unix'te çıplak; her ikisini de yaratalım — resolver seçer
+        if sys.platform == "win32":
+            (bin_dir / f"{name}.cmd").write_text(content, encoding="utf-8")
+        else:
+            unix = bin_dir / name
+            unix.write_text(content, encoding="utf-8")
+            import stat as _stat
+
+            unix.chmod(unix.stat().st_mode | _stat.S_IXUSR)
+
+
+def test_0373_dir_yok_exit_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", tmp_path / "yok")
+    rc = main(["ai-cli", "exec", "opencode"])
+    assert rc == 2
+    assert "SPEC HATASI" in capsys.readouterr().err
+
+
+def test_0373_bin_yok_exit_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """bin bulunamaz → exit 2 + öneri."""
+    ai = tmp_path / "ai-cli"
+    (ai / "node_modules" / ".bin").mkdir(parents=True)
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", ai)
+    rc = main(["ai-cli", "exec", "yok-boyle"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "yok-boyle" in err
+    assert "atlas ai-cli list" in err
+
+
+def test_0373_resolve_bin_windows_cmd_yolu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Resolver: Windows'ta `.cmd` var → seçer; Unix'te çıplak isim."""
+    ai = tmp_path / "ai-cli"
+    content = "@echo mock\n" if sys.platform == "win32" else "#!/bin/sh\necho mock\n"
+    _make_bin_layout(ai, {"fake": content})
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", ai)
+    p = cli_mod._resolve_ai_cli_bin("fake")
+    assert p is not None
+    if sys.platform == "win32":
+        assert p.suffix == ".cmd"
+    assert p.is_file()
+
+
+def test_0373_exec_canli_bin_calisir_exit_yansitir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Sahte bin (exit 0 basar) canlı çalıştırılır; exit doğrudan yansır."""
+    ai = tmp_path / "ai-cli"
+    if sys.platform == "win32":
+        _make_bin_layout(ai, {"fake": "@echo hi\r\n@exit /b 0\r\n"})
+    else:
+        _make_bin_layout(ai, {"fake": "#!/bin/sh\necho hi\nexit 0\n"})
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", ai)
+    rc = main(["ai-cli", "exec", "fake"])
+    assert rc == 0
+
+
+def test_0373_exec_bin_nonzero_yansitir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Bin exit 7 dönerse CLI exit 7."""
+    ai = tmp_path / "ai-cli"
+    if sys.platform == "win32":
+        _make_bin_layout(ai, {"fake": "@exit /b 7\r\n"})
+    else:
+        _make_bin_layout(ai, {"fake": "#!/bin/sh\nexit 7\n"})
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", ai)
+    rc = main(["ai-cli", "exec", "fake"])
+    assert rc == 7
