@@ -243,6 +243,28 @@ def _stub_summarize_obs(obs: str) -> str:
     return f"[özet: {n_char} char, {n_line} satır, baş: {head!r}...]"
 
 
+def _build_summarize_prompt(obs: str) -> str:
+    """SPEC 018.2/018.3 ortak özet promptu (backend-agnostik)."""
+    return (
+        "Aşağıdaki komut çıktısını Türkçe TEK cümlede, en fazla 120 "
+        "karakterde özetle. Hata varsa hataya odaklan.\n\n"
+        f"Çıktı:\n{obs[:_OBS_SUMMARIZE_MAX_INPUT]}"
+    )
+
+
+def _finalize_summary_line(text: str, backend_label: str) -> str:
+    """SPEC 018.2/018.3 ortak: ilk satır + 120 char kırpma + biçimleme.
+
+    Boş text → `LLMPlannerError` (üst katman fail-safe'e düşer).
+    """
+    line = text.splitlines()[0].strip() if text else ""
+    if not line:
+        raise LLMPlannerError(f"{backend_label} boş özet döndürdü")
+    if len(line) > _OBS_SUMMARIZE_MAX_OUTPUT:
+        line = line[: _OBS_SUMMARIZE_MAX_OUTPUT - 1] + "…"
+    return f"[özet: {line}]"
+
+
 def _summarize_via_anthropic(obs: str, goal: Goal) -> str:
     """SPEC 018.2 real özet — Anthropic Messages API üstünden.
 
@@ -253,35 +275,57 @@ def _summarize_via_anthropic(obs: str, goal: Goal) -> str:
     Hata → `LLMPlannerError` (üst katman fail-safe'e düşer).
     """
     api_key, url, model, timeout_s = _resolve_anthropic_env(goal)
-    prompt = (
-        "Aşağıdaki komut çıktısını Türkçe TEK cümlede, en fazla 120 "
-        "karakterde özetle. Hata varsa hataya odaklan.\n\n"
-        f"Çıktı:\n{obs[:_OBS_SUMMARIZE_MAX_INPUT]}"
-    )
     text = _call_anthropic(
         api_key=api_key,
         url=url,
         model=model,
-        prompt=prompt,
+        prompt=_build_summarize_prompt(obs),
         timeout_s=timeout_s,
         # System yok, cache yok, stream yok — minimal.
     )
-    # İlk satır + kırpma (fail-safe: `_call_anthropic` zaten ilk satır dönüyor)
-    line = text.splitlines()[0].strip() if text else ""
-    if not line:
-        raise LLMPlannerError("anthropic boş özet döndürdü")
-    if len(line) > _OBS_SUMMARIZE_MAX_OUTPUT:
-        line = line[: _OBS_SUMMARIZE_MAX_OUTPUT - 1] + "…"
-    return f"[özet: {line}]"
+    return _finalize_summary_line(text, "anthropic")
+
+
+def _summarize_via_claude(obs: str, _goal: Goal) -> str:
+    """SPEC 018.3 real özet — `claude --print` subprocess üzerinden.
+
+    `_call_claude`'u minimal özet prompt'u ile tekrar kullanır.
+    Ayrı bir process çağrısı — planner ile aynı bin/timeout ortam
+    değişkenlerini kullanır (bin fabrika içinde çözülmüş; burada
+    özet için de aynı çözümleme yapılır).
+
+    Hata → `LLMPlannerError` (üst katman fail-safe).
+    """
+    bin_path = _resolve_claude_bin()
+    timeout_s = int(os.environ.get("ATLAS_LLM_TIMEOUT", str(_DEFAULT_TIMEOUT_S)))
+    text = _call_claude(bin_path, _build_summarize_prompt(obs), timeout_s)
+    return _finalize_summary_line(text, "claude")
+
+
+def _summarize_via_acp(obs: str, _goal: Goal) -> str:
+    """SPEC 018.3 real özet — ACP-lite oturumu üzerinden.
+
+    `_call_acp` her çağrıda yeni oturum başlatır (mevcut kalıp);
+    özet için ayrı bir Popen açılır ve minimal prompt gönderilir.
+
+    Hata → `LLMPlannerError` (üst katman fail-safe).
+    """
+    bin_path, extra = _resolve_acp_bin()
+    timeout_s = int(os.environ.get("ATLAS_LLM_TIMEOUT", str(_DEFAULT_TIMEOUT_S)))
+    text = _call_acp(bin_path, extra, _build_summarize_prompt(obs), timeout_s)
+    return _finalize_summary_line(text, "acp")
 
 
 def _maybe_summarize_or_trim(obs: str, obs_chars: int, goal: Goal) -> str:
-    """SPEC 018.2: dispatch — özetle ya da 018.1 kırp.
+    """SPEC 018.2 + 018.3: dispatch — özetle ya da 018.1 kırp.
 
     - `len(obs) <= obs_chars` → dokunma (ekstra maliyet yok).
     - `_effective_obs_summarize(goal)` False → `_trim_obs`.
-    - Backend `anthropic` → real özet; hata → `_trim_obs` fallback.
-    - Backend stub/claude/acp → stub özet (bir kez uyarı — 018.3 kapsamı).
+    - Backend `anthropic`/`claude`/`acp` → real özet; hata →
+      stderr uyarı + `_trim_obs` fallback.
+    - Backend `stub` → deterministik stub özet.
+    - Backend bilinmeyen → stub özet (fail-safe; make_planner zaten
+      NotImplementedError verir).
     """
     if len(obs) <= obs_chars:
         return obs
@@ -289,26 +333,25 @@ def _maybe_summarize_or_trim(obs: str, obs_chars: int, goal: Goal) -> str:
         return _trim_obs(obs, obs_chars)
 
     backend = os.environ.get("ATLAS_LLM", "stub")
-    if backend == "anthropic":
+    # Dispatch tablosu: her real backend için (özetleyici, hata etiketi)
+    _real_summarizers: dict[str, Callable[[str, Goal], str]] = {
+        "anthropic": _summarize_via_anthropic,
+        "claude": _summarize_via_claude,
+        "acp": _summarize_via_acp,
+    }
+    summarizer = _real_summarizers.get(backend)
+    if summarizer is not None:
         try:
-            return _summarize_via_anthropic(obs, goal)
+            return summarizer(obs, goal)
         except LLMPlannerError as exc:
             print(
-                f"uyarı: obs_summarize anthropic çağrısı başarısız "
+                f"uyarı: obs_summarize {backend} çağrısı başarısız "
                 f"(kırpmaya düşülüyor): {exc}",
                 file=sys.stderr,
             )
             return _trim_obs(obs, obs_chars)
 
-    # stub → sessiz stub (test ve varsayılan yol)
-    # claude/acp → bir kez stderr uyarısı + stub'a düş (018.3)
-    if backend in ("claude", "acp") and backend not in _OBS_SUMMARIZE_WARNED:
-        _OBS_SUMMARIZE_WARNED.add(backend)
-        print(
-            f"uyarı: obs_summarize {backend!r} backend'de gerçek çağrı "
-            "YAPMAZ — stub özet döner (018.3 kapsamı).",
-            file=sys.stderr,
-        )
+    # stub veya bilinmeyen → sessiz stub özet (deterministik).
     return _stub_summarize_obs(obs)
 
 

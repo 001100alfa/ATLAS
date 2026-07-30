@@ -125,33 +125,9 @@ def test_0182_stub_backend_stub_ozet(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "char" in out
 
 
-def test_0182_claude_uyarisi_bir_kez(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Backend claude + opt-in → uyarı bir kez basılır, sonra stub'a düşer."""
-    monkeypatch.setenv("ATLAS_LLM", "claude")
-    long_obs = "x" * 500
-    g = _goal(obs_summarize=True)
-    _ = _maybe_summarize_or_trim(long_obs, 100, g)
-    _ = _maybe_summarize_or_trim(long_obs, 100, g)
-    _ = _maybe_summarize_or_trim(long_obs, 100, g)
-    err = capsys.readouterr().err
-    # Sadece bir kez uyarı
-    assert err.count("uyarı: obs_summarize 'claude'") == 1
-
-
-def test_0182_acp_uyarisi_bir_kez(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Backend acp + opt-in → uyarı bir kez, stub'a düşer."""
-    monkeypatch.setenv("ATLAS_LLM", "acp")
-    long_obs = "x" * 500
-    g = _goal(obs_summarize=True)
-    _ = _maybe_summarize_or_trim(long_obs, 100, g)
-    _ = _maybe_summarize_or_trim(long_obs, 100, g)
-    err = capsys.readouterr().err
-    assert "uyarı: obs_summarize 'acp'" in err
-    assert err.count("uyarı: obs_summarize 'acp'") == 1
+# SPEC 018.3: claude/acp real çağrı — testler `test_planner_obs_summarize.py`
+# dosyasının 018.3 bölümünde. Eski "uyarı bir kez" testleri kaldırıldı;
+# artık real çağrı yapar, uyarı sadece hata durumunda çıkar.
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -298,3 +274,168 @@ def test_0182_yaml_obs_summarize_bool_degil_hata(tmp_path: Path) -> None:
     )
     with pytest.raises(SpecError, match="obs_summarize bool olmalı"):
         load_goal(y)
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 018.3 — Claude + ACP real çağrı testleri (mock)
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_0183_claude_real_call_ozet_doner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Backend claude + opt-in → _call_claude çağrılır, özet döner."""
+    monkeypatch.setenv("ATLAS_LLM", "claude")
+    # _resolve_claude_bin mock — PATH'te claude olmasa da
+    monkeypatch.setattr(planner_mod, "_resolve_claude_bin", lambda: "/fake/claude")
+
+    calls: list[tuple[Any, ...]] = []
+
+    def fake_call_claude(
+        bin_path: str, prompt: str, timeout_s: int, *, system: str | None = None
+    ) -> str:
+        calls.append((bin_path, prompt, timeout_s, system))
+        return "Kısa özet: dosya izinsiz"
+
+    monkeypatch.setattr(planner_mod, "_call_claude", fake_call_claude)
+
+    long_obs = "hata: izin yok\n" + "x" * 500
+    out = _maybe_summarize_or_trim(long_obs, 100, _goal(obs_summarize=True))
+    assert out == "[özet: Kısa özet: dosya izinsiz]"
+    assert len(calls) == 1
+    # Prompt Türkçe özet direktifi + kırpılmış obs
+    assert "Türkçe TEK cümlede" in calls[0][1]
+    assert "hata: izin yok" in calls[0][1]
+
+
+def test_0183_acp_real_call_ozet_doner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Backend acp + opt-in → _call_acp çağrılır, özet döner."""
+    monkeypatch.setenv("ATLAS_LLM", "acp")
+    # _resolve_acp_bin mock
+    monkeypatch.setattr(planner_mod, "_resolve_acp_bin", lambda: ("/fake/acp", []))
+
+    calls: list[tuple[Any, ...]] = []
+
+    def fake_call_acp(
+        bin_path: str, extra: list[str], prompt: str, timeout_s: int
+    ) -> str:
+        calls.append((bin_path, extra, prompt, timeout_s))
+        return "ACP özet: build başarısız"
+
+    monkeypatch.setattr(planner_mod, "_call_acp", fake_call_acp)
+
+    long_obs = "build error " * 100
+    out = _maybe_summarize_or_trim(long_obs, 100, _goal(obs_summarize=True))
+    assert out == "[özet: ACP özet: build başarısız]"
+    assert len(calls) == 1
+    # Prompt kırpılmış obs içerir
+    assert "build error" in calls[2][2] if False else "build error" in calls[0][2]
+
+
+def test_0183_claude_hata_fallback_trim(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Claude LLMPlannerError → stderr uyarı + _trim_obs fallback."""
+    monkeypatch.setenv("ATLAS_LLM", "claude")
+    monkeypatch.setattr(planner_mod, "_resolve_claude_bin", lambda: "/fake/claude")
+
+    def fake_call_claude(*_a: Any, **_k: Any) -> str:
+        raise LLMPlannerError("claude exit=1: mock hata")
+
+    monkeypatch.setattr(planner_mod, "_call_claude", fake_call_claude)
+
+    long_obs = "x" * 500
+    out = _maybe_summarize_or_trim(long_obs, 100, _goal(obs_summarize=True))
+    # Fallback: 018.1 kırpma davranışı
+    assert not out.startswith("[özet:")
+    err = capsys.readouterr().err
+    assert "obs_summarize claude çağrısı başarısız" in err
+    assert "exit=1" in err
+
+
+def test_0183_acp_hata_fallback_trim(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ACP LLMPlannerError → stderr uyarı + _trim_obs fallback."""
+    monkeypatch.setenv("ATLAS_LLM", "acp")
+    monkeypatch.setattr(planner_mod, "_resolve_acp_bin", lambda: ("/fake/acp", []))
+
+    def fake_call_acp(*_a: Any, **_k: Any) -> str:
+        raise LLMPlannerError("acp başlatılamadı: mock")
+
+    monkeypatch.setattr(planner_mod, "_call_acp", fake_call_acp)
+
+    long_obs = "y" * 500
+    out = _maybe_summarize_or_trim(long_obs, 100, _goal(obs_summarize=True))
+    assert not out.startswith("[özet:")
+    err = capsys.readouterr().err
+    assert "obs_summarize acp çağrısı başarısız" in err
+
+
+def test_0183_claude_kisa_obs_no_op(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Kısa obs → _call_claude ÇAĞRILMAZ (bit-uyumlu no-op)."""
+    monkeypatch.setenv("ATLAS_LLM", "claude")
+    monkeypatch.setattr(planner_mod, "_resolve_claude_bin", lambda: "/fake/claude")
+
+    calls: list[int] = []
+
+    def fake_call_claude(*_a: Any, **_k: Any) -> str:
+        calls.append(1)
+        return "unreachable"
+
+    monkeypatch.setattr(planner_mod, "_call_claude", fake_call_claude)
+
+    obs = "kısa obs"
+    out = _maybe_summarize_or_trim(obs, 200, _goal(obs_summarize=True))
+    assert out == obs
+    assert len(calls) == 0  # syscall yok
+
+
+def test_0183_acp_kisa_obs_no_op(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Kısa obs → _call_acp ÇAĞRILMAZ."""
+    monkeypatch.setenv("ATLAS_LLM", "acp")
+    monkeypatch.setattr(planner_mod, "_resolve_acp_bin", lambda: ("/fake/acp", []))
+
+    calls: list[int] = []
+
+    def fake_call_acp(*_a: Any, **_k: Any) -> str:
+        calls.append(1)
+        return "unreachable"
+
+    monkeypatch.setattr(planner_mod, "_call_acp", fake_call_acp)
+
+    obs = "kısa"
+    out = _maybe_summarize_or_trim(obs, 200, _goal(obs_summarize=True))
+    assert out == obs
+    assert len(calls) == 0
+
+
+def test_0183_claude_uzun_ozet_kirpilir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Claude 200 char özet döndürürse 120 char'da `…` ile kırpılır."""
+    monkeypatch.setenv("ATLAS_LLM", "claude")
+    monkeypatch.setattr(planner_mod, "_resolve_claude_bin", lambda: "/fake/claude")
+    monkeypatch.setattr(planner_mod, "_call_claude", lambda *_a, **_k: "A" * 200)
+
+    out = _maybe_summarize_or_trim("x" * 500, 100, _goal(obs_summarize=True))
+    assert out.endswith("…]")
+    inner = out[len("[özet: "):-1]
+    assert len(inner) == 120
+
+
+def test_0183_dispatch_bilinmeyen_backend_stub(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bilinmeyen backend adı (kod yolu güvencesi) → stub özet fallback."""
+    # NOT: make_planner ATLAS_LLM=gemini için NotImplementedError verir,
+    # ama _maybe_summarize_or_trim savunma amaçlı stub'a düşer.
+    monkeypatch.setenv("ATLAS_LLM", "gemini")
+    out = _maybe_summarize_or_trim("x" * 500, 100, _goal(obs_summarize=True))
+    assert out.startswith("[özet: 500 char")
