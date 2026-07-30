@@ -1014,12 +1014,43 @@ def _check_vault_health(vault_path: Path | None = None) -> dict[str, Any]:
     return result
 
 
+def _iter_scan_hits(scan_path: Path) -> list[tuple[Path, str, str]]:
+    """SPEC 032.3: `scan_path` altında `scan_secrets` bulgularını topla.
+
+    Ortak yardımcı — `_cmd_scan` ve `_check_scan_src` bunu kullanır (DRY).
+    Her tuple `(dosya_yolu, sır_ismi, maskeli_değer)`. Path yoksa boş
+    liste. Okuma hataları (UnicodeDecodeError, OSError) sessiz atlanır.
+
+    Not: `Iterable` değil `list` döner — hem `_cmd_scan` (yazdırma
+    sırasında `len(hits)` gerekli) hem `_check_scan_src` (total +
+    unique sample) tam listeye ihtiyaç duyar; iterator tekrar
+    tüketilemez.
+    """
+    if not scan_path.exists():
+        return []
+    files = [scan_path] if scan_path.is_file() else sorted(scan_path.rglob("*"))
+    hits: list[tuple[Path, str, str]] = []
+    for f in files:
+        if not f.is_file():
+            continue
+        try:
+            text = f.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for name, masked in scan_secrets(text):
+            hits.append((f, name, masked))
+    return hits
+
+
 def _check_scan_src(scan_path: Path | None = None) -> dict[str, Any]:
-    """SPEC 032.2: Kaynak dizininde `scan_secrets` çalıştır.
+    """SPEC 032.2 + 032.3: Kaynak dizininde `scan_secrets` çalıştır.
 
     Şema: `{path, total, sample_files, warning}`.
-    - `total > 0` → uyarı gövdesi + ilk 5 dosya özet.
-    - Yol yoksa uyarı ("dizin yok").
+    - `total > 0` → uyarı gövdesi + ilk 5 unique dosya özet.
+    - Yol yoksa uyarı ("scan hedefi yok").
+
+    Bulgu döngüsü `_iter_scan_hits` yardımcısında (SPEC 032.3 DRY).
+    Path varlık kontrolü burada kalır çünkü uyarı gövdesi özel.
     """
     path = scan_path or Path("src")
     result: dict[str, Any] = {
@@ -1031,21 +1062,19 @@ def _check_scan_src(scan_path: Path | None = None) -> dict[str, Any]:
     if not path.exists():
         result["warning"] = f"scan hedefi yok: {path}"
         return result
-    files = [path] if path.is_file() else sorted(path.rglob("*"))
+    hits = _iter_scan_hits(path)
+    # sample_files: ilk 5 UNIQUE dosya (bir dosyada birden çok bulgu
+    # olabilir — aynı dosyayı iki kez basmasın).
+    seen: set[str] = set()
     sample: list[str] = []
-    total = 0
-    for f in files:
-        if not f.is_file():
+    for f, _name, _masked in hits:
+        s = str(f)
+        if s in seen:
             continue
-        try:
-            text = f.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
-            continue
-        hits = list(scan_secrets(text))
-        if hits:
-            total += len(hits)
-            if len(sample) < 5:
-                sample.append(str(f))
+        seen.add(s)
+        if len(sample) < 5:
+            sample.append(s)
+    total = len(hits)
     result["total"] = total
     result["sample_files"] = sample
     if total > 0:
@@ -1619,19 +1648,16 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
 
 
 def _cmd_scan(args: argparse.Namespace) -> int:
-    target = Path(args.path)
-    files = [target] if target.is_file() else sorted(target.rglob("*"))
-    total = 0
-    for f in files:
-        if not f.is_file():
-            continue
-        try:
-            text = f.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
-            continue
-        for name, masked in scan_secrets(text):
-            print(f"{f}: {name} -> {masked}")
-            total += 1
+    """`atlas scan <path>` — sır taraması (bağımsız komut).
+
+    SPEC 032.3: bulgu döngüsü `_iter_scan_hits` yardımcısında (DRY,
+    `_check_scan_src` ile ortak). Çıktı sözleşmesi (stdout satırları
+    + stderr uyarı + exit kodu 0/1) BİREBİR korunur.
+    """
+    hits = _iter_scan_hits(Path(args.path))
+    for f, name, masked in hits:
+        print(f"{f}: {name} -> {masked}")
+    total = len(hits)
     if total:
         print(f"\n{total} olası sır bulundu — commit DURDURULMALI.", file=sys.stderr)
         return 1

@@ -509,3 +509,104 @@ def test_0322_atlas_scan_komutu_korundu(
     assert rc == 0
     out = capsys.readouterr().out
     assert "Sır bulunamadı." in out
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 032.3 — `_iter_scan_hits` DRY yardımcısı
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_0323_iter_hits_dizin_yok_bos_liste(tmp_path: Path) -> None:
+    """Var olmayan yol → boş liste (exception değil)."""
+    from atlas_core.cli import _iter_scan_hits
+
+    hits = _iter_scan_hits(tmp_path / "olmayan")
+    assert hits == []
+
+
+def test_0323_iter_hits_bir_bulgu_tek_dosya(tmp_path: Path) -> None:
+    """Tek dosyada en az bir bulgu (`scan_secrets` çoklu kalıp yakalayabilir)."""
+    from atlas_core.cli import _iter_scan_hits
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "cfg.py").write_text(
+        'ANTHROPIC_API_KEY = "sk-ant-api03-abcdef1234567890ABCDEF1234567890"\n',
+        encoding="utf-8",
+    )
+    hits = _iter_scan_hits(src)
+    assert len(hits) >= 1
+    # Her tuple 3 elemanlı ve Path cfg.py'yi işaret ediyor
+    for f, name, masked in hits:
+        assert f.name == "cfg.py"
+        assert name  # sır ismi dolu
+        assert masked  # maskeli değer dolu
+
+
+def test_0323_iter_hits_coklu_dosya_coklu_bulgu(tmp_path: Path) -> None:
+    """İki dosyada bulgu → her ikisi de listede."""
+    from atlas_core.cli import _iter_scan_hits
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.py").write_text(
+        'K = "sk-ant-api03-aaaaaa1234567890AAAAAA1234567890"\n',
+        encoding="utf-8",
+    )
+    (src / "b.py").write_text(
+        'K = "sk-ant-api03-bbbbbb1234567890BBBBBB1234567890"\n',
+        encoding="utf-8",
+    )
+    hits = _iter_scan_hits(src)
+    file_names = {f.name for f, _n, _m in hits}
+    assert file_names == {"a.py", "b.py"}
+    assert len(hits) >= 2  # her dosyada en az 1 bulgu
+
+
+def test_0323_iter_hits_tek_dosya_argumani(tmp_path: Path) -> None:
+    """Path bir dosya (dizin değil) → o dosyayı tara."""
+    from atlas_core.cli import _iter_scan_hits
+
+    f = tmp_path / "single.py"
+    f.write_text(
+        'K = "sk-ant-api03-xxxxx1234567890XXXXXX1234567890"\n',
+        encoding="utf-8",
+    )
+    hits = _iter_scan_hits(f)
+    assert len(hits) >= 1
+    for hit_f, _n, _m in hits:
+        assert hit_f == f
+
+
+def test_0323_iter_hits_okuma_hatasi_sessiz_atla(tmp_path: Path) -> None:
+    """Binary/UnicodeDecodeError dosya sessiz atlanır (exception yok)."""
+    from atlas_core.cli import _iter_scan_hits
+
+    src = tmp_path / "src"
+    src.mkdir()
+    # Binary dosya — UnicodeDecodeError verecek
+    (src / "binary.bin").write_bytes(b"\x00\x01\xff\xfe" * 100)
+    # Ayrıca bir metin dosyası temiz
+    (src / "ok.py").write_text("x = 1\n", encoding="utf-8")
+    hits = _iter_scan_hits(src)
+    # Binary atlanır, ok.py'de bulgu yok — toplam 0
+    assert hits == []
+
+
+def test_0323_check_scan_src_unique_sample_files(tmp_path: Path) -> None:
+    """`_check_scan_src`: bir dosyada ÇOK bulgu → sample_files aynı
+    dosyayı iki kez basmaz (unique)."""
+    from atlas_core.cli import _check_scan_src
+
+    src = tmp_path / "src"
+    src.mkdir()
+    # Aynı dosyada iki farklı sır kalıbı
+    (src / "leaky.py").write_text(
+        'A = "sk-ant-api03-aaaaaa1234567890AAAAAA1234567890"\n'
+        'B = "sk-ant-api03-bbbbbb1234567890BBBBBB1234567890"\n',
+        encoding="utf-8",
+    )
+    r = _check_scan_src(src)
+    assert r["total"] == 2  # iki bulgu
+    assert len(r["sample_files"]) == 1  # tek unique dosya
+    assert r["sample_files"][0].endswith("leaky.py")
