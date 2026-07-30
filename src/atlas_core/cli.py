@@ -2018,6 +2018,113 @@ def _cmd_ai_cli_diff_summary(_args: argparse.Namespace) -> int:
     return 0
 
 
+# ─────────────────────────────────────────────────────────────────────
+# SPEC 037.1: `atlas ai-cli update` — portable npm wrap
+# ─────────────────────────────────────────────────────────────────────
+
+_AI_CLI_DIR = Path("tools/ai-cli")
+_PORTABLE_NPM_WIN = Path("tools/node/npm.cmd")
+_PORTABLE_NPM_UNIX = Path("tools/node/npm")
+
+
+def _find_npm_bin() -> tuple[str | None, str]:
+    """SPEC 037.1: npm çalıştırılabilirini bul.
+
+    Öncelik sırası:
+      1. `tools/node/npm.cmd` (Windows portable)
+      2. `tools/node/npm` (Unix portable)
+      3. `shutil.which("npm")` (sistem PATH)
+
+    Döner: `(path, source)` — source: "portable" | "path" | "".
+    Bulunamazsa `(None, "")`.
+    """
+    import shutil as _shutil
+
+    if sys.platform == "win32" and _PORTABLE_NPM_WIN.is_file():
+        return str(_PORTABLE_NPM_WIN.resolve()), "portable"
+    if _PORTABLE_NPM_UNIX.is_file():
+        return str(_PORTABLE_NPM_UNIX.resolve()), "portable"
+    found = _shutil.which("npm")
+    if found:
+        return found, "path"
+    return None, ""
+
+
+def _run_npm_update(npm_bin: str, dry_run: bool) -> tuple[int, str, str]:
+    """SPEC 037.1: `npm update` veya `npm outdated` çağır.
+
+    Dry-run → `npm outdated --long` (exit 0 veya 1; 1 = güncellemesi
+    olan paket var, hata değil). Uygula → `npm update`.
+    `cwd = tools/ai-cli` sabit.
+
+    Döner: `(returncode, stdout, stderr)`. Subprocess hatası → (-1, "", err).
+    """
+    args = [npm_bin, "outdated", "--long"] if dry_run else [npm_bin, "update"]
+    try:
+        proc = subprocess.run(  # noqa: S603 - argv sabit + npm_bin filtrelendi
+            args,
+            cwd=str(_AI_CLI_DIR),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return -1, "", f"npm çağrısı başarısız: {exc}"
+    return proc.returncode, proc.stdout or "", proc.stderr or ""
+
+
+def _cmd_ai_cli_update(args: argparse.Namespace) -> int:
+    """SPEC 037.1: `atlas ai-cli update [--dry-run]` — portable npm wrap.
+
+    - `tools/node/npm.cmd` (Windows portable) veya `tools/node/npm`
+      (Unix portable) tercih; yoksa sistem `npm` (PATH).
+    - `cwd = tools/ai-cli`.
+    - `--dry-run` → `npm outdated --long` (güncellemesi olan paketleri
+      listele; exit 0 döner, npm 1 dönse bile "bulgu = hata değil").
+    - Uygula → `npm update`; npm exit kodunu doğrudan yansıt.
+    - npm bulunamadı → stderr uyarı + exit 2 (SPEC HATASI).
+    - `tools/ai-cli/` yoksa → stderr uyarı + exit 2.
+    """
+    if not _AI_CLI_DIR.is_dir():
+        print(
+            f"SPEC HATASI: {_AI_CLI_DIR} yok — portable ai-cli kurulumu bulunamadı",
+            file=sys.stderr,
+        )
+        return 2
+
+    npm_bin, source = _find_npm_bin()
+    if npm_bin is None:
+        print(
+            "SPEC HATASI: npm bulunamadı — tools/node/ portable kurulumu "
+            "yapın veya npm'i PATH'e ekleyin",
+            file=sys.stderr,
+        )
+        return 2
+
+    dry_run = getattr(args, "dry_run", False)
+    label = "npm outdated" if dry_run else "npm update"
+    print(f"[ai-cli] {label} ({source}: {npm_bin})")
+
+    rc, out, err = _run_npm_update(npm_bin, dry_run)
+    if rc == -1:
+        print(err, file=sys.stderr)
+        return 2
+
+    if out:
+        print(out, end="" if out.endswith("\n") else "\n")
+    if err.strip():
+        # npm bazen bilgilendirici mesajları stderr'e yazar (npm notice…)
+        print(err, end="" if err.endswith("\n") else "\n", file=sys.stderr)
+
+    # dry-run: outdated → exit 0 (bilgi); update → npm exit kodunu yansıt
+    if dry_run:
+        return 0
+    return rc
+
+
 def main(argv: list[str] | None = None) -> int:
     # SPEC 022: `.env` otomatik yükleme (proje kökü veya ATLAS_DOTENV).
     # Shell env override etmez; yalnız eksik değişkenleri doldurur.
@@ -2140,6 +2247,15 @@ def main(argv: list[str] | None = None) -> int:
     p_ai_ds = ai_sub.add_parser("diff-summary",
                                 help="package-lock.json diff'inden commit mesajı önerisi")
     p_ai_ds.set_defaults(func=_cmd_ai_cli_diff_summary)
+    p_ai_up = ai_sub.add_parser(
+        "update",
+        help="tools/ai-cli/ paketlerini güncelle (portable npm wrap, SPEC 037.1)",
+    )
+    p_ai_up.add_argument(
+        "--dry-run", action="store_true",
+        help="npm update yerine npm outdated çalıştır (yıkıcı işlem yok)",
+    )
+    p_ai_up.set_defaults(func=_cmd_ai_cli_update)
 
     p_hooks = sub.add_parser("hooks", help="Git pre-commit hook yönetimi (SPEC 034)")
     hooks_sub = p_hooks.add_subparsers(dest="hooks_cmd", required=True)

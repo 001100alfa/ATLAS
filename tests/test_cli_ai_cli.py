@@ -147,3 +147,142 @@ def test_037_cmd_dosya_yok(
     assert rc == 0
     out = capsys.readouterr().out.strip()
     assert "dosya yok" in out
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 037.1 — atlas ai-cli update
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_0371_ai_cli_dir_yok_exit_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`tools/ai-cli/` yoksa exit 2 + SPEC HATASI."""
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", tmp_path / "yok-ai-cli")
+    rc = main(["ai-cli", "update"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "SPEC HATASI" in err
+    assert "ai-cli" in err
+
+
+def test_0371_npm_bulunamadi_exit_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """AI CLI dir var ama npm hiçbir yerden bulunamıyor → exit 2."""
+    ai = tmp_path / "ai-cli"
+    ai.mkdir()
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", ai)
+    monkeypatch.setattr(cli_mod, "_find_npm_bin", lambda: (None, ""))
+    rc = main(["ai-cli", "update"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "npm bulunamadı" in err
+
+
+def test_0371_dry_run_outdated_exit_0(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--dry-run` → npm outdated çağrılır; npm exit 1 (bulgu var) → exit 0."""
+    ai = tmp_path / "ai-cli"
+    ai.mkdir()
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", ai)
+    monkeypatch.setattr(cli_mod, "_find_npm_bin", lambda: ("/fake/npm", "portable"))
+
+    calls: list[tuple[str, bool]] = []
+
+    def fake_run(npm_bin: str, dry_run: bool) -> tuple[int, str, str]:
+        calls.append((npm_bin, dry_run))
+        # npm outdated → paket bulundu → exit 1, ama biz dry-run'da 0 döneriz
+        return 1, "opencode-ai  1.18.8  1.18.9\n", ""
+
+    monkeypatch.setattr(cli_mod, "_run_npm_update", fake_run)
+    rc = main(["ai-cli", "update", "--dry-run"])
+    assert rc == 0  # dry-run → npm exit yansıtılmaz
+    out = capsys.readouterr().out
+    assert "npm outdated" in out
+    assert "opencode-ai" in out
+    assert calls == [("/fake/npm", True)]
+
+
+def test_0371_update_npm_exit_yansitilir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`update` (dry-run yok) → npm exit kodu doğrudan dönüş kodu."""
+    ai = tmp_path / "ai-cli"
+    ai.mkdir()
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", ai)
+    monkeypatch.setattr(cli_mod, "_find_npm_bin", lambda: ("/fake/npm", "path"))
+    monkeypatch.setattr(
+        cli_mod, "_run_npm_update",
+        lambda _b, _d: (0, "changed 3 packages\n", ""),
+    )
+    rc = main(["ai-cli", "update"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "npm update" in out
+    assert "changed 3 packages" in out
+
+
+def test_0371_run_npm_hatasi_exit_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """subprocess hatası (-1) → exit 2 + stderr uyarı."""
+    ai = tmp_path / "ai-cli"
+    ai.mkdir()
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", ai)
+    monkeypatch.setattr(cli_mod, "_find_npm_bin", lambda: ("/fake/npm", "path"))
+    monkeypatch.setattr(
+        cli_mod, "_run_npm_update",
+        lambda _b, _d: (-1, "", "npm çağrısı başarısız: [Errno 2] ..."),
+    )
+    rc = main(["ai-cli", "update"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "npm çağrısı başarısız" in err
+
+
+def test_0371_find_npm_bin_portable_oncelik(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Portable npm varsa system npm'e bakılmaz."""
+    import sys as _sys
+
+    from atlas_core.cli import _find_npm_bin
+
+    portable_win = tmp_path / "node" / "npm.cmd"
+    portable_unix = tmp_path / "node" / "npm"
+    portable_win.parent.mkdir()
+    portable_win.write_text("@echo off\n", encoding="utf-8")
+    portable_unix.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.setattr(cli_mod, "_PORTABLE_NPM_WIN", portable_win)
+    monkeypatch.setattr(cli_mod, "_PORTABLE_NPM_UNIX", portable_unix)
+
+    path, source = _find_npm_bin()
+    assert source == "portable"
+    assert path is not None
+    if _sys.platform == "win32":
+        assert path.endswith("npm.cmd")
+    else:
+        assert path.endswith("npm")
+
+
+def test_0371_find_npm_bin_bulunamadi(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Portable yok + PATH yok → (None, '')."""
+    from atlas_core.cli import _find_npm_bin
+
+    monkeypatch.setattr(cli_mod, "_PORTABLE_NPM_WIN", tmp_path / "npm.cmd")
+    monkeypatch.setattr(cli_mod, "_PORTABLE_NPM_UNIX", tmp_path / "npm")
+    monkeypatch.setattr("shutil.which", lambda _n: None)
+
+    path, source = _find_npm_bin()
+    assert path is None
+    assert source == ""
