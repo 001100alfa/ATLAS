@@ -1,6 +1,88 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-30 (Görev 026.3 — Windows CPU quota)
+- [KARAR] `JOB_OBJECT_LIMIT_PROCESS_TIME` (0x2) + `BasicLimitInformation.
+  PerProcessUserTimeLimit`. Struct 026.2'den beri `c_int64` olarak
+  vardı — yalnız flag + atama; layout değişmedi. Ampirik doğrulama:
+  Windows canlı `while True: pass` CPU_S=1 iken 3.5 sn'den kısa
+  sürede exit != 0 (timeout 8 sn olsa da) — kernel gerçekten kesti.
+- [KARAR] **PerProcess** tercih edildi, PerJob değil. Sebep: `_shell`
+  tek subprocess başlatır; PerJob "tüm job için toplam" — batch
+  paralel (031) senaryosunda yanıltıcı olabilir. PerProcess her child
+  için ayrı — subprocess ve torunları ayrı ayrı limitle yaşar.
+  Fork bomb için doğru semantik.
+- [KARAR] 100ns tick birimi bir NT tarihi/saat sözleşmesi (FILETIME
+  ile aynı). `_WIN_TIME_TICKS_PER_SECOND = 10_000_000` sabiti
+  gizli sihirli sayı kalmaz. Overflow riski `c_int64` max ≈ 9.2×10¹⁸
+  → 29 000 yıl (kullanıcı 1-3600 sn aralığı, imkânsız).
+- [KARAR] Env sözleşmesi platform-agnostik: `ATLAS_SANDBOX_CPU_S`
+  hem Unix (026.1 RLIMIT_CPU) hem Windows (026.3 Job PROCESS_TIME).
+  Kullanıcı taşınabilir bir batch yazsın, sürüm-özel env öğrenmesin.
+- [KARAR] `_apply_windows_job` imzası genişletildi (`cpu_s: int | None =
+  None`); mevcut çağrıcılar etkilenmedi (default None). Tek çağrı
+  yeri (`_shell`) güncellendi.
+- [KARAR] `_has_windows_sandbox_env` üç env'e bakar (MEM/PROC/CPU);
+  herhangi biri verilirse Windows Popen yolu tetiklenir. Alternatif
+  "her env için ayrı guard" — DRY ihlali, aynı Popen yolu üç kez.
+- [KARAR] Platform matrisinde tek boşluk `Unix MAX_PROC` kaldı;
+  RLIMIT_NPROC 026.1'de bilinçli ele alınmadı (RLIMIT_CPU fork
+  bomb'u SIGXCPU ile keser, NPROC ekstra karmaşa). 026.4 açılırsa
+  ele alınır ama YAGNI.
+- Kapsam: 1 modül düzenleme (actions.py: +2 sabit; `_has_windows_
+  sandbox_env`, `_apply_windows_job` imza + struct atama; `_shell`
+  CPU_S okuma), 1 test dosyası eki (+5 test). 610 test yeşil
+  (606 → +4 net). mypy strict + ruff + scan temiz. Artefaktlar
+  `pipeline/tasks/026-3-windows-cpu-quota/`.
+
+## 2026-07-30 (Görev 018.3 — Claude + ACP real özet)
+- [KARAR] Her backend'in kendi çağrı fonksiyonu (`_call_claude`,
+  `_call_acp`) minimal özet promptu ile **tekrar kullanıldı**. Ayrı
+  bir "özet kanalı" tasarımı YAGNI — mevcut çağrı yolu zaten process
+  başlatma, timeout, hata sarmalama işini yapıyor.
+- [KARAR] Ortak yardımcılar `_build_summarize_prompt(obs)` +
+  `_finalize_summary_line(text, backend_label)` üç backend'de
+  paylaşılıyor — prompt/kırpma tek yerde tutuluyor. 018.2 anthropic
+  yolu refactor edildi (aynı sonuç, DRY).
+- [KARAR] Dispatch tablosu (`{"anthropic":..., "claude":..., "acp":...}`)
+  `.get(backend)` ile yumuşak fallback — bilinmeyen backend ADI
+  gelirse stub'a düşer (make_planner zaten NotImplementedError
+  verir ama dispatch kendi savunuyor).
+- [KARAR] 018.2'nin `_OBS_SUMMARIZE_WARNED` seti ve "018.3 kapsamı"
+  uyarı yolu **KALDIRILDI** (dead code). Claude/ACP artık real
+  çağrı yapıyor; uyarı SADECE hata durumunda çıkar ("çağrısı
+  başarısız, kırpmaya düşülüyor").
+- [KARAR] ACP her özet için yeni oturum (initialize + session/new +
+  session/prompt) açar — mevcut `_call_acp` kalıbı. Alternatif:
+  planner'ın açtığı oturumu paylaş — subtle state yönetimi, YAGNI.
+  Cost etkisi belgelendi (09-ship.md); önbellek 018.4 gerekiyorsa.
+- [KARAR] Claude/ACP için özel `Goal` alanı YOK — özet Anthropic gibi
+  planner ile aynı bin/timeout/env kullanır. Kullanıcı planner'ı
+  değiştirse özet de doğal olarak değişir.
+- [HATA] 018.2'de yazılmış iki test (`test_0182_claude_uyarisi_bir_kez`,
+  `test_0182_acp_uyarisi_bir_kez`) 018.3 davranışıyla çelişti — testler
+  "uyarı bir kez basılır" bekliyordu ama artık gerçek çağrı yapılıp
+  bin bulunamıyorsa hata çıkıyor. İki testi sildim; 018.3 bölümüne
+  gerçek davranış (mock ile real çağrı doğrulama, hata fallback,
+  kısa obs no-op) testleri eklendi. Kalıp: bir davranış değişikliği
+  yapılırken önceki testler "hangileri artık geçersiz" diye açıkça
+  değerlendirilir; sessiz düşme testin niyetini kaybettirir.
+- Kapsam: 1 modül düzenleme (planner.py: +ortak yardımcılar, +2 real
+  summarizer, dispatch refactor, dead code temizliği), 1 test dosyası
+  güncelleme (−2 eski, +8 yeni; 23 toplam). 606 test yeşil (600 →
+  +6 net). mypy strict + ruff + scan temiz. Artefaktlar
+  `pipeline/tasks/018-3-claude-acp-summarize/`.
+
+## 2026-07-30 (chore: ai-cli auto-update drift)
+- [KARAR] `opencode-ai` 1.18.8 → 1.18.9 upstream sürüm, `BASLAT.cmd`
+  auto-update politikası (`atlas-portable.json` "agents" modu)
+  tarafından sessizce alındı. `tools/ai-cli/package.json` +
+  `package-lock.json` drift'i test/kalite regresyonu yaratmadı, git
+  tarafını hizalamak için `chore(ai-cli)` commit atıldı. Kalıp: auto-
+  update politikasının ürettiği package-lock drift'i düzenli olarak
+  chore commit'iyle git'e alınır — yoksa bir sonraki iş turu bunu
+  karıştırır.
+
 ## 2026-07-29 (Görev 030 — multi-goal batch)
 - [KARAR] `--goal-file` `nargs='+'` — N=1 çağrısı 027 davranışına
   birebir eşit (özet tablo YOK, run-id suffix YOK). N>1 batch modu.
