@@ -174,11 +174,16 @@ def test_032_doctor_strict_yok_exit_0_temiz(
 def test_032_doctor_strict_temiz_exit_0(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """`--strict` + drift yok → exit 0."""
+    """`--strict` + drift yok + entry var + vault dolu → exit 0."""
     p = tmp_path / "d.md"
-    # Bugün için giriş → drift=0
+    # Bugün için giriş → drift=0, entry_count >= 1
     _write_decisions(p, date.today().isoformat())
     monkeypatch.setattr(cli_mod, "_DECISIONS_MD_DEFAULT", p)
+    # SPEC 032.1: vault sağlığı da temiz olmalı (>= 1 .md)
+    vault = tmp_path / "v"
+    vault.mkdir(exist_ok=True)
+    (vault / "note.md").write_text("# not", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_VAULT", str(vault))
     rc = main(["doctor", "--strict"])
     assert rc == 0
 
@@ -232,3 +237,156 @@ def test_032_doctor_json_strict_drift_exit_9(
     # JSON hâlâ basıldı (CI script dosyaya kaydeder)
     data = json.loads(capsys.readouterr().out.strip())
     assert data["quality"]["decisions_drift"]["warning"] is not None
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 032.1 — entry_count + vault_health denetimleri
+# ═════════════════════════════════════════════════════════════════════
+
+
+def _write_multi_decisions(path: Path, iso_dates: list[str]) -> None:
+    """Test yardımcısı: DECISIONS.md'de birden fazla giriş."""
+    body = "# ATLAS Karar Günlüğü\n\n"
+    for d in iso_dates:
+        body += f"## {d} (test)\n- karar\n\n"
+    path.write_text(body, encoding="utf-8")
+
+
+def test_0321_entry_count_yeni_girisler(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Son 30 günde 3 giriş varsa → sayı 3, uyarı yok."""
+    from atlas_core.cli import _count_recent_decisions
+
+    p = tmp_path / "d.md"
+    _write_multi_decisions(p, ["2026-07-30", "2026-07-25", "2026-07-15"])
+    r = _count_recent_decisions(p, today=date(2026, 7, 30))
+    assert r["count"] == 3
+    assert r["warning"] is None
+    assert r["threshold_days"] == 30
+    assert r["min_entries"] == 1
+
+
+def test_0321_entry_count_pencere_disi_uyari(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Tüm girişler 40 gün önce → count=0 + uyarı."""
+    from atlas_core.cli import _count_recent_decisions
+
+    p = tmp_path / "d.md"
+    _write_multi_decisions(p, ["2026-06-01", "2026-06-10"])
+    r = _count_recent_decisions(p, today=date(2026, 7, 30))
+    assert r["count"] == 0
+    assert r["warning"] is not None
+    assert "0 giriş" in r["warning"]
+
+
+def test_0321_entry_count_env_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Env override: window=7 + min=2 → 3 girişten sadece 1'i pencere içi."""
+    from atlas_core.cli import _count_recent_decisions
+
+    monkeypatch.setenv("ATLAS_STRICT_ENTRY_WINDOW_DAYS", "7")
+    monkeypatch.setenv("ATLAS_STRICT_MIN_ENTRIES", "2")
+    p = tmp_path / "d.md"
+    _write_multi_decisions(p, ["2026-07-30", "2026-07-20", "2026-07-10"])
+    r = _count_recent_decisions(p, today=date(2026, 7, 30))
+    assert r["threshold_days"] == 7
+    assert r["min_entries"] == 2
+    assert r["count"] == 1  # yalnız 07-30
+    assert r["warning"] is not None
+    assert "1 giriş" in r["warning"]
+    assert "minimum 2" in r["warning"]
+
+
+def test_0321_entry_count_dosya_yok_uyari(tmp_path: Path) -> None:
+    """DECISIONS yoksa count=0 + uyarı."""
+    from atlas_core.cli import _count_recent_decisions
+
+    r = _count_recent_decisions(tmp_path / "yok.md", today=date(2026, 7, 30))
+    assert r["count"] == 0
+    assert r["warning"] is not None
+
+
+def test_0321_vault_yok_uyari(tmp_path: Path) -> None:
+    """Vault dizini yoksa uyarı."""
+    from atlas_core.cli import _check_vault_health
+
+    r = _check_vault_health(tmp_path / "olmayan-vault")
+    assert r["exists"] is False
+    assert r["note_count"] == 0
+    assert r["warning"] is not None
+    assert "vault yok" in r["warning"]
+
+
+def test_0321_vault_bos_uyari(tmp_path: Path) -> None:
+    """Vault dizini var + `.md` yok → uyarı."""
+    from atlas_core.cli import _check_vault_health
+
+    v = tmp_path / "v"
+    v.mkdir()
+    r = _check_vault_health(v)
+    assert r["exists"] is True
+    assert r["note_count"] == 0
+    assert r["warning"] is not None
+    assert "boş" in r["warning"]
+
+
+def test_0321_vault_dolu_temiz(tmp_path: Path) -> None:
+    """Vault + 1 `.md` → temiz."""
+    from atlas_core.cli import _check_vault_health
+
+    v = tmp_path / "v"
+    v.mkdir()
+    (v / "note.md").write_text("# not", encoding="utf-8")
+    r = _check_vault_health(v)
+    assert r["exists"] is True
+    assert r["note_count"] == 1
+    assert r["warning"] is None
+
+
+def test_0321_doctor_strict_entry_count_exit_9(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`--strict` + drift yok ama entry_count 0 → exit 9 (tek kanal)."""
+    from datetime import timedelta
+
+    p = tmp_path / "d.md"
+    # Bugün için drift denetimi temiz (aynı gün); ama window=30 dışında
+    # tek giriş → count=0. Bunu yaratmak için ATLAS_STRICT_ENTRY_WINDOW_DAYS=5
+    # + son giriş 10 gün önce
+    monkeypatch.setenv("ATLAS_STRICT_DRIFT_DAYS", "365")  # drift uyarısı yok
+    monkeypatch.setenv("ATLAS_STRICT_ENTRY_WINDOW_DAYS", "5")
+    _write_decisions(p, (date.today() - timedelta(days=10)).isoformat())
+    monkeypatch.setattr(cli_mod, "_DECISIONS_MD_DEFAULT", p)
+    rc = main(["doctor", "--strict"])
+    assert rc == 9  # entry_count uyarısı üzerinden strict tetiklendi
+
+
+def test_0321_doctor_strict_vault_exit_9(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`--strict` + vault yok → exit 9 (üçüncü kanal)."""
+    p = tmp_path / "d.md"
+    _write_decisions(p, date.today().isoformat())
+    monkeypatch.setattr(cli_mod, "_DECISIONS_MD_DEFAULT", p)
+    monkeypatch.setenv("ATLAS_VAULT", str(tmp_path / "vault-yok"))
+    rc = main(["doctor", "--strict"])
+    assert rc == 9
+
+
+def test_0321_doctor_json_quality_alanlari_var(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """JSON çıktısında entry_count + vault_health alanları görünür."""
+    p = tmp_path / "d.md"
+    _write_decisions(p, "2026-07-30")
+    monkeypatch.setattr(cli_mod, "_DECISIONS_MD_DEFAULT", p)
+    rc = main(["doctor", "--json"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out.strip())
+    assert "entry_count" in data["quality"]
+    assert "vault_health" in data["quality"]
+    assert "count" in data["quality"]["entry_count"]
+    assert "note_count" in data["quality"]["vault_health"]

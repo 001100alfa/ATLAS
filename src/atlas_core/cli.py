@@ -914,6 +914,117 @@ def _read_strict_drift_days_env() -> int:
     return n if n > 0 else 7
 
 
+def _read_strict_entry_env() -> tuple[int, int]:
+    """SPEC 032.1: `(window_days, min_entries)` — env okuma, fail-safe."""
+    raw_win = os.environ.get("ATLAS_STRICT_ENTRY_WINDOW_DAYS", "").strip()
+    try:
+        window = int(raw_win) if raw_win else 30
+    except ValueError:
+        window = 30
+    if window <= 0:
+        window = 30
+    raw_min = os.environ.get("ATLAS_STRICT_MIN_ENTRIES", "").strip()
+    try:
+        minimum = int(raw_min) if raw_min else 1
+    except ValueError:
+        minimum = 1
+    if minimum < 0:
+        minimum = 1
+    return window, minimum
+
+
+def _count_recent_decisions(
+    decisions_path: Path | None = None,
+    today: date | None = None,
+) -> dict[str, Any]:
+    """SPEC 032.1: DECISIONS.md'de son N gün içindeki entry sayısı.
+
+    Şema: `{path, threshold_days, min_entries, count, warning}`.
+    - Dosya yok → count=0 + uyarı.
+    - `count < min_entries` → uyarı ("son N gün az giriş").
+    """
+    from datetime import timedelta
+
+    path = decisions_path or _DECISIONS_MD_DEFAULT
+    window_days, min_entries = _read_strict_entry_env()
+    today_d = today or date.today()
+    cutoff = today_d - timedelta(days=window_days)
+    result: dict[str, Any] = {
+        "path": str(path),
+        "threshold_days": window_days,
+        "min_entries": min_entries,
+        "count": 0,
+        "warning": None,
+    }
+    if not path.is_file():
+        result["warning"] = (
+            f"DECISIONS.md yok — son {window_days} günde 0 giriş"
+        )
+        return result
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        result["warning"] = f"DECISIONS.md okunamadı: {path}"
+        return result
+    count = 0
+    for line in text.splitlines():
+        m = _DECISIONS_DATE_RE.match(line)
+        if not m:
+            continue
+        try:
+            d = date.fromisoformat(m.group(1))
+        except ValueError:
+            continue
+        if d >= cutoff:
+            count += 1
+    result["count"] = count
+    if count < min_entries:
+        result["warning"] = (
+            f"DECISIONS son {window_days} günde {count} giriş, "
+            f"minimum {min_entries}."
+        )
+    return result
+
+
+def _check_vault_health(vault_path: Path | None = None) -> dict[str, Any]:
+    """SPEC 032.1: Vault (Obsidian notlar) dizini sağlığı.
+
+    - Dizin yok → uyarı ("vault yok").
+    - Dizin var + `.md` yok → uyarı ("vault boş").
+    - Dizin var + en az 1 `.md` → temiz.
+    """
+    path = vault_path or _vault_root()
+    result: dict[str, Any] = {
+        "path": str(path),
+        "exists": path.is_dir(),
+        "note_count": 0,
+        "warning": None,
+    }
+    if not path.is_dir():
+        result["warning"] = f"vault yok: {path}"
+        return result
+    try:
+        notes = list(path.rglob("*.md"))
+    except OSError as exc:
+        result["warning"] = f"vault okunamadı: {exc}"
+        return result
+    result["note_count"] = len(notes)
+    if not notes:
+        result["warning"] = f"vault boş (0 not): {path}"
+    return result
+
+
+def _has_quality_warning(report: dict[str, Any]) -> bool:
+    """SPEC 032 + 032.1: `quality.*` alanlarından birinde uyarı var mı."""
+    quality = report.get("quality", {})
+    if not isinstance(quality, dict):
+        return False
+    for value in quality.values():
+        if isinstance(value, dict) and value.get("warning"):
+            return True
+    return False
+
+
 def _check_decisions_drift(
     decisions_path: Path | None = None,
     today: date | None = None,
@@ -1046,9 +1157,14 @@ def _collect_doctor_report() -> dict[str, Any]:
         "ATLAS_ARCHIVE_AGE_DAYS": os.environ.get("ATLAS_ARCHIVE_AGE_DAYS", "7"),
     }
 
-    # SPEC 032: DECISIONS.md drift denetimi (her zaman raporlanır;
-    # --strict yalnız exit koduna dönüştürür).
-    quality = {"decisions_drift": _check_decisions_drift()}
+    # SPEC 032 + 032.1: DECISIONS.md drift + entry count + vault sağlık
+    # denetimleri (her zaman raporlanır; --strict yalnız exit koduna
+    # dönüştürür).
+    quality = {
+        "decisions_drift": _check_decisions_drift(),
+        "entry_count": _count_recent_decisions(),
+        "vault_health": _check_vault_health(),
+    }
 
     return {
         "backend": backend_info,
@@ -1077,11 +1193,10 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     if getattr(args, "json", False):
         import json as _json
         print(_json.dumps(report, ensure_ascii=False))
-        # SPEC 032: --json + --strict → drift uyarısı varsa yine exit 9.
-        # JSON çıktısı bası korunur (CI script'i dosyaya kaydedebilir),
-        # yalnız exit kodu değişir.
-        drift_j = report.get("quality", {}).get("decisions_drift", {})
-        if getattr(args, "strict", False) and drift_j.get("warning"):
+        # SPEC 032 + 032.1: --json + --strict → herhangi bir quality.*
+        # uyarısı varsa exit 9. JSON çıktısı bası korunur (CI script'i
+        # dosyaya kaydedebilir), yalnız exit kodu değişir.
+        if getattr(args, "strict", False) and _has_quality_warning(report):
             return 9
         return 0
 
@@ -1149,9 +1264,11 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         if w.startswith(("--ping ", "ping başarısız")):
             print(f"[!] {w}")
 
-    # SPEC 032: [Kalite kapıları] bölümü
+    # SPEC 032 + 032.1: [Kalite kapıları] bölümü
     quality = report.get("quality", {})
     drift = quality.get("decisions_drift", {})
+    ecount = quality.get("entry_count", {})
+    vhealth = quality.get("vault_health", {})
     print("\n[Kalite kapıları]")
     print(f"  DECISIONS.md: {drift.get('path', '(yok)')}")
     if drift.get("last_date"):
@@ -1162,9 +1279,19 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print(f"  son giriş: (bulunamadı, eşik {drift.get('threshold_days', 7)} gün)")
     if drift.get("warning"):
         print(f"  [!] {drift['warning']}")
+    # SPEC 032.1: entry count
+    print(f"  son {ecount.get('threshold_days', 30)} günde giriş: "
+          f"{ecount.get('count', 0)} (min {ecount.get('min_entries', 1)})")
+    if ecount.get("warning"):
+        print(f"  [!] {ecount['warning']}")
+    # SPEC 032.1: vault health
+    print(f"  vault: {vhealth.get('path', '(yok)')} "
+          f"({vhealth.get('note_count', 0)} not)")
+    if vhealth.get("warning"):
+        print(f"  [!] {vhealth['warning']}")
 
-    # SPEC 032: --strict → drift uyarısı varsa exit 9
-    if getattr(args, "strict", False) and drift.get("warning"):
+    # SPEC 032 + 032.1: --strict → herhangi bir quality.* uyarısı varsa exit 9
+    if getattr(args, "strict", False) and _has_quality_warning(report):
         return 9
 
     return 0
