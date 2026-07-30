@@ -2080,6 +2080,95 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_vault_backup(args: argparse.Namespace) -> int:
+    """SPEC 041: `atlas vault backup [--out PATH]` — vault/'ı .tar.gz sarmalar.
+
+    Varsayılan konum: `<archive_root>/vault-YYYY-MM-DD-HHMM.tar.gz`.
+    `--out PATH` verilirse doğrudan oraya yazar.
+    """
+    from atlas_core.memory.vault_backup import (
+        VaultBackupError,
+        backup_vault,
+        default_backup_path,
+    )
+    vault_root = Path(args.vault_root) if args.vault_root else _vault_root()
+    if not vault_root.is_dir():
+        print(
+            f"SPEC HATASI: vault dizini yok: {vault_root}",
+            file=sys.stderr,
+        )
+        return 2
+    out_arg = getattr(args, "out", None)
+    if out_arg:
+        out_path = Path(out_arg)
+    else:
+        archive_root = Path(args.archive_root)
+        archive_root.mkdir(parents=True, exist_ok=True)
+        out_path = default_backup_path(archive_root)
+
+    audit = AuditLog(_audit_path())
+    try:
+        result = backup_vault(vault_root, out_path)
+    except VaultBackupError as exc:
+        audit.record("atlas-vault", "backup-error", str(exc)[:180])
+        print(f"YEDEK HATASI: {exc}", file=sys.stderr)
+        return 6
+
+    audit.record("atlas-vault", "backup", str(result))
+    print(f"vault yedeği yazıldı: {result}")
+    return 0
+
+
+def _cmd_vault_restore(args: argparse.Namespace) -> int:
+    """SPEC 041: `atlas vault restore <path> [--apply]` — yedeği geri aç.
+
+    Dry-run varsayılan (yıkıcı: mevcut vault üstüne yazma).
+    `--apply` gerekli.
+    Exit kodları:
+      - 0: başarılı / dry-run
+      - 2: SPEC HATASI (yedek yok, vault_root arg hatası)
+      - 3: çakışma (hedef zaten var + boş değil)
+      - 6: extract hatası (path traversal, I/O, vs.)
+    """
+    from atlas_core.memory.vault_backup import (
+        VaultBackupError,
+        restore_vault,
+    )
+    tar_path = Path(args.tar)
+    if not tar_path.is_file():
+        print(
+            f"SPEC HATASI: yedek dosyası yok: {tar_path}",
+            file=sys.stderr,
+        )
+        return 2
+    target_root = Path(args.vault_root) if args.vault_root else _vault_root()
+
+    if not args.apply:
+        print("[dry-run] vault geri yükleme planı:")
+        print(f"  yedek: {tar_path}")
+        print(f"  hedef: {target_root}")
+        if target_root.exists() and any(target_root.iterdir()):
+            print("  UYARI: hedef mevcut ve boş değil — --apply exit 3")
+        print(f"Uygulamak için: atlas vault restore {tar_path} --apply")
+        return 0
+
+    audit = AuditLog(_audit_path())
+    try:
+        result = restore_vault(tar_path, target_root)
+    except VaultBackupError as exc:
+        msg = str(exc)
+        audit.record("atlas-vault", "restore-error", msg[:180])
+        print(f"YEDEK HATASI: {msg}", file=sys.stderr)
+        # Çakışma → 3; diğerleri → 6
+        if "zaten var" in msg:
+            return 3
+        return 6
+
+    audit.record("atlas-vault", "restore", str(result))
+    print(f"vault geri yüklendi: {result}")
+    return 0
+
+
 def _cmd_scan(args: argparse.Namespace) -> int:
     """`atlas scan <path>` — sır taraması (bağımsız komut).
 
@@ -2769,6 +2858,29 @@ def main(argv: list[str] | None = None) -> int:
     p_scan = sub.add_parser("scan", help="Sır taraması (dosya/dizin)")
     p_scan.add_argument("path")
     p_scan.set_defaults(func=_cmd_scan)
+
+    # SPEC 041: vault backup/restore
+    p_vault = sub.add_parser(
+        "vault",
+        help="Vault yedekleme + geri yükleme (SPEC 041)",
+    )
+    vault_sub = p_vault.add_subparsers(dest="vault_cmd", required=True)
+    p_vb = vault_sub.add_parser("backup", help="vault/'ı .tar.gz sarmalar")
+    p_vb.add_argument("--out", default=None,
+                      help="Yedek dosya yolu (yoksa <archive_root>/"
+                           "vault-YYYY-MM-DD-HHMM.tar.gz)")
+    p_vb.add_argument("--vault-root", default=None,
+                      help="Vault kökü (env: ATLAS_VAULT; varsayılan vault)")
+    p_vb.add_argument("--archive-root", default="archive",
+                      help="Varsayılan yedek yazma kökü (--out yoksa)")
+    p_vb.set_defaults(func=_cmd_vault_backup)
+    p_vr = vault_sub.add_parser("restore", help=".tar.gz'i vault'a geri aç")
+    p_vr.add_argument("tar", help="Yedek dosyası yolu")
+    p_vr.add_argument("--apply", action="store_true",
+                      help="Dry-run yerine gerçek extract çalıştır (yıkıcı)")
+    p_vr.add_argument("--vault-root", default=None,
+                      help="Hedef vault kökü (env: ATLAS_VAULT; varsayılan vault)")
+    p_vr.set_defaults(func=_cmd_vault_restore)
 
     p_arc = sub.add_parser("archive", help="Tamamlanmış görevi arşive taşı")
     p_arc.add_argument("task", nargs="?", default=None,
