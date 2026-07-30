@@ -1,6 +1,90 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-30 (Görev 032.2 — `atlas doctor --scan-src` birleştirme)
+- [KARAR] Sır taraması `atlas doctor` çatısı altına EKLENDI (--scan-src
+  opt-in) ama `atlas scan` bağımsız komutu SİLİNMEDİ — kullanıcı
+  hâlâ elle çalıştırabilir. "İki farklı yol, aynı motor
+  (`scan_secrets`)" — kullanıcı sözleşmesi geriye uyumlu, hook shim
+  tek subprocess'te birleşiyor.
+- [KARAR] `--scan-src` opt-in çünkü scan IO maliyeti sıfır değil
+  (proje büyüdükçe artar). Doctor'un varsayılan yolu hızlı env
+  sağlığına odaklı. Kullanıcı isteyene kadar scan yapılmaz.
+- [KARAR] Hook shim v1 → v2: tek komut `atlas doctor --strict
+  --scan-src`. İmza prefix (`# atlas-hook`) aynı → uninstall güvenli
+  tanımaya devam. Kurulu v1 shim'i olan kullanıcılar `atlas hooks
+  install` çağırırsa 034 sessiz güncelleme mekanizması v2'ye
+  yükseltir (ATLAS imzalı + farklı içerik = güncelle).
+- [KARAR] `_check_scan_src` içinde ilk 5 dosyayı `sample_files`
+  olarak topla — insan formatta ilk 3'ü göster. Kullanıcı bulguları
+  hemen görsün ama ekran şişmesin.
+- [KARAR] `_collect_doctor_report`'a `scan_src_path: Path | None =
+  None` parametresi eklendi — geri uyumlu; bayrak yoksa alan
+  hiç görünmez (bit-uyumluluk). 032.1'de eklenen entry_count/
+  vault_health *her zaman* raporlanır, scan_src IO ağır olduğu için
+  opsiyonel.
+- [KARAR] Strict davranışı EK KOD GEREKTİRMEDİ — 032.1'deki
+  `_has_quality_warning` `quality.*.warning` alanlarına bakıyor,
+  `scan_src.warning` otomatik dördüncü kanal olarak yakalanıyor.
+  Kalıp: iyi tasarlanmış tek nokta sonradan gelen katmanları
+  sıfır maliyette destekliyor.
+- [KANIT] Smoke: `atlas doctor --scan-src` gerçek repo'da 60 giriş,
+  7 not, 0 bulgu = tam temiz gate. Aktif iş.
+- Kapsam: 1 modül düzenleme (cli.py: +_check_scan_src, _collect_doctor_
+  report +param, _cmd_doctor --scan-src, parser); 1 shim güncellemesi
+  (v1→v2); 1 test dosyası eki (+7 test, 35 toplam 032/032.1/032.2).
+  670 test yesil (663 → +7). mypy strict + ruff + scan temiz.
+  Artefaktlar `pipeline/tasks/032-2-doctor-scan-src/`.
+
+## 2026-07-30 (Görev 034.1 — Windows sh.exe guard + shell tespiti)
+- [KARAR] PowerShell wrapper YAPILMADI. Git hooks mekanizması sh
+  üstünde kurulu — git PS scriptini hook olarak çağırmaz. Yani
+  Windows-özel çözüm PS shim değil; git-bash veya depo-yerel
+  `tools/git/`. `atlas hooks install` yalnız TANI verir, alternatif
+  girişim yok.
+- [KARAR] `_find_hook_shell` arama sırası: **depo-yerel önce**
+  (`tools/git/usr/bin/sh.exe`, 2026-07-28 taşınabilir kurulum
+  kalıbı), sonra `PATH`, sonra klasik Git for Windows yolları.
+  Kullanıcı proje-içine gömdüğü sh'yi öncelesin; makine-özel
+  yolları sonra düşer.
+- [KARAR] Non-Windows'ta `_find_hook_shell` her zaman sabit `"sh"`
+  döner (POSIX standart — path arama gereksiz overhead). Windows'ta
+  arama zinciri.
+- [KARAR] shell None ise install BAŞARILI (exit 0) ama stderr'e
+  Türkçe uyarı — "install başarısız" değil çünkü kullanıcı henüz
+  git-bash kurmamış olabilir ama commit'ler farklı makinede
+  yapabilir. Uyarı bilgi.
+- [KARAR] `hooks status` alanları: `shell_available: bool` +
+  `shell_path: str | None`. JSON tüketiciler tek bakışta durumu
+  görür. İnsan formatta `shell:` satırı.
+- [KANIT] Depo repo'sunda smoke: `_find_hook_shell()` →
+  `tools/git/usr/bin/sh.exe` (taşınabilir kurulum tam).
+- Kapsam: 1 modül düzenleme (cli.py: +_find_hook_shell,
+  _cmd_hooks_install shell None uyarı, _cmd_hooks_status shell
+  alanları + insan format satır); 1 test dosyası eki (+7 test,
+  24 toplam 034/034.1). 663 test yesil (656 → +7). mypy strict +
+  ruff + scan temiz. Artefaktlar `pipeline/tasks/034-1-windows-ps-hook/`.
+
+## 2026-07-30 (chore: 3-launcher `goose_Run.cmd` / `cline_Run.cmd` / `kimi_Run.cmd`)
+- [KARAR] Kök launcher'ları `tools/agents/<name>.cmd` sarmalayıcısını
+  `call` eden **thin shim** olarak yazıldı. `tools/agents/*.cmd`
+  zaten kurulum sihirbazı tarafından tam-featured üretiliyor
+  (HOME/XDG/APPDATA proje-içi, ensure-ollama, KIMI_CLI_GIT_BASH_PATH
+  pinleme, node/Rust-dirs uyumu). DRY — kalıbı iki yerde tutmam,
+  sarmalayıcı güncellenirse launcher otomatik yararlanır.
+- [KARAR] Kök launcher yalnız üç iş yapar: `PATH=%H%;%PATH%` (atlas
+  komutları oturumdan çağırılabilsin) + `cd /d %H%` + `call
+  tools\agents\<name>.cmd %*` + exit code aynen. Kısa, net, mevcut
+  sarmalayıcı sözleşmesini bozmayacak.
+- [KARAR] `opencode_Run.cmd` / `kilo_Run.cmd` mevcut yazımı bu
+  kalıba çekilmedi (kapsam dışı) — tarihsel kod, çalışıyor, dokunmak
+  regresyon riski. Not düşüldü: gelecek chore'da simetrik yapılabilir.
+- [KANIT] Smoke üçünde de: `goose_Run.cmd --version` → `1.44.0`;
+  `cline_Run.cmd --version` → `3.0.47`; `kimi_Run.cmd --version` →
+  `kimi, version 1.49.0`. Hepsi temiz.
+- 6 kök launcher tam sette: opencode / kilo / claudecode / goose /
+  cline / kimi.
+
 ## 2026-07-30 (chore: `claudecode_Run.cmd` baslatici)
 - [KARAR] `opencode_Run.cmd` / `kilo_Run.cmd` kalibi ile simetrik bir
   `claudecode_Run.cmd` eklendi. Farkli olarak XDG/HOME override YOK —
