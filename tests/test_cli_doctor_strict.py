@@ -804,3 +804,74 @@ def test_038_scan_src_yol_yok_unique_hits_sifir(
     assert scan["unique_hits"] == 0
     assert scan["total"] == 0
     assert "yok" in scan["warning"]
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 040 — doctor --schema
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_040_schema_json_ciktisi(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`atlas doctor --schema` → JSON şema; sağlık kontrolü YOK."""
+    rc = main(["doctor", "--schema"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out.strip())
+    # Zorunlu üst seviye anahtarlar
+    assert "schema_version" in data
+    assert "top_level" in data
+    assert "quality_fields" in data
+    assert "exit_codes" in data
+    assert data["schema_version"] == "1"
+
+
+def test_040_schema_top_level_alan_listesi(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`top_level` içinde beklenen alanlar (schema_version, backend, vs.)."""
+    main(["doctor", "--schema"])
+    data = json.loads(capsys.readouterr().out.strip())
+    names = {item["name"] for item in data["top_level"]}
+    # SPEC 032.4'te yayımlanan sabit sözleşme
+    assert {"schema_version", "backend", "quality", "storage",
+            "warnings"} <= names
+
+
+def test_040_schema_quality_alanlari(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`quality_fields` — SPEC 032/032.1/032.2/038 alanları."""
+    main(["doctor", "--schema"])
+    data = json.loads(capsys.readouterr().out.strip())
+    names = {item["name"] for item in data["quality_fields"]}
+    assert {"decisions_drift", "entry_count", "vault_health",
+            "scan_src"} <= names
+
+
+def test_040_schema_pretty_indent(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--schema --pretty` → indent=2 (girintili JSON, satır sayısı yüksek)."""
+    rc = main(["doctor", "--schema", "--pretty"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Girintili JSON: >= 20 satır olmalı (tek satırlık değil)
+    assert out.count("\n") >= 20
+    # Yine parse edilebilir
+    json.loads(out)
+
+
+def test_040_schema_saglik_kontrolu_atlanir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--schema` ile `_collect_doctor_report` ÇAĞRILMAZ — dizin yok
+    olsa da hata YOK (idempotent, IO'suz)."""
+    monkeypatch.chdir(tmp_path)  # DECISIONS.md, vault vs. yok
+    rc = main(["doctor", "--schema"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out.strip())
+    # Hala şema; hiçbir "warning" yok (çünkü rapor toplanmadı)
+    assert "warnings" not in data
+    assert data["schema_version"] == "1"

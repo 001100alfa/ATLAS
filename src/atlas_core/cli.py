@@ -1596,8 +1596,59 @@ def _collect_doctor_report(
     }
 
 
+def _doctor_schema_descriptor() -> dict[str, Any]:
+    """SPEC 040: `atlas doctor --schema` için şema tanımı.
+
+    JSON tüketicileri sürüm bump'ında (major = kırıcı) tanınabilir bir
+    şema kontratına ihtiyaç duyar. Alan listesi + tip + kısa açıklama.
+
+    NOT: Alan eklemek = uyumlu (schema_version aynı); kaldırma/rename =
+    major bump. Bu tanımı `_collect_doctor_report` ile eş güncel tut.
+    """
+    return {
+        "schema_version": _DOCTOR_SCHEMA_VERSION,
+        "top_level": [
+            {"name": "schema_version", "type": "str",
+             "desc": "SPEC 032.4 major sürüm etiketi"},
+            {"name": "backend", "type": "dict",
+             "desc": "LLM backend seçimi ve konfigi (ATLAS_LLM)"},
+            {"name": "retry_pricing", "type": "dict",
+             "desc": "Retry/backoff/jitter + $ fiyat env'leri"},
+            {"name": "storage", "type": "dict",
+             "desc": "Vault/audit/sandbox/context/archive yolları"},
+            {"name": "warnings", "type": "list[str]",
+             "desc": "Toplu uyarı listesi (backend, ping, vs.)"},
+            {"name": "quality", "type": "dict",
+             "desc": "SPEC 032/032.1/032.2/038 kalite kapıları"},
+            {"name": "ping", "type": "dict (opsiyonel)",
+             "desc": "SPEC 021.2 — sadece --ping ile"},
+        ],
+        "quality_fields": [
+            {"name": "decisions_drift", "spec": "032",
+             "desc": "DECISIONS.md son giriş tarihi vs bugün"},
+            {"name": "entry_count", "spec": "032.1",
+             "desc": "Son N günde DECISIONS giriş sayısı"},
+            {"name": "vault_health", "spec": "032.1",
+             "desc": "vault/ not sayısı"},
+            {"name": "scan_src", "spec": "032.2 + 038",
+             "desc": "src/ sır taraması: total + unique_hits + sample_files"},
+        ],
+        "exit_codes": {
+            "0": "sağlık kontrolü tamam",
+            "8": "SPEC 029 — cache-hit oranı --alert altında",
+            "9": "SPEC 032 — --strict altında herhangi bir quality warning",
+        },
+        "notes": [
+            "SPEC 032.4: schema_version = major etiket; alan ekleme uyumlu.",
+            "SPEC 032.5: --pretty ile indent=2 JSON.",
+            "SPEC 038: scan_src.unique_hits = tekil dosya sayısı.",
+            "SPEC 040: bu şema tanımı `atlas doctor --schema` ile yayımlanır.",
+        ],
+    }
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
-    """SPEC 021 + 021.1 + 021.2 + 032 + 032.2: env sağlık özeti + quality gate.
+    """SPEC 021 + 021.1 + 021.2 + 032 + 032.2 + 040: env sağlık + şema.
 
     `--json` bayrağı verilirse tek satır JSON; yoksa insan-okunur.
     `--ping` bayrağı Anthropic'e minimum request atar, latency+cost raporlar.
@@ -1606,7 +1657,21 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     `--scan-src [PATH]` (SPEC 032.2) bayrağı verilirse `scan_secrets`
     kaynak dizinine uygulanır ve `quality.scan_src` alanı eklenir;
     bulgu varsa `--strict` altında exit 9 (tek kanal `_has_quality_warning`).
+    `--schema` (SPEC 040) bayrağı sağlık kontrolü YAPMAZ — yalnız JSON
+    şema tanımını basar (schema_version + alan listesi + exit kodları).
     """
+    # SPEC 040: --schema kısa devre — hiçbir dizine dokunmaz, yalnız
+    # şema tanımı JSON olarak basılır (idempotent, IO'suz).
+    if getattr(args, "schema", False):
+        import json as _json
+        # --pretty ile birlikte indent=2 (tutarlılık)
+        pretty = getattr(args, "pretty", False)
+        indent = 2 if pretty else None
+        print(_json.dumps(
+            _doctor_schema_descriptor(), ensure_ascii=False, indent=indent,
+        ))
+        return 0
+
     # SPEC 032.2: --scan-src bayrağı → Path; yoksa None (bit-uyumlu).
     scan_src = getattr(args, "scan_src", None)
     scan_src_path = Path(scan_src) if scan_src else None
@@ -2819,6 +2884,10 @@ def main(argv: list[str] | None = None) -> int:
                             "(varsayılan yol: src)")
     p_doc.add_argument("--pretty", action="store_true",
                        help="SPEC 032.5: --json ile birlikte, girintili JSON")
+    p_doc.add_argument("--schema", action="store_true",
+                       help="SPEC 040: sağlık kontrolü YAPMA, yalnız JSON "
+                            "şema tanımını bas (alan listesi + exit kodları). "
+                            "--pretty ile birlikte indent=2.")
     p_doc.set_defaults(func=_cmd_doctor)
 
     args = parser.parse_args(argv)
