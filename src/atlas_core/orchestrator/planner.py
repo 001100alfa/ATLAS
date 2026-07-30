@@ -29,6 +29,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -38,6 +39,37 @@ from urllib import request as urllib_request
 
 from atlas_core.orchestrator.core import StepKind
 from atlas_core.orchestrator.goals import Goal
+
+# ─────────────────────────────────────────────────────────────────────
+# SPEC 039: LLM inflight sayaç (paralel çağrılar için thread-safe)
+# ─────────────────────────────────────────────────────────────────────
+
+_INFLIGHT_COUNT: int = 0
+_INFLIGHT_LOCK = threading.Lock()
+
+
+def _inflight_begin() -> int:
+    """SPEC 039: LLM çağrısı başlarken sayacı artır, o anki değeri döndür.
+
+    Snapshot bu çağrıyı DAHİL — yani aynı zamanda 2 çağrı varsa 2 döner.
+    """
+    global _INFLIGHT_COUNT
+    with _INFLIGHT_LOCK:
+        _INFLIGHT_COUNT += 1
+        return _INFLIGHT_COUNT
+
+
+def _inflight_end() -> None:
+    """SPEC 039: LLM çağrısı biterken sayacı azalt (hata olsa bile)."""
+    global _INFLIGHT_COUNT
+    with _INFLIGHT_LOCK:
+        _INFLIGHT_COUNT = max(0, _INFLIGHT_COUNT - 1)
+
+
+def _inflight_snapshot() -> int:
+    """SPEC 039: Anlık inflight sayacı (test/introspection için)."""
+    with _INFLIGHT_LOCK:
+        return _INFLIGHT_COUNT
 
 Planner = Callable[[str, list[tuple[StepKind, str]]], str]
 
@@ -532,6 +564,35 @@ def _call_anthropic(
     on_usage: Callable[[int, int, int, int], None] | None = None,
     stream: bool = False,
 ) -> str:
+    """SPEC 039: `_call_anthropic_inner`'a `try/finally` sarmalı wrapper.
+
+    Amaç: her koşulda (başarı / raise / erken return) `_inflight_end()`
+    çağrılsın (sayaç leak etmesin). Wrapper mantığı basit tut, iç mantığı
+    değiştirme.
+    """
+    inflight_at_start = _inflight_begin()
+    try:
+        return _call_anthropic_inner(
+            api_key, url, model, prompt, timeout_s,
+            system=system, on_usage=on_usage, stream=stream,
+            inflight_at_start=inflight_at_start,
+        )
+    finally:
+        _inflight_end()
+
+
+def _call_anthropic_inner(
+    api_key: str,
+    url: str,
+    model: str,
+    prompt: str,
+    timeout_s: int,
+    *,
+    system: str | list[dict[str, Any]] | None = None,
+    on_usage: Callable[[int, int, int, int], None] | None = None,
+    stream: bool = False,
+    inflight_at_start: int = 0,
+) -> str:
     """Anthropic Messages API — HTTPS POST, ilk satır plan döner.
 
     SPEC 010: `system` verilirse gövdeye üst-düzey `system` alanı
@@ -540,6 +601,9 @@ def _call_anthropic(
     payload'a bind — cache_control taşımaya izin verir.
     SPEC 019: `stream=True` → request'e `"stream": true` eklenir; SSE
     parse ile ilk newline'da kesilir (algılanan gecikme düşer).
+    SPEC 039: `inflight_at_start` — dış wrapper'dan gelen inflight
+    snapshot; `_write_metric_for_data`'ya iletilir. Wrapper `finally`
+    ile sayacı sıfırlar.
 
     stdlib `urllib` + `json`. Hiçbir kod yolunda `api_key` stderr/log'a
     yazılmaz — yalnız request header'ına girer.
@@ -569,7 +633,7 @@ def _call_anthropic(
             first_line, usage_data = _read_anthropic_stream(req, timeout_s)
             # 011 trace + 013 charge + 023 metrics — usage'dan tam veri
             _emit_anthropic_usage_trace(usage_data)
-            _write_metric_for_data(usage_data)
+            _write_metric_for_data(usage_data, inflight=inflight_at_start)
             if on_usage is not None:
                 _in, _out, _cc, _cr = _extract_usage(usage_data)
                 on_usage(_in, _out, _cc, _cr)
@@ -630,8 +694,8 @@ def _call_anthropic(
         raise LLMPlannerError("anthropic boş plan cevabı döndürdü (ilk satır boş)")
     # SPEC 011: report-only token usage trace (yan etki, sözleşme değişmez).
     _emit_anthropic_usage_trace(data)
-    # SPEC 023: metrics.jsonl'a tek satır yaz (yan etki, hata sessiz).
-    _write_metric_for_data(data)
+    # SPEC 023 + 039: metrics.jsonl'a tek satır yaz (yan etki, hata sessiz).
+    _write_metric_for_data(data, inflight=inflight_at_start)
     # SPEC 013 + 015.1: opsiyonel callback ile CallBudget.charge_tokens
     # beslenir; cache alanları kwargs ile aktarılır (varsayılan 0).
     if on_usage is not None:
@@ -653,8 +717,12 @@ def _metrics_path() -> Path:
     return Path(".atlas/metrics.jsonl")
 
 
-def _write_metric_for_data(data: Any) -> None:
-    """SPEC 023: anthropic response usage'ından metrics satırı yaz.
+def _write_metric_for_data(data: Any, inflight: int | None = None) -> None:
+    """SPEC 023 + 039: anthropic response usage'ından metrics satırı yaz.
+
+    SPEC 039: `inflight` verilirse kayıta `inflight: int` alanı EKLENİR
+    (o çağrı başlarken alınan snapshot). `None` → alan yazılmaz
+    (bit-uyumluluk; mevcut testler etkilenmez).
 
     Hata sessiz — disk dolu / izin yoksa planlama akışı devam eder.
     """
@@ -662,7 +730,7 @@ def _write_metric_for_data(data: Any) -> None:
         from datetime import datetime as _dt
         in_tok, out_tok, cc, cr = _extract_usage(data)
         cost = _fmt_cost(in_tok, out_tok, cc, cr)
-        record = {
+        record: dict[str, Any] = {
             "ts": _dt.now().isoformat(timespec="seconds"),
             "in": in_tok,
             "out": out_tok,
@@ -670,6 +738,9 @@ def _write_metric_for_data(data: Any) -> None:
             "cache_r": cr,
             "cost": cost,
         }
+        # SPEC 039: yalnız verildiyse yazılır (opt-in yayım)
+        if inflight is not None:
+            record["inflight"] = int(inflight)
         p = _metrics_path()
         p.parent.mkdir(parents=True, exist_ok=True)
         with p.open("a", encoding="utf-8") as f:
