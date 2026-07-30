@@ -649,6 +649,59 @@ def test_0324_schema_version_sabit_modul_seviyesinde() -> None:
     assert _DOCTOR_SCHEMA_VERSION == "1"
 
 
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 032.5 — `atlas doctor --json --pretty` girintili çıktı
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_0325_pretty_yoksa_tek_satir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--json` (pretty yok) → tek satır (bit-uyumlu)."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    rc = main(["doctor", "--json"])
+    assert rc == 0
+    out = capsys.readouterr().out.rstrip()
+    # Tek satır: newline sayısı 0 (rstrip sonrası)
+    assert "\n" not in out
+    # JSON parse edilir
+    data = json.loads(out)
+    assert data["schema_version"] == "1"
+
+
+def test_0325_pretty_ile_cok_satirli(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--json --pretty` → çok satırlı girintili (indent=2)."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    rc = main(["doctor", "--json", "--pretty"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Çok satırlı — en az 20 satır (şema büyüklüğü)
+    assert out.count("\n") >= 20
+    # Girinti: "  " ile başlayan satırlar var
+    assert '\n  "schema_version"' in out
+    # JSON parse edilir (bozulmadı)
+    data = json.loads(out)
+    assert data["schema_version"] == "1"
+
+
+def test_0325_pretty_strict_drift_exit_9(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--json --pretty --strict` + drift → exit 9 (bayrak yalnız biçim)."""
+    p = tmp_path / "d.md"
+    _write_decisions(p, "2020-01-01")
+    monkeypatch.setattr(cli_mod, "_DECISIONS_MD_DEFAULT", p)
+    rc = main(["doctor", "--json", "--pretty", "--strict"])
+    assert rc == 9
+    out = capsys.readouterr().out
+    # JSON girintili basıldı
+    assert out.count("\n") >= 20
+    data = json.loads(out)
+    assert data["quality"]["decisions_drift"]["warning"] is not None
+
+
 def test_0323_check_scan_src_unique_sample_files(tmp_path: Path) -> None:
     """`_check_scan_src`: bir dosyada ÇOK bulgu → sample_files aynı
     dosyayı iki kez basmaz (unique)."""

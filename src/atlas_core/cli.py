@@ -1293,7 +1293,11 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
     if getattr(args, "json", False):
         import json as _json
-        print(_json.dumps(report, ensure_ascii=False))
+        # SPEC 032.5: --pretty → indent=2 (girintili JSON, CI + insan
+        # hibrit tüketim). Bayrak yoksa tek satır (bit-uyumlu).
+        pretty = getattr(args, "pretty", False)
+        indent = 2 if pretty else None
+        print(_json.dumps(report, ensure_ascii=False, indent=indent))
         # SPEC 032 + 032.1: --json + --strict → herhangi bir quality.*
         # uyarısı varsa exit 9. JSON çıktısı bası korunur (CI script'i
         # dosyaya kaydedebilir), yalnız exit kodu değişir.
@@ -2044,6 +2048,8 @@ def main(argv: list[str] | None = None) -> int:
     p_doc.add_argument("--scan-src", nargs="?", const="src", default=None,
                        help="SPEC 032.2: sır taramasını doctor'a dahil et "
                             "(varsayılan yol: src)")
+    p_doc.add_argument("--pretty", action="store_true",
+                       help="SPEC 032.5: --json ile birlikte, girintili JSON")
     p_doc.set_defaults(func=_cmd_doctor)
 
     args = parser.parse_args(argv)
