@@ -593,6 +593,62 @@ def test_0323_iter_hits_okuma_hatasi_sessiz_atla(tmp_path: Path) -> None:
     assert hits == []
 
 
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 032.4 — `atlas doctor` JSON şema versiyonu
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_0324_json_schema_version_alani(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--json` çıktısında `schema_version` alanı sabit `"1"` döner."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    rc = main(["doctor", "--json"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out.strip())
+    assert data.get("schema_version") == "1"
+
+
+def test_0324_json_regresyon_mevcut_alanlar_korundu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Yeni schema_version alanı EKLENDI; mevcut alanlar aynen."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    rc = main(["doctor", "--json"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out.strip())
+    # Mevcut alanlar aynen (021 + 032 + 032.1)
+    assert "backend" in data
+    assert "retry_pricing" in data
+    assert "storage" in data
+    assert "warnings" in data
+    assert "quality" in data
+    # Quality alt-alanları (032 + 032.1)
+    assert "decisions_drift" in data["quality"]
+    assert "entry_count" in data["quality"]
+    assert "vault_health" in data["quality"]
+
+
+def test_0324_insan_format_sema_versiyonu_baslikta(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """İnsan format başlığında '(şema v1)' görünür."""
+    _prep_temiz_doctor_env(monkeypatch, tmp_path)
+    rc = main(["doctor"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "şema v1" in out
+    # Başlık formatı korundu (aynı '===' desenli)
+    assert "=== ATLAS doctor" in out
+
+
+def test_0324_schema_version_sabit_modul_seviyesinde() -> None:
+    """`_DOCTOR_SCHEMA_VERSION` modül seviyesinde `"1"` sabit."""
+    from atlas_core.cli import _DOCTOR_SCHEMA_VERSION
+
+    assert _DOCTOR_SCHEMA_VERSION == "1"
+
+
 def test_0323_check_scan_src_unique_sample_files(tmp_path: Path) -> None:
     """`_check_scan_src`: bir dosyada ÇOK bulgu → sample_files aynı
     dosyayı iki kez basmaz (unique)."""

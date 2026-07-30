@@ -876,6 +876,12 @@ def _run_anthropic_ping(warnings: list[str]) -> dict[str, Any] | None:
 _DECISIONS_MD_DEFAULT = Path("DECISIONS.md")
 _DECISIONS_DATE_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})")
 
+# SPEC 032.4: `atlas doctor` çıktısı şema versiyonu (JSON tüketicileri
+# şema değişikliğinde kırılmadan tanıyabilsin). Bump kuralları:
+# - Alan ekleme → versiyon AYNI (bit-uyumlu).
+# - Alan kaldırma / rename / tip değişikliği → major bump ("2", "3"...).
+_DOCTOR_SCHEMA_VERSION = "1"
+
 
 def _last_decision_date(path: Path) -> date | None:
     """SPEC 032: DECISIONS.md'de ilk (en yeni) `^## YYYY-MM-DD` girişini
@@ -1252,6 +1258,10 @@ def _collect_doctor_report(
         quality["scan_src"] = _check_scan_src(scan_src_path)
 
     return {
+        # SPEC 032.4: şema versiyonu — JSON tüketicileri sürüm bumpu'nda
+        # kırılmadan tanıyabilsin. Alan ekleme = aynı; kaldırma/rename =
+        # major bump.
+        "schema_version": _DOCTOR_SCHEMA_VERSION,
         "backend": backend_info,
         "retry_pricing": retry_pricing,
         "storage": storage,
@@ -1296,7 +1306,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     retry_pricing = report["retry_pricing"]
     storage = report["storage"]
 
-    print("=== ATLAS doctor — env sağlık kontrolü ===\n")
+    print(f"=== ATLAS doctor — env sağlık kontrolü (şema v{_DOCTOR_SCHEMA_VERSION}) ===\n")
 
     print("[LLM backend]")
     print(f"  ATLAS_LLM: {backend_info['ATLAS_LLM']}")
