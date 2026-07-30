@@ -1,6 +1,92 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-30 (Görev 031 — batch `--jobs N` paralel yürütme)
+- [KARAR] `--jobs N` (varsayılan 1) — N=1 mevcut seri (SPEC 030
+  bit-uyumlu); N>1 `ThreadPoolExecutor(max_workers=N)`. IO/LLM bound
+  işler için threading yeterli; `ProcessPoolExecutor` ağır (import
+  overhead, Windows spawn maliyeti), izolasyon fazlalığı (sandbox
+  zaten yol bazlı).
+- [KARAR] Paralel modda **fail-fast implicit KAPALI** —
+  `continue-on-error` gibi davranır. Sebep: worker'lar zaten koşuyor;
+  ilk hatayı gördükten sonra kalanları iptal etsek bile başlamış
+  olanlar bitene kadar bekleriz. Kullanıcı fail-fast istiyorsa
+  `--jobs 1` (seri).
+- [KARAR] LLM rate limit için ayrı env (örn. `ATLAS_LLM_MAX_INFLIGHT`)
+  YOK. `--jobs N` doğrudan max N inflight LLM çağrısı; kullanıcı N'i
+  düşürerek API limit'ine uyumlanır. Ayrı semafor karmaşıklığı için
+  gerekli senaryo şu an yok (YAGNI).
+- [HATA→KARAR] `contextlib.redirect_stdout` **process-global** —
+  thread-safe DEĞİL. İki worker aynı anda `__enter__` yaparsa ana
+  thread'in `print()` çağrıları da worker buf'una düşer (ilk hata
+  belirtisi: `--- [1/N] ...` başlıkları hiç görünmüyor). Çözüm: kendi
+  `_ThreadCaptureStream` — `threading.local()` üzerine kurulu bir
+  wrapper; TLS'de buf yoksa gerçek stream'e yazar. `sys.stdout` bir
+  kere değişir (batch paralel süresince); worker `begin()/end()` ile
+  kendi buf'unu açar/kapatır.
+- [HATA→KARAR] `AuditLog` **thread-safe değildi**. İki worker aynı
+  `audit.jsonl`'e append yaparken `_last_hash()` okuyup zincir
+  noktasına yazma race koşulu → dosyada boş satır +
+  `json.loads('')` patlaması + zincir bozulması. Çözüm: `audit.py`
+  içi module-level `_AUDIT_LOCKS: dict[str, threading.Lock]` (path
+  key). `record()` içi + `verify()` okuma içi lock. Ek olarak
+  `verify()` boş satırları fail-safe skip (paralel append arasında
+  görülebilen yarım-satır artefaktı için).
+- [KARAR] Worker çıktısı: her worker `stdout+stderr`'i TLS buf'ta
+  toplar → ana thread `as_completed` ile sonuç toplar → **başlangıç
+  sırasına** göre print eder. Log sırası deterministik. Test bunu
+  doğrular.
+- [KARAR] `--jobs 0` veya negatif → SPEC HATASI + exit 2. `argparse`
+  `type=int` verildiğinden default=1; `_read_jobs_arg` invaziv
+  doğrulama yapar (`or 1` kullanma — 0 truthy değil, hata yerine 1'e
+  düşerdi).
+
+## 2026-07-30 (Görev 033 — `atlas archive --restore <id>`)
+- [KARAR] `--restore <id>` **dry-run varsayılan** — arşive gönderme
+  ile simetri. `--apply` yıkıcı kapı (mevcut task klasörü olabilir).
+  Exit kodu 3: çakışma; 6: arşiv yok VEYA extract hatası. `RestoreError`
+  yeni tip (N818 uyumlu).
+- [KARAR] En yeni sürüm seçilir — bir görev birden çok kez
+  arşivlenmiş olabilir (`003-2026-07-15.tar.gz`, `003-2026-07-30.tar.gz`).
+  `mtime` desc → `[0]`. Kullanıcıya belirsizlik bırakma.
+- [KARAR] Path traversal koruması **çift katman**: (1) her tar üyesi
+  elle kontrol — mutlak yol, `..`, kolon `:` (Windows NTFS ADS),
+  beklenmeyen kök reddedilir; (2) `tar.extractall(filter="data")` —
+  Python 3.12+ default'u 3.14'te kesinleşecek; şimdi opt-in ederek
+  DeprecationWarning'i temizledik ve extra güvenlik katmanı sağladık.
+- [KARAR] `_is_within` yardımcısı — `resolve().relative_to()` bir
+  ekstra güvenlik ağı. Bu noktaya normalde ulaşılamaz (task_id
+  kontrolü var), ama defense-in-depth.
+- [KARAR] Audit satırı: `atlas-archive` / `restore` / `<id>`.
+  `archive`'ın simetriği.
+
+## 2026-07-30 (Görev 037.1 — `atlas ai-cli update` portable npm wrap)
+- [KARAR] `atlas ai-cli update [--dry-run]` — `tools/ai-cli/`
+  içinde `npm update` (veya `npm outdated --long`). Portable öncelik:
+  `tools/node/npm.cmd` (Windows) veya `tools/node/npm` (Unix); yoksa
+  `shutil.which("npm")` (sistem PATH).
+- [KARAR] `--dry-run` = `npm outdated` — npm'in 1 exit'i "bulgu var"
+  demek, HATA değil; CLI 0 döner. `update` (yıkıcı) → npm exit
+  kodu doğrudan yansıtılır.
+- [KARAR] npm stderr'de "notice…" tarzı bilgi mesajları yazabilir;
+  worker bunları stderr'e olduğu gibi bastırır (info-level).
+- [KARAR] Timeout 600s — büyük ağaçlarda uzun sürebilir; testte
+  subprocess mock'lu.
+- [KARAR] `tools/ai-cli/` yoksa → exit 2 + `SPEC HATASI`; kullanıcı
+  portable kurulumun eksik olduğunu bilsin.
+
+## 2026-07-30 (Görev 038 — `doctor --scan-src unique_hits` alanı)
+- [KARAR] `quality.scan_src` şemasına `unique_hits: int` eklendi.
+  `total` = ham bulgu (bir dosyada birden çok kalıp olabilir);
+  `unique_hits` = kullanıcının gerçekten düzeltmesi gereken tekil
+  dosya sayısı. `sample_files` (ilk 5 unique) mevcut kaldı.
+- [KARAR] **Şema major bump YOK** — yalnız alan eklendi (SPEC 032.4
+  sözleşmesi: ekleme = uyumlu, kaldırma/rename = major). `schema_version="1"`
+  korundu.
+- [KARAR] İnsan formatı `(N bulgu, M tekil dosya)` — mevcut
+  `(N bulgu)` sözleşmesini SUBSTRING olarak koruduğu için 032.2/032.3
+  testleri kırılmadı.
+
 ## 2026-07-30 (Görev 037 — `atlas ai-cli diff-summary` commit disiplin)
 - [KARAR] `atlas ai-cli` **yeni alt-grup** — `hooks` gibi genişlemeye
   hazır (`ai-cli update`, `ai-cli list` gelecek). `diff-summary` ilk
