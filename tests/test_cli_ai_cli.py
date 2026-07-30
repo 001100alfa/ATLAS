@@ -286,3 +286,117 @@ def test_0371_find_npm_bin_bulunamadi(
     path, source = _find_npm_bin()
     assert path is None
     assert source == ""
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 037.2 — atlas ai-cli list
+# ═════════════════════════════════════════════════════════════════════
+
+
+def _make_ai_cli_layout(
+    root: Path,
+    deps: dict[str, str],
+    installed: dict[str, str] | None = None,
+) -> None:
+    """Sahte ai-cli düzeni: package.json + isteğe göre node_modules/<n>."""
+    import json as _json
+
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "package.json").write_text(
+        _json.dumps({"name": "atlas-ai-cli", "dependencies": deps}),
+        encoding="utf-8",
+    )
+    if installed:
+        for name, ver in installed.items():
+            pd = root / "node_modules" / name
+            pd.mkdir(parents=True, exist_ok=True)
+            (pd / "package.json").write_text(
+                _json.dumps({"name": name, "version": ver}),
+                encoding="utf-8",
+            )
+
+
+def test_0372_dir_yok_exit_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", tmp_path / "yok")
+    rc = main(["ai-cli", "list"])
+    assert rc == 2
+    assert "SPEC HATASI" in capsys.readouterr().err
+
+
+def test_0372_paket_yok_bos_liste(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """package.json deps boş → 0 paket, exit 0."""
+    ai = tmp_path / "ai-cli"
+    _make_ai_cli_layout(ai, deps={})
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", ai)
+    rc = main(["ai-cli", "list"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "(paket yok)" in out
+
+
+def test_0372_paket_kurulu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """2 paket: biri kurulu, biri değil."""
+    ai = tmp_path / "ai-cli"
+    _make_ai_cli_layout(
+        ai,
+        deps={"opencode-ai": "^1.18.8", "cline": "^3.0.47"},
+        installed={"opencode-ai": "1.18.9"},
+    )
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", ai)
+    rc = main(["ai-cli", "list"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "opencode-ai" in out
+    assert "1.18.9" in out
+    assert "cline" in out
+    assert "(kurulu değil)" in out
+
+
+def test_0372_json_ciktisi(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--json` → yapılandırılmış çıktı."""
+    import json as _json
+
+    ai = tmp_path / "ai-cli"
+    _make_ai_cli_layout(
+        ai,
+        deps={"opencode-ai": "^1.18.8"},
+        installed={"opencode-ai": "1.18.9"},
+    )
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", ai)
+    rc = main(["ai-cli", "list", "--json"])
+    assert rc == 0
+    data = _json.loads(capsys.readouterr().out.strip())
+    assert data["path"] == str(ai)
+    assert len(data["packages"]) == 1
+    p = data["packages"][0]
+    assert p["name"] == "opencode-ai"
+    assert p["expected"] == "^1.18.8"
+    assert p["installed"] == "1.18.9"
+
+
+def test_0372_package_json_bozuk_exit_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """package.json bozuk → SPEC HATASI + exit 2."""
+    ai = tmp_path / "ai-cli"
+    ai.mkdir()
+    (ai / "package.json").write_text("{ bozuk json", encoding="utf-8")
+    monkeypatch.setattr(cli_mod, "_AI_CLI_DIR", ai)
+    rc = main(["ai-cli", "list"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "package.json" in err
+    assert "SPEC HATASI" in err

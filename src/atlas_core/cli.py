@@ -2303,6 +2303,112 @@ def _run_npm_update(npm_bin: str, dry_run: bool) -> tuple[int, str, str]:
     return proc.returncode, proc.stdout or "", proc.stderr or ""
 
 
+def _read_ai_cli_package_json() -> tuple[dict[str, Any] | None, str | None]:
+    """SPEC 037.2: `tools/ai-cli/package.json` oku, dict + err döner.
+
+    Hata durumu (dosya yok, JSON bozuk) → `(None, err_message)`.
+    """
+    import json as _json
+
+    pkg = _AI_CLI_DIR / "package.json"
+    if not pkg.is_file():
+        return None, f"package.json yok: {pkg}"
+    try:
+        text = pkg.read_text(encoding="utf-8")
+        data = _json.loads(text)
+    except (OSError, _json.JSONDecodeError) as exc:
+        return None, f"package.json okunamadı: {exc}"
+    if not isinstance(data, dict):
+        return None, "package.json kök obje değil"
+    return data, None
+
+
+def _read_installed_version(package_name: str) -> str | None:
+    """SPEC 037.2: `tools/ai-cli/node_modules/<name>/package.json` version.
+
+    Bulunamazsa `None` (kurulu değil).
+    """
+    import json as _json
+
+    pkg_dir = _AI_CLI_DIR / "node_modules" / package_name
+    pkg = pkg_dir / "package.json"
+    if not pkg.is_file():
+        return None
+    try:
+        data = _json.loads(pkg.read_text(encoding="utf-8"))
+    except (OSError, _json.JSONDecodeError):
+        return None
+    v = data.get("version") if isinstance(data, dict) else None
+    return v if isinstance(v, str) else None
+
+
+def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
+    """SPEC 037.2: `atlas ai-cli list [--json]` — kurulu AI CLI'ları listele.
+
+    `tools/ai-cli/package.json` dependencies alanını kaynak alır; her
+    paketin `node_modules/<name>/package.json` version'ını yükler.
+    Beklenen sürüm (dependencies değeri) vs kurulu sürüm karşılaştırması.
+
+    Şema (JSON):
+    ```
+    {
+      "path": "tools/ai-cli",
+      "packages": [
+        {"name": "opencode-ai", "expected": "^1.18.8", "installed": "1.18.9"},
+        ...
+      ]
+    }
+    ```
+    `installed=null` → paket kurulu değil.
+    Exit 0 her zaman (bilgi komutu). `tools/ai-cli/` yoksa exit 2.
+    """
+    import json as _json
+
+    if not _AI_CLI_DIR.is_dir():
+        print(
+            f"SPEC HATASI: {_AI_CLI_DIR} yok — portable ai-cli kurulumu bulunamadı",
+            file=sys.stderr,
+        )
+        return 2
+    data, err = _read_ai_cli_package_json()
+    if err is not None:
+        print(f"SPEC HATASI: {err}", file=sys.stderr)
+        return 2
+    assert data is not None  # mypy narrow
+
+    deps = data.get("dependencies", {}) if isinstance(data, dict) else {}
+    if not isinstance(deps, dict):
+        deps = {}
+
+    packages: list[dict[str, Any]] = []
+    for name in sorted(deps.keys()):
+        expected = str(deps[name])
+        installed = _read_installed_version(name)
+        packages.append({
+            "name": name,
+            "expected": expected,
+            "installed": installed,
+        })
+
+    if getattr(args, "json", False):
+        print(_json.dumps(
+            {"path": str(_AI_CLI_DIR), "packages": packages},
+            ensure_ascii=False,
+        ))
+        return 0
+
+    print(f"=== ATLAS ai-cli — kurulu paketler ({_AI_CLI_DIR}) ===")
+    if not packages:
+        print("  (paket yok)")
+        return 0
+    # Sütun genişliği: ad max(20, en uzun paket)
+    name_w = max(20, *(len(p["name"]) for p in packages))
+    for p in packages:
+        ins = p["installed"] if p["installed"] is not None else "(kurulu değil)"
+        print(f"  {p['name']:<{name_w}}  beklenen: {p['expected']:<10}  kurulu: {ins}")
+    return 0
+
+
 def _cmd_ai_cli_update(args: argparse.Namespace) -> int:
     """SPEC 037.1: `atlas ai-cli update [--dry-run]` — portable npm wrap.
 
@@ -2491,6 +2597,12 @@ def main(argv: list[str] | None = None) -> int:
         help="npm update yerine npm outdated çalıştır (yıkıcı işlem yok)",
     )
     p_ai_up.set_defaults(func=_cmd_ai_cli_update)
+    p_ai_ls = ai_sub.add_parser(
+        "list",
+        help="tools/ai-cli/ kurulu paketleri + beklenen sürüm (SPEC 037.2)",
+    )
+    p_ai_ls.add_argument("--json", action="store_true", help="JSON çıktı")
+    p_ai_ls.set_defaults(func=_cmd_ai_cli_list)
 
     p_hooks = sub.add_parser("hooks", help="Git pre-commit hook yönetimi (SPEC 034)")
     hooks_sub = p_hooks.add_subparsers(dest="hooks_cmd", required=True)
