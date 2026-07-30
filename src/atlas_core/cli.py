@@ -1443,6 +1443,177 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+# ─────────────────────────────────────────────────────────────────────
+# SPEC 034: pre-commit hook install/uninstall/status
+# ─────────────────────────────────────────────────────────────────────
+
+_HOOK_SIGNATURE = "# atlas-hook v1"
+_HOOK_TEMPLATE_PATH = Path("tools/hooks/pre-commit")
+_HOOK_TARGET_REL = Path(".git/hooks/pre-commit")
+
+
+def _hook_template_text() -> str | None:
+    """SPEC 034: `tools/hooks/pre-commit` şablon metnini oku.
+
+    Yoksa None döner (fail-safe; test tarafında monkeypatch edilir).
+    """
+    if not _HOOK_TEMPLATE_PATH.is_file():
+        return None
+    try:
+        return _HOOK_TEMPLATE_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _is_atlas_hook(text: str) -> bool:
+    """SPEC 034: script'in ilk 5 satırında `# atlas-hook` imzası var mı."""
+    for line in text.splitlines()[:5]:
+        if _HOOK_SIGNATURE.split(" v")[0] in line:
+            return True
+    return False
+
+
+def _resolve_hook_target(cwd: Path | None = None) -> Path | None:
+    """SPEC 034: `.git/hooks/pre-commit` mutlak yolunu döner.
+
+    `.git` yoksa None (repo değil).
+    """
+    base = cwd or Path.cwd()
+    git_dir = base / ".git"
+    if not git_dir.is_dir():
+        return None
+    return git_dir / "hooks" / "pre-commit"
+
+
+def _cmd_hooks_install(args: argparse.Namespace) -> int:
+    """SPEC 034: `.git/hooks/pre-commit`'e ATLAS shim'ini kur.
+
+    - Mevcut ATLAS shim varsa idempotent (exit 0).
+    - Yabancı hook varsa `--force` yoksa exit 2 SPEC HATASI.
+    - `.git` yoksa exit 2 SPEC HATASI.
+    """
+    template = _hook_template_text()
+    if template is None:
+        print(
+            f"SPEC HATASI: hook şablonu bulunamadı ({_HOOK_TEMPLATE_PATH})",
+            file=sys.stderr,
+        )
+        return 2
+
+    target = _resolve_hook_target()
+    if target is None:
+        print(
+            "SPEC HATASI: .git dizini yok — git repo değil",
+            file=sys.stderr,
+        )
+        return 2
+
+    force = getattr(args, "force", False)
+    if target.is_file():
+        existing = target.read_text(encoding="utf-8", errors="replace")
+        if _is_atlas_hook(existing):
+            # İçerik aynıysa no-op; farklıysa güncelle (ATLAS shim'lerinde
+            # sürüm farkı = güncelleme).
+            if existing == template:
+                print(f"hooks: {target} zaten güncel (no-op)")
+                return 0
+        elif not force:
+            print(
+                f"SPEC HATASI: {target} mevcut ve ATLAS shim'i değil; "
+                "üzerine yazmak için --force kullan",
+                file=sys.stderr,
+            )
+            return 2
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(template, encoding="utf-8", newline="\n")
+    # Unix'te executable bit
+    try:
+        import stat as _stat
+
+        st = target.stat()
+        target.chmod(st.st_mode | _stat.S_IXUSR | _stat.S_IXGRP | _stat.S_IXOTH)
+    except OSError:
+        pass
+    print(f"hooks: kuruldu -> {target}")
+    return 0
+
+
+def _cmd_hooks_uninstall(_args: argparse.Namespace) -> int:
+    """SPEC 034: ATLAS shim'ini kaldır.
+
+    - Yalnız ATLAS shim'i (imza doğrulama) silinir — kullanıcının kendi
+      hook'una dokunulmaz.
+    - Hook yoksa no-op (idempotent).
+    - `.git` yoksa exit 2.
+    """
+    target = _resolve_hook_target()
+    if target is None:
+        print(
+            "SPEC HATASI: .git dizini yok — git repo değil",
+            file=sys.stderr,
+        )
+        return 2
+    if not target.is_file():
+        print(f"hooks: {target} yok (no-op)")
+        return 0
+    text = target.read_text(encoding="utf-8", errors="replace")
+    if not _is_atlas_hook(text):
+        print(
+            f"hooks: {target} ATLAS shim'i değil (imza yok) — dokunulmadı",
+            file=sys.stderr,
+        )
+        return 2
+    target.unlink()
+    print(f"hooks: kaldırıldı -> {target}")
+    return 0
+
+
+def _cmd_hooks_status(args: argparse.Namespace) -> int:
+    """SPEC 034: hook durumu (kurulu mu, imza, şablonla eş mi)."""
+    import json as _json
+
+    target = _resolve_hook_target()
+    template = _hook_template_text()
+    result: dict[str, Any] = {
+        "template_path": str(_HOOK_TEMPLATE_PATH),
+        "template_present": template is not None,
+        "target_path": str(target) if target else None,
+        "target_present": target.is_file() if target else False,
+        "target_is_atlas": False,
+        "target_up_to_date": False,
+    }
+    if target and target.is_file():
+        text = target.read_text(encoding="utf-8", errors="replace")
+        result["target_is_atlas"] = _is_atlas_hook(text)
+        if template is not None:
+            result["target_up_to_date"] = text == template
+
+    if getattr(args, "json", False):
+        print(_json.dumps(result, ensure_ascii=False))
+        return 0
+
+    print("=== ATLAS hooks — durum ===")
+    print(f"  şablon: {result['template_path']} "
+          f"({'var' if result['template_present'] else 'YOK'})")
+    if target is None:
+        print("  hedef: (.git yok — repo değil)")
+        return 0
+    print(f"  hedef: {result['target_path']}")
+    if not result["target_present"]:
+        print("    durum: kurulu değil")
+        return 0
+    if not result["target_is_atlas"]:
+        print("    durum: kurulu (ATLAS shim'i DEĞİL)")
+        return 0
+    if result["target_up_to_date"]:
+        print("    durum: kurulu (ATLAS shim'i, güncel)")
+    else:
+        print("    durum: kurulu (ATLAS shim'i, ŞABLONLA UYUŞMUYOR — "
+              "`atlas hooks install` ile güncelle)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # SPEC 022: `.env` otomatik yükleme (proje kökü veya ATLAS_DOTENV).
     # Shell env override etmez; yalnız eksik değişkenleri doldurur.
@@ -1556,6 +1727,18 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 029: cache-hit oranı bu %'den düşükse "
                             "stderr UYARI + exit 8 (0 kapatır)")
     p_met.set_defaults(func=_cmd_metrics)
+
+    p_hooks = sub.add_parser("hooks", help="Git pre-commit hook yönetimi (SPEC 034)")
+    hooks_sub = p_hooks.add_subparsers(dest="hooks_cmd", required=True)
+    p_hi = hooks_sub.add_parser("install", help="pre-commit shim kur")
+    p_hi.add_argument("--force", action="store_true",
+                      help="mevcut yabancı hook'u üzerine yaz")
+    p_hi.set_defaults(func=_cmd_hooks_install)
+    p_hu = hooks_sub.add_parser("uninstall", help="ATLAS shim'ini kaldır")
+    p_hu.set_defaults(func=_cmd_hooks_uninstall)
+    p_hs = hooks_sub.add_parser("status", help="Hook durumunu göster")
+    p_hs.add_argument("--json", action="store_true", help="JSON çıktı")
+    p_hs.set_defaults(func=_cmd_hooks_status)
 
     p_doc = sub.add_parser("doctor",
                            help="Env sağlık özeti + quality gate (SPEC 021/032)")
