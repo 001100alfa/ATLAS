@@ -205,10 +205,10 @@ def test_0263_apply_erken_cikis_uc_none() -> None:
 def test_0263_windows_cpu_quota_kesir(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """`CPU_S=1` iken sonsuz döngü CPU quota'da ölür (3.5 sn'den kısa)."""
+    """`CPU_S=1` iken sonsuz döngü CPU quota'da ölür (timeout 12 sn'nin altında)."""
     py = _py_cmd()
     monkeypatch.setenv("ATLAS_SANDBOX_CPU_S", "1")
-    monkeypatch.setenv("ATLAS_SANDBOX_TIMEOUT", "8.0")  # timeout > cpu_s
+    monkeypatch.setenv("ATLAS_SANDBOX_TIMEOUT", "12.0")  # timeout > cpu_s (yükte marj)
     action = make_action(_goal_shell(), tmp_path)
     t0 = time.monotonic()
     obs, _ = action(f"shell:{py} -c \"while True: pass\"")
@@ -217,8 +217,9 @@ def test_0263_windows_cpu_quota_kesir(
     exit_str = obs.split("exit=")[1].split()[0]
     exit_code = int(exit_str)
     assert exit_code != 0, f"CPU quota calışmadı, exit={exit_code}"
-    # 3.5 sn'den kısa: CPU quota kesti, timeout değil
-    assert elapsed < 3.5, f"CPU quota çok yavaş: {elapsed:.1f}s"
+    # Timeout'a takılmadı (12 sn) — CPU quota kesti. Yüklü CI'de 3.5s
+    # marjini yetmiyordu (bkz. flaky #032 turu); 8 sn güvenli.
+    assert elapsed < 8.0, f"CPU quota çok yavaş: {elapsed:.1f}s"
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")

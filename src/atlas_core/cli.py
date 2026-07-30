@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -868,8 +869,91 @@ def _run_anthropic_ping(warnings: list[str]) -> dict[str, Any] | None:
     }
 
 
+# ─────────────────────────────────────────────────────────────────────
+# SPEC 032: Quality gate (DECISIONS drift denetimi)
+# ─────────────────────────────────────────────────────────────────────
+
+_DECISIONS_MD_DEFAULT = Path("DECISIONS.md")
+_DECISIONS_DATE_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})")
+
+
+def _last_decision_date(path: Path) -> date | None:
+    """SPEC 032: DECISIONS.md'de ilk (en yeni) `^## YYYY-MM-DD` girişini
+    parse eder. Ters-kronolojik dosya sözleşmesi (en yeni üstte).
+    Dosya yok veya tarih bulunamadı → None. Bozuk tarih → atla, devam.
+    """
+    if not path.is_file():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        m = _DECISIONS_DATE_RE.match(line)
+        if not m:
+            continue
+        try:
+            return date.fromisoformat(m.group(1))
+        except ValueError:
+            # Yıl/ay/gün mantıksal aralık dışı → sıradaki başlığa geç.
+            continue
+    return None
+
+
+def _read_strict_drift_days_env() -> int:
+    """SPEC 032: `ATLAS_STRICT_DRIFT_DAYS` (varsayılan 7).
+    Parse hatası / 0 / negatif → varsayılan (018/026 fail-safe kalıbı).
+    """
+    raw = os.environ.get("ATLAS_STRICT_DRIFT_DAYS", "").strip()
+    if not raw:
+        return 7
+    try:
+        n = int(raw)
+    except ValueError:
+        return 7
+    return n if n > 0 else 7
+
+
+def _check_decisions_drift(
+    decisions_path: Path | None = None,
+    today: date | None = None,
+) -> dict[str, Any]:
+    """SPEC 032: DECISIONS.md son giriş vs bugün tarih farkı.
+
+    Döner: `{path, threshold_days, last_date, drift_days, warning}`.
+    - `warning is None` → drift yok, temiz.
+    - `warning: str` → uyarı gövdesi (Türkçe); `--strict` bunu exit 9'a
+      çevirir.
+    """
+    path = decisions_path or _DECISIONS_MD_DEFAULT
+    threshold_days = _read_strict_drift_days_env()
+    last = _last_decision_date(path)
+    today_d = today or date.today()
+    result: dict[str, Any] = {
+        "path": str(path),
+        "threshold_days": threshold_days,
+        "last_date": None,
+        "drift_days": None,
+        "warning": None,
+    }
+    if last is None:
+        result["warning"] = (
+            f"DECISIONS.md yok veya tarih parse edilemedi ({path})"
+        )
+        return result
+    result["last_date"] = last.isoformat()
+    drift = (today_d - last).days
+    result["drift_days"] = drift
+    if drift >= threshold_days:
+        result["warning"] = (
+            f"DECISIONS.md son giriş {drift} gün önce ({last.isoformat()}), "
+            f"eşik {threshold_days} gün."
+        )
+    return result
+
+
 def _collect_doctor_report() -> dict[str, Any]:
-    """SPEC 021 + 021.1: env sağlık özetini yapılandırılmış dict olarak topla.
+    """SPEC 021 + 021.1 + 032: env sağlık özetini yapılandırılmış dict olarak topla.
 
     Şema:
     ```
@@ -877,7 +961,8 @@ def _collect_doctor_report() -> dict[str, Any]:
       "backend": {...},
       "retry_pricing": {...},
       "storage": {...},
-      "warnings": [str, ...]
+      "warnings": [str, ...],
+      "quality": {"decisions_drift": {...}}  # SPEC 032
     }
     ```
     API key maskeli. Uyarılar warnings listesinde.
@@ -961,19 +1046,26 @@ def _collect_doctor_report() -> dict[str, Any]:
         "ATLAS_ARCHIVE_AGE_DAYS": os.environ.get("ATLAS_ARCHIVE_AGE_DAYS", "7"),
     }
 
+    # SPEC 032: DECISIONS.md drift denetimi (her zaman raporlanır;
+    # --strict yalnız exit koduna dönüştürür).
+    quality = {"decisions_drift": _check_decisions_drift()}
+
     return {
         "backend": backend_info,
         "retry_pricing": retry_pricing,
         "storage": storage,
         "warnings": warnings,
+        "quality": quality,
     }
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
-    """SPEC 021 + 021.1 + 021.2: env sağlık özeti (read-only, exit 0).
+    """SPEC 021 + 021.1 + 021.2 + 032: env sağlık özeti + quality gate.
 
     `--json` bayrağı verilirse tek satır JSON; yoksa insan-okunur.
     `--ping` bayrağı Anthropic'e minimum request atar, latency+cost raporlar.
+    `--strict` bayrağı DECISIONS drift uyarısı varsa exit 9 döner
+    (SPEC 032). `--strict` yoksa mevcut davranış (exit 0) korunur.
     """
     report = _collect_doctor_report()
 
@@ -985,6 +1077,12 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     if getattr(args, "json", False):
         import json as _json
         print(_json.dumps(report, ensure_ascii=False))
+        # SPEC 032: --json + --strict → drift uyarısı varsa yine exit 9.
+        # JSON çıktısı bası korunur (CI script'i dosyaya kaydedebilir),
+        # yalnız exit kodu değişir.
+        drift_j = report.get("quality", {}).get("decisions_drift", {})
+        if getattr(args, "strict", False) and drift_j.get("warning"):
+            return 9
         return 0
 
     warnings = report["warnings"]
@@ -1050,6 +1148,24 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     for w in warnings:
         if w.startswith(("--ping ", "ping başarısız")):
             print(f"[!] {w}")
+
+    # SPEC 032: [Kalite kapıları] bölümü
+    quality = report.get("quality", {})
+    drift = quality.get("decisions_drift", {})
+    print("\n[Kalite kapıları]")
+    print(f"  DECISIONS.md: {drift.get('path', '(yok)')}")
+    if drift.get("last_date"):
+        print(f"  son giriş: {drift['last_date']} "
+              f"({drift['drift_days']} gün önce, "
+              f"eşik {drift['threshold_days']} gün)")
+    else:
+        print(f"  son giriş: (bulunamadı, eşik {drift.get('threshold_days', 7)} gün)")
+    if drift.get("warning"):
+        print(f"  [!] {drift['warning']}")
+
+    # SPEC 032: --strict → drift uyarısı varsa exit 9
+    if getattr(args, "strict", False) and drift.get("warning"):
+        return 9
 
     return 0
 
@@ -1441,11 +1557,14 @@ def main(argv: list[str] | None = None) -> int:
                             "stderr UYARI + exit 8 (0 kapatır)")
     p_met.set_defaults(func=_cmd_metrics)
 
-    p_doc = sub.add_parser("doctor", help="Env sağlık özeti (SPEC 021)")
+    p_doc = sub.add_parser("doctor",
+                           help="Env sağlık özeti + quality gate (SPEC 021/032)")
     p_doc.add_argument("--json", action="store_true",
                        help="JSON çıktı (CI/pre-flight uyumlu) — SPEC 021.1")
     p_doc.add_argument("--ping", action="store_true",
                        help="Anthropic'e minimum request at, latency+cost raporla — SPEC 021.2")
+    p_doc.add_argument("--strict", action="store_true",
+                       help="SPEC 032: DECISIONS drift uyarısı varsa exit 9")
     p_doc.set_defaults(func=_cmd_doctor)
 
     args = parser.parse_args(argv)
