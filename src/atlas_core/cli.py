@@ -1579,6 +1579,50 @@ _HOOK_TEMPLATE_PATH = Path("tools/hooks/pre-commit")
 _HOOK_TARGET_REL = Path(".git/hooks/pre-commit")
 
 
+def _find_hook_shell() -> str | None:
+    """SPEC 034.1: Hook için sh yolunu bul.
+
+    - Non-Windows: her zaman `"sh"` (POSIX standart, path arama gereksiz).
+    - Windows: `sh.exe` PATH'te ya da Git for Windows klasik yollarında
+      veya depo-yerel `tools/git/usr/bin/sh.exe` (memory 2026-07-28
+      taşınabilir kurulum). Bulunamazsa None.
+
+    Depo-yerel ÖNCE — proje-içi taşınabilir kurulum kullanıcı home'unu
+    kirletmez ve makine-özel yollarını görmezden gelmez.
+    """
+    import shutil as _shutil
+
+    if sys.platform != "win32":
+        return "sh"
+
+    # Depo-yerel taşınabilir git (2026-07-28 kalıbı)
+    portable = Path("tools/git/usr/bin/sh.exe")
+    if portable.is_file():
+        return str(portable.resolve())
+
+    # PATH taraması
+    for name in ("sh", "sh.exe"):
+        found = _shutil.which(name)
+        if found:
+            return found
+
+    # Klasik Git for Windows kurulum yolları
+    candidates = [
+        os.environ.get("ProgramFiles", ""),
+        os.environ.get("ProgramFiles(x86)", ""),
+        os.environ.get("LOCALAPPDATA", ""),
+    ]
+    for base in candidates:
+        if not base:
+            continue
+        for tail in (r"Git\usr\bin\sh.exe", r"Programs\Git\usr\bin\sh.exe"):
+            p = Path(base) / tail
+            if p.is_file():
+                return str(p.resolve())
+
+    return None
+
+
 def _hook_template_text() -> str | None:
     """SPEC 034: `tools/hooks/pre-commit` şablon metnini oku.
 
@@ -1663,6 +1707,15 @@ def _cmd_hooks_install(args: argparse.Namespace) -> int:
     except OSError:
         pass
     print(f"hooks: kuruldu -> {target}")
+
+    # SPEC 034.1: Windows'ta sh.exe yoksa install BAŞARILI ama uyarı
+    if _find_hook_shell() is None:
+        print(
+            "[!] Windows'ta sh.exe bulunamadı — hook çalıştırılamaz. "
+            "Git for Windows kurun (git-bash) veya tools/git/usr/bin/sh.exe "
+            "ile taşınabilir git ekleyin.",
+            file=sys.stderr,
+        )
     return 0
 
 
@@ -1697,11 +1750,13 @@ def _cmd_hooks_uninstall(_args: argparse.Namespace) -> int:
 
 
 def _cmd_hooks_status(args: argparse.Namespace) -> int:
-    """SPEC 034: hook durumu (kurulu mu, imza, şablonla eş mi)."""
+    """SPEC 034 + 034.1: hook durumu (kurulu mu, imza, şablonla eş mi,
+    shell bulunuyor mu)."""
     import json as _json
 
     target = _resolve_hook_target()
     template = _hook_template_text()
+    shell = _find_hook_shell()
     result: dict[str, Any] = {
         "template_path": str(_HOOK_TEMPLATE_PATH),
         "template_present": template is not None,
@@ -1709,6 +1764,9 @@ def _cmd_hooks_status(args: argparse.Namespace) -> int:
         "target_present": target.is_file() if target else False,
         "target_is_atlas": False,
         "target_up_to_date": False,
+        # SPEC 034.1: sh guard
+        "shell_available": shell is not None,
+        "shell_path": shell,
     }
     if target and target.is_file():
         text = target.read_text(encoding="utf-8", errors="replace")
@@ -1725,19 +1783,22 @@ def _cmd_hooks_status(args: argparse.Namespace) -> int:
           f"({'var' if result['template_present'] else 'YOK'})")
     if target is None:
         print("  hedef: (.git yok — repo değil)")
-        return 0
-    print(f"  hedef: {result['target_path']}")
-    if not result["target_present"]:
-        print("    durum: kurulu değil")
-        return 0
-    if not result["target_is_atlas"]:
-        print("    durum: kurulu (ATLAS shim'i DEĞİL)")
-        return 0
-    if result["target_up_to_date"]:
-        print("    durum: kurulu (ATLAS shim'i, güncel)")
     else:
-        print("    durum: kurulu (ATLAS shim'i, ŞABLONLA UYUŞMUYOR — "
-              "`atlas hooks install` ile güncelle)")
+        print(f"  hedef: {result['target_path']}")
+        if not result["target_present"]:
+            print("    durum: kurulu değil")
+        elif not result["target_is_atlas"]:
+            print("    durum: kurulu (ATLAS shim'i DEĞİL)")
+        elif result["target_up_to_date"]:
+            print("    durum: kurulu (ATLAS shim'i, güncel)")
+        else:
+            print("    durum: kurulu (ATLAS shim'i, ŞABLONLA UYUŞMUYOR — "
+                  "`atlas hooks install` ile güncelle)")
+    # SPEC 034.1: shell tanısı
+    if shell is None:
+        print("  shell: YOK — Windows'ta sh.exe bulunamadı (git-bash yok)")
+    else:
+        print(f"  shell: {shell}")
     return 0
 
 

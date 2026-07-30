@@ -254,3 +254,113 @@ def test_034_status_json(
     assert data["target_is_atlas"] is True
     assert data["target_up_to_date"] is True
     assert data["template_present"] is True
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 034.1 — Windows sh.exe guard + shell tespiti
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_0341_find_shell_non_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Non-Windows'ta her zaman `'sh'` döner (POSIX standart)."""
+    from atlas_core.cli import _find_hook_shell
+
+    monkeypatch.setattr("sys.platform", "linux")
+    assert _find_hook_shell() == "sh"
+
+
+def test_0341_find_shell_windows_depo_yerel_oncelik(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows'ta depo-yerel `tools/git/usr/bin/sh.exe` PATH'ten önce gelir."""
+    from atlas_core.cli import _find_hook_shell
+
+    monkeypatch.setattr("sys.platform", "win32")
+    # Sahte depo-yerel sh.exe
+    local_sh = tmp_path / "tools" / "git" / "usr" / "bin" / "sh.exe"
+    local_sh.parent.mkdir(parents=True)
+    local_sh.write_bytes(b"")
+    monkeypatch.chdir(tmp_path)
+    result = _find_hook_shell()
+    assert result is not None
+    assert result.endswith("sh.exe")
+    # Path resolve edilmiş olmalı; tam eşleşme için normcase
+    import os
+
+    assert os.path.normcase(result) == os.path.normcase(str(local_sh.resolve()))
+
+
+def test_0341_find_shell_windows_bulunamadi(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows + hiçbir shell bulunamıyor → None."""
+    from atlas_core.cli import _find_hook_shell
+
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.chdir(tmp_path)  # boş dizin; tools/git yok
+    # shutil.which mock — hem 'sh' hem 'sh.exe' None
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    # Klasik Git for Windows dizinlerini de gizle
+    monkeypatch.delenv("ProgramFiles", raising=False)
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    assert _find_hook_shell() is None
+
+
+def test_0341_install_shell_yok_uyari(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`hooks install` shell yoksa exit 0 + stderr uyarı."""
+    from atlas_core import cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_find_hook_shell", lambda: None)
+    rc = main(["hooks", "install"])
+    assert rc == 0  # install yine başarılı
+    captured = capsys.readouterr()
+    assert "kuruldu" in captured.out
+    assert "sh.exe bulunamadı" in captured.err
+    assert "git-bash" in captured.err.lower() or "Git for Windows" in captured.err
+
+
+def test_0341_install_shell_var_temiz(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`hooks install` shell varsa uyarı YOK (bit-uyumlu 034)."""
+    from atlas_core import cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_find_hook_shell", lambda: "/usr/bin/sh")
+    rc = main(["hooks", "install"])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "bulunamadı" not in err
+
+
+def test_0341_status_shell_alanlari(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`hooks status --json` shell_available + shell_path alanlarını içerir."""
+    from atlas_core import cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_find_hook_shell", lambda: "/fake/sh")
+    rc = main(["hooks", "status", "--json"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out.strip())
+    assert data["shell_available"] is True
+    assert data["shell_path"] == "/fake/sh"
+
+
+def test_0341_status_shell_yok_insan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Shell yok + insan format → 'shell: YOK' satırı."""
+    from atlas_core import cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_find_hook_shell", lambda: None)
+    rc = main(["hooks", "status"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "shell: YOK" in out
