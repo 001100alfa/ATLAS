@@ -22,10 +22,12 @@ if not exist "%AICLI%\py-venv\Scripts\kimi.exe" (
   "%AICLI%\py-venv\Scripts\python.exe" -m pip install --quiet kimi-cli || ( echo [HATA] kimi kurulamadi. & exit /b 1 )
 )
 
-set "GOOSE_VERSION=1.44.0"
+set "GOOSE_VERSION=1.45.0"
 echo [3/3] Goose ^(Windows binary v%GOOSE_VERSION%^)...
 set "GEXE=%H%tools\goose\goose-package\goose.exe"
-if not exist "%GEXE%" (
+set "HAVE_GOOSE="
+if exist "%GEXE%" for /f "usebackq tokens=1" %%V in (`""%GEXE%" --version" 2^>nul`) do set "HAVE_GOOSE=%%V"
+if not "%HAVE_GOOSE%"=="%GOOSE_VERSION%" (
   set "GZIP=%TEMP%\goose-win-msvc.zip"
   curl -sL -o "%TEMP%\goose-win-msvc.zip" "https://github.com/block/goose/releases/download/v%GOOSE_VERSION%/goose-x86_64-pc-windows-msvc.zip" || ( echo [HATA] goose indirilemedi. & exit /b 1 )
   if not exist "%H%tools\goose" md "%H%tools\goose"

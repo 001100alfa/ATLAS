@@ -239,6 +239,14 @@ def job_argv(action: str, root: Path) -> tuple[list[str], str] | None:
     if action in ("install-clis", "update-goose"):
         script = root / "setup-ai-cli.cmd"
         return ((["cmd.exe", "/c", str(script)] if IS_WIN else [str(script)]), "AI CLI kurulumu")
+    if action == "update-agents-outdated":
+        # Toplu güncelleyici: eski ACP ajanlarını sırayla, canlı çıktıyla, tek
+        # işte günceller. Doctor sunucusunun kendi Python'u çağrılır — depoya
+        # gömülü yorumlayıcı kullanıcının PATH'ine güvenmez.
+        return (
+            [sys.executable, "-X", "utf8", "-m", "tools.doctor_gui.updater"],
+            "Tüm eski ACP ajanları güncelleniyor",
+        )
 
     if action.startswith("update-"):
         agent = action[len("update-") :]

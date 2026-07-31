@@ -728,6 +728,29 @@ def check_agents(root: Path, want_remote: bool = True) -> list[Finding]:
                 fix_label="Güncelle" if outdated else None,
             )
         )
+
+    # Toplu güncelleme botu: 2+ eski ajan varsa tek düğmeyle hepsini sırayla
+    # günceller (updater.py). Tek ajan güncel değilse ilgili "Güncelle" düğmesi
+    # zaten yeter; batch bulgusu yalnız tekrar eden manuel işi ortadan kaldırır.
+    outdated_names = sorted(
+        {f.fix[len("update-") :] for f in out if (f.fix or "").startswith("update-")}
+    )
+    if len(outdated_names) >= 2:
+        out.append(
+            _f(
+                id="agents.outdated-batch",
+                area="ACP ajanları",
+                title=f"{len(outdated_names)} ajanın yeni sürümü var",
+                status=WARN,
+                detail="Eski: " + ", ".join(outdated_names),
+                cause="Birden fazla ACP ajanı güncelliğini kaybetmiş.",
+                remedy="Önce ajan/panel süreçleri kapatılır (EBUSY önleme); ardından her "
+                "ajan sırayla güncellenir. Çıktı canlı akar; bir ajan düşse de kalanlar "
+                "denenir ve özet fail listesi verilir. Sonra 'Canlı sağlık' adımını tekrarlayın.",
+                fix="update-agents-outdated",
+                fix_label=f"Hepsini güncelle ({len(outdated_names)} ajan)",
+            )
+        )
     return out
 
 

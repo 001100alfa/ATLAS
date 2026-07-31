@@ -365,3 +365,71 @@ def test_baseline_file_is_json(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(versions, "local_versions", lambda _r=None: {"a": "1.0.0"})
     p = checks.write_baseline(tmp_path, {"a": "1.0.0"})
     json.loads(p.read_text(encoding="utf-8"))
+
+
+# --- toplu güncelleme botu ---------------------------------------------------
+
+
+def _fake_agent_specs(root: Path, names: list[str]) -> dict:
+    """`agent_specs` çıktısını taklit et: her ajan için mevcut bir bin oluşturur."""
+    specs: dict[str, dict] = {}
+    for n in names:
+        p = root / f"{n}.exe"
+        p.write_text("", encoding="utf-8")
+        specs[n] = {"label": n.capitalize(), "bin": str(p)}
+    return specs
+
+
+def test_agents_outdated_batch_finding_appears_for_two_or_more(
+    tmp_path: Path, monkeypatch
+):
+    """İki ve üstü ajan güncel değilse tek düğmeli batch bulgusu çıkar."""
+    specs = _fake_agent_specs(tmp_path, ["opencode", "kilo", "cline"])
+    monkeypatch.setattr(checks, "agent_specs", lambda _r: specs)
+    monkeypatch.setattr(checks.profile_sync, "disabled_agents", lambda _r: set())
+    monkeypatch.setattr(
+        versions,
+        "local_versions",
+        lambda _r=None: {"opencode": "1.0.0", "kilo": "1.0.0", "cline": "1.0.0"},
+    )
+    monkeypatch.setattr(
+        versions,
+        "remote_latest",
+        lambda name: {"opencode": "1.0.1", "kilo": "1.0.1", "cline": "1.0.0"}.get(name),
+    )
+    findings = checks.check_agents(tmp_path, want_remote=True)
+    batch = [f for f in findings if f.id == "agents.outdated-batch"]
+    assert batch, "2 eski ajan varken batch bulgusu gorunmedi"
+    assert batch[0].fix == "update-agents-outdated"
+    assert "2 ajan" in (batch[0].fix_label or "")
+    assert "opencode" in batch[0].detail and "kilo" in batch[0].detail
+
+
+def test_agents_outdated_batch_finding_absent_for_single(
+    tmp_path: Path, monkeypatch
+):
+    """Tek eski ajan varken batch bulgusu bastirilir; ilgili 'Guncelle' yeter."""
+    specs = _fake_agent_specs(tmp_path, ["opencode", "kilo"])
+    monkeypatch.setattr(checks, "agent_specs", lambda _r: specs)
+    monkeypatch.setattr(checks.profile_sync, "disabled_agents", lambda _r: set())
+    monkeypatch.setattr(
+        versions, "local_versions", lambda _r=None: {"opencode": "1.0.0", "kilo": "1.0.0"}
+    )
+    monkeypatch.setattr(
+        versions,
+        "remote_latest",
+        lambda name: {"opencode": "1.0.1", "kilo": "1.0.0"}.get(name),
+    )
+    findings = checks.check_agents(tmp_path, want_remote=True)
+    ids = [f.id for f in findings]
+    assert "agents.outdated-batch" not in ids
+
+
+def test_update_agents_outdated_argv_calls_updater_module(tmp_path: Path):
+    """job_argv kullanicinin PATH'ine guvenmeden ATLAS'in Python'unu cagirir."""
+    spec = fixes.job_argv("update-agents-outdated", tmp_path)
+    assert spec is not None
+    argv, title = spec
+    assert "-m" in argv and "tools.doctor_gui.updater" in argv
+    assert argv[0].endswith("python.exe") or argv[0].endswith("python")
+    assert "eski" in title.lower()
