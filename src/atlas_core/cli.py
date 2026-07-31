@@ -2220,6 +2220,74 @@ def _cmd_vault_restore(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_vault_verify(args: argparse.Namespace) -> int:
+    """SPEC 042: `atlas vault verify [--json] [--strict]` — graf sağlığı.
+
+    Vault (Obsidian-uyumlu) üzerinde salt-okunur analiz:
+      - kırık `[[wikilink]]` (hedef notu vault'ta yok)
+      - orfan not (ne link veren ne link alan — bakım sinyali)
+      - orfan tag (yalnız bir notta geçen `#tag`)
+
+    Exit kodları:
+      - 0: başarılı (bulgu olsa da; `--strict` yoksa uyarı)
+      - 2: SPEC HATASI (vault dizini yok)
+      - 4: `--strict` verildi ve rapor temiz değil
+    """
+    import json as _json
+
+    from atlas_core.memory.vault import Vault
+    from atlas_core.memory.vault_verify import verify_graph
+
+    vault_root = Path(args.vault_root) if args.vault_root else _vault_root()
+    if not vault_root.is_dir():
+        print(
+            f"SPEC HATASI: vault dizini yok: {vault_root}",
+            file=sys.stderr,
+        )
+        return 2
+
+    vault = Vault(vault_root)
+    graph = vault.graph()
+    report = verify_graph(graph)
+
+    audit = AuditLog(_audit_path())
+    audit.record("atlas-vault", "verify", str(vault_root))
+
+    if getattr(args, "json", False):
+        indent = 2 if getattr(args, "pretty", False) else None
+        print(_json.dumps(report.to_dict(), ensure_ascii=False, indent=indent))
+    else:
+        print(f"=== ATLAS vault verify ({vault_root}) ===")
+        print(f"  notlar:  {report.notes_total}")
+        print(f"  linkler: {report.links_total}")
+        print(f"  taglar:  {report.tags_total}")
+        print(f"  kırık link: {len(report.broken_links)}")
+        print(f"  orfan not:  {len(report.orphan_notes)}")
+        print(f"  orfan tag:  {len(report.orphan_tags)}")
+        if report.broken_links:
+            print("\n  ilk 10 kırık link:")
+            for b in report.broken_links[:10]:
+                print(f"    {b.frm} -> {b.to}")
+        if report.orphan_notes:
+            print("\n  ilk 10 orfan not:")
+            for n in report.orphan_notes[:10]:
+                print(f"    {n}")
+        if report.orphan_tags:
+            print("\n  ilk 10 orfan tag:")
+            for t in report.orphan_tags[:10]:
+                print(f"    #{t}")
+        if report.is_clean:
+            print("\n  ✔ temiz")
+
+    if getattr(args, "strict", False) and not report.is_clean:
+        print(
+            "SAĞLIK BAŞARISIZ: --strict verildi, bulgular var",
+            file=sys.stderr,
+        )
+        return 4
+    return 0
+
+
 def _cmd_scan(args: argparse.Namespace) -> int:
     """`atlas scan <path>` — sır taraması (bağımsız komut).
 
@@ -2940,6 +3008,19 @@ def main(argv: list[str] | None = None) -> int:
     p_vr.add_argument("--vault-root", default=None,
                       help="Hedef vault kökü (env: ATLAS_VAULT; varsayılan vault)")
     p_vr.set_defaults(func=_cmd_vault_restore)
+    # SPEC 042: vault verify (graf sağlığı)
+    p_vv = vault_sub.add_parser(
+        "verify", help="Vault graf sağlığı: kırık link/orfan not-tag (SPEC 042)",
+    )
+    p_vv.add_argument("--vault-root", default=None,
+                      help="Vault kökü (env: ATLAS_VAULT; varsayılan vault)")
+    p_vv.add_argument("--json", action="store_true",
+                      help="JSON rapor çıktısı")
+    p_vv.add_argument("--pretty", action="store_true",
+                      help="--json ile birlikte girintili çıktı (indent=2)")
+    p_vv.add_argument("--strict", action="store_true",
+                      help="Bulgu varsa exit 4 (CI/pre-commit uyumlu)")
+    p_vv.set_defaults(func=_cmd_vault_verify)
 
     p_arc = sub.add_parser("archive", help="Tamamlanmış görevi arşive taşı")
     p_arc.add_argument("task", nargs="?", default=None,
