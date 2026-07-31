@@ -16,6 +16,8 @@ import tarfile
 from datetime import datetime
 from pathlib import Path
 
+from atlas_core.utils.safe_tar import UnsafeTarMemberError, verify_tar_members
+
 
 class VaultBackupError(RuntimeError):
     """SPEC 041: Vault yedekleme/geri yükleme hatası."""
@@ -110,21 +112,12 @@ def restore_vault(tar_path: Path, target_root: Path) -> Path:
     try:
         with tarfile.open(tar_path, "r:gz") as tar:
             members = tar.getmembers()
-            for m in members:
-                name = m.name.replace("\\", "/")
-                if name.startswith("/") or ".." in name.split("/"):
-                    raise VaultBackupError(
-                        f"güvensiz üye adı (path traversal?): {m.name}"
-                    )
-                if ":" in name:
-                    raise VaultBackupError(
-                        f"güvensiz üye adı (kolon): {m.name}"
-                    )
-                first = name.split("/", 1)[0]
-                if first != _ARCNAME:
-                    raise VaultBackupError(
-                        f"beklenmeyen kök: '{first}' (bekleniyor: '{_ARCNAME}')"
-                    )
+            # SPEC 049: ortak güvenlik doğrulaması.
+            # Mesaj metni SPEC 041 sözleşmesini korur.
+            try:
+                verify_tar_members(members, _ARCNAME)
+            except UnsafeTarMemberError as exc:
+                raise VaultBackupError(str(exc)) from exc
             tar.extractall(tmp_extract, filter="data")  # noqa: S202
         extracted = tmp_extract / _ARCNAME
         if not extracted.is_dir():

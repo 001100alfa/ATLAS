@@ -11,6 +11,7 @@ from datetime import date
 from pathlib import Path
 
 from atlas_core.memory.vault import Vault
+from atlas_core.utils.safe_tar import UnsafeTarMemberError, verify_tar_members
 
 
 class RestoreError(RuntimeError):
@@ -107,32 +108,19 @@ def restore_task(
             f"hedef zaten var: {restored_dir} (önce silin veya taşıyın)"
         )
     tasks_root.mkdir(parents=True, exist_ok=True)
-    # Path traversal + kolon (Windows) engelle: her üyenin arcname'i
-    # `<task_id>/…` altında olmalı, mutlak/yukarı-tırmanış yok.
+    # SPEC 049: Path traversal + kolon + kök arcname kontrolü ortak
+    # yardımcıya (`utils/safe_tar.py`). Mesaj metni korunur — mevcut
+    # SPEC 033 test sözleşmesi (regex match) bit-uyumlu.
     try:
         with tarfile.open(tar_path, "r:gz") as tar:
             members = tar.getmembers()
-            for m in members:
-                # Mutlak yol veya `..` içeriyorsa reddet
-                name = m.name.replace("\\", "/")
-                if name.startswith("/") or ".." in name.split("/"):
-                    raise RestoreError(
-                        f"güvensiz üye adı (path traversal?): {m.name}"
-                    )
-                # Windows kolon (`:`) kontrolü — NTFS'de ADS
-                if ":" in name:
-                    raise RestoreError(
-                        f"güvensiz üye adı (kolon): {m.name}"
-                    )
-                # `arcname` ilk bileşen task_id olmalı
-                first = name.split("/", 1)[0]
-                if first != task_id:
-                    raise RestoreError(
-                        f"beklenmeyen kök: '{first}' (bekleniyor: '{task_id}')"
-                    )
-            # Python 3.14 default filter — 'data' güvenli mod
-            # (symlinks/absolute paths reddeder). Üyeler zaten yukarıda
-            # doğrulandı; ekstra bir güvenlik katmanı.
+            try:
+                verify_tar_members(members, task_id)
+            except UnsafeTarMemberError as exc:
+                raise RestoreError(str(exc)) from exc
+            # Python 3.12+ 'data' filter — symlink/absolute reddi.
+            # Üyeler zaten `verify_tar_members` ile doğrulandı;
+            # defense-in-depth ikinci kat.
             tar.extractall(tasks_root, filter="data")  # noqa: S202
     except (OSError, tarfile.TarError) as exc:
         # Yarım açılmış olabilir → temizle
