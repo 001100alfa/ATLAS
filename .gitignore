@@ -56,3 +56,9 @@ juggler-profile/home/
 # Taşınabilir çalışma zamanları (tools.portable.vendor indirir; ~200 MB)
 tools/node/
 tools/git/
+
+# SPEC 044: DOCTOR GUI ekran görüntüleri — debug/test amaçlı, commit edilmez.
+# 22. tur (b5ce74c) doctor toplu güncelleyicisinin canlı ekran çıktısı;
+# `git add -A` gafına iki tur kaldı (23. tur 041.1'de bir kez temizlendi).
+DOCTOR_cmd.png
+DOCTOR_*.png
