@@ -1,17 +1,16 @@
 #!/usr/bin/env sh
-# atlas-hook v2
-# SPEC 034 + 032.2: ATLAS pre-commit — quality gate + sır taraması TEK
-# komutta birleşik (v1'de iki ayrı komut çağrılıyordu).
+# atlas-hook v3
+# SPEC 034 + 032.2 + 045: ATLAS pre-commit — quality gate + sır taraması
+# + vault graf sağlığı TEK komut zincirinde.
 #
 # `atlas hooks install` bu şablonu `.git/hooks/pre-commit`'e kopyalar.
 # `atlas hooks uninstall` ikinci satırdaki `atlas-hook` imzasına bakıp
-# ATLAS'ın koyduğu hook olduğunu doğrular.
+# ATLAS'ın koyduğu hook olduğunu doğrular (versiyon bilinçsiz).
 #
 # Değişiklikler burada yapılmalı; `hooks install --force` ile yayılır.
 set -e
 
-# Tek quality gate: DECISIONS drift + entry count + vault health + sır taraması.
-# Herhangi biri exit != 0 → commit engellenir.
+# Kapı 1: DECISIONS drift + entry count + vault health + sır taraması.
 if ! atlas doctor --strict --scan-src; then
     echo "" >&2
     echo "[pre-commit] atlas doctor --strict --scan-src başarısız — commit engellendi." >&2
@@ -21,6 +20,19 @@ if ! atlas doctor --strict --scan-src; then
     echo "  - src/'te sır varsa temizle (scan_src)." >&2
     echo "  - Geçici gevşetme: ATLAS_STRICT_DRIFT_DAYS / MIN_ENTRIES env." >&2
     exit 1
+fi
+
+# Kapı 2 (SPEC 045): vault graf sağlığı — kırık [[wikilink]] veya orfan
+# not/tag. Fresh clone veya vault-less proje için nazik: `vault/` dizini
+# yoksa sessizce atla (SPEC HATASI exit 2 vermez).
+if [ -d vault ]; then
+    if ! atlas vault verify --strict; then
+        echo "" >&2
+        echo "[pre-commit] atlas vault verify --strict başarısız — commit engellendi." >&2
+        echo "Çözüm: kırık [[wikilink]] veya orfan not/tag'i düzelt." >&2
+        echo "Rapor: atlas vault verify (bayraksız insan çıktısı)." >&2
+        exit 1
+    fi
 fi
 
 exit 0

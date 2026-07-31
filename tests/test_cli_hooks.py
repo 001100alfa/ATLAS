@@ -364,3 +364,60 @@ def test_0341_status_shell_yok_insan(
     assert rc == 0
     out = capsys.readouterr().out
     assert "shell: YOK" in out
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 045 — pre-commit hook şablonunda vault verify --strict gate'i
+# ═════════════════════════════════════════════════════════════════════
+#
+# NOT: `_clean_env` autouse fixture'ı `_HOOK_TEMPLATE_PATH`'i sahte
+# fixture şablonuna monkeypatch ediyor. Gerçek `tools/hooks/pre-commit`
+# şablonunu okumak için repo kökünden explicit path kullanıyoruz.
+
+
+def _real_hook_template() -> str:
+    """Testler için proje kökündeki gerçek `tools/hooks/pre-commit`."""
+    repo_root = Path(__file__).resolve().parent.parent
+    return (repo_root / "tools" / "hooks" / "pre-commit").read_text(
+        encoding="utf-8",
+    )
+
+
+def test_045_hook_signature_sabit_v3() -> None:
+    """`_HOOK_SIGNATURE` `# atlas-hook v3` (SPEC 045 yükseltmesi)."""
+    assert _HOOK_SIGNATURE == "# atlas-hook v3"
+
+
+def test_045_hook_sablonu_v3_imzali() -> None:
+    """Gerçek şablon ikinci satırda `# atlas-hook v3` imzasını taşır."""
+    text = _real_hook_template()
+    lines = text.splitlines()
+    assert lines[1] == "# atlas-hook v3"
+
+
+def test_045_hook_sablonu_vault_verify_gate_icerir() -> None:
+    """Gerçek şablon `atlas vault verify --strict` çağrısını içerir."""
+    text = _real_hook_template()
+    assert "atlas vault verify --strict" in text
+
+
+def test_045_hook_sablonu_vault_yoksa_guard() -> None:
+    """Fresh clone için `[ -d vault ]` guard verify'den ÖNCE gelir.
+
+    vault/ dizini yoksa verify komutu çağrılmadan hook exit 0 devam eder;
+    aksi hâlde `atlas vault verify` SPEC HATASI (exit 2) verirdi.
+    """
+    text = _real_hook_template()
+    assert "[ -d vault ]" in text
+    guard_idx = text.index("[ -d vault ]")
+    verify_idx = text.index("atlas vault verify --strict")
+    assert guard_idx < verify_idx
+
+
+def test_045_hook_sablonu_doctor_gate_korundu() -> None:
+    """SPEC 034/032.2 doctor gate'i v3'te KORUNDU (bit-uyumlu)."""
+    text = _real_hook_template()
+    assert "atlas doctor --strict --scan-src" in text
+    doctor_idx = text.index("atlas doctor --strict")
+    verify_idx = text.index("atlas vault verify --strict")
+    assert doctor_idx < verify_idx  # doctor önce, verify sonra
