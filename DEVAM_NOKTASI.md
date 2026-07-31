@@ -10,13 +10,14 @@
 > 4. Kullanıcı onay verene kadar YIKICI işlem yapma (push, rm,
 >    force-push, branch silme).
 > 5. Zorunlu Döngü'ye (`CLAUDE.md` §Zorunlu Döngü) gir; ilk iş
->    `DECISIONS.md`'nin son 2026-07-30 girişlerini kaba tarama.
+>    `DECISIONS.md`'nin son 2026-07-31 girişlerini kaba tarama.
 
-**Son çalışma:** 2026-07-30 (21. tur — 037.3 + 023.2 + 040 + 041)
-**Branch:** `main` (4 lineer commit ff-merge, push bekliyor)
-**Working tree:** temiz
-**Durum:** 21. tur tamamlandı; 4 görev zincirleme; tümü main'e
-lineer ff-merge. **770/770 test yeşil** (+12 skip), cov %90.76,
+**Son çalışma:** 2026-07-31 (23. tur — 041.1 + 042 + 037.4 + 043)
+**Branch:** `main` (origin ile SENKRON, 4 lineer commit push edildi)
+**Working tree:** temiz (`DOCTOR_cmd.png` untracked — 22. turdan
+kalan ekran görüntüsü; commit'lenmedi, gitignore adayı)
+**Durum:** 23. tur tamamlandı; 4 görev zincirleme; tümü main'e lineer
+ff-merge + push. **810/810 test yeşil** (+12 skip), cov %90.85,
 mypy strict + ruff + scan temiz.
 
 ---
@@ -27,49 +28,65 @@ Yeni oturumda tek cümle yeter: **"devam et"**
 
 ---
 
-## Bu turda yapılan (2026-07-30 — 21. tur)
+## Bu turda yapılan (2026-07-31 — 23. tur)
 
-Zincirleme **4 iş** — sıra: `037.3 → 023.2 → 040 → 041`.
+Housekeeping + zincirleme **4 iş** — sıra: `041.1 → 042 → 037.4 → 043`.
 
-1. **Görev 037.3** — `atlas ai-cli exec <name> [args...]` (`36bba4c`)
-   - Portable launcher; `tools/ai-cli/node_modules/.bin/<name>`
-     shim'ini subprocess ile çalıştırır.
-   - Windows: `.cmd` öncelik → `.exe` → çıplak; Unix: çıplak isim.
-   - `argparse.REMAINDER` ile tüm flag'ler forward; exit yansıtılır.
-   - Canlı: `atlas ai-cli exec cline --version` → `3.0.47` exit 0.
-   - +5 test.
+0. **Housekeeping** — 22. tur push + 6 branch temizliği
+   - 22. tur `b5ce74c` (bugün 15:15, doctor toplu güncelleyici bakım)
+     origin'e push edildi.
+   - 6 merged branch silindi: `feat/{paketleme-bulut-secenegi,
+     tasinabilir-kurulum}`, `fix/{arsivleyici-arama,
+     kimi-yeniden-etkinlestirme, ollama-kimligi-tasinabilir,
+     surum-etiketli-yedek}`.
 
-2. **Görev 023.2** — metrics inflight istatistiği (`e1b0329`)
-   - `atlas metrics` insan çıktısı: `inflight avg/max: A.AA / N (K
-     kayıtta)`.
-   - `inflight` alanı olmayan kayıtlar skip; hiç yoksa satır BASILMAZ.
-   - `--json` bit-uyumlu (ham liste).
-   - +4 test.
+1. **Görev 041.1** — `atlas vault backup --auto + --keep N` (`614b9ef`)
+   - `vault_backup.prune_backups(archive_root, keep)`: mtime desc + N
+     tut + gerisini sil. Sadece `vault-*.tar.gz` desenine dokunur;
+     `keep<1` → `VaultBackupError`; `archive_root` yok → boş liste.
+   - CLI `--auto` (mutex `--out`, exit 2): audit action `backup-auto`.
+   - CLI `--keep N`: backup sonrası archive_root retention; her silme
+     audit `prune`; `N<1` → exit 2; prune `OSError` → exit 6.
+   - `--out` + `--keep` → stderr UYARI (retention YOK sayılır).
+   - +10 test.
 
-3. **Görev 040** — `atlas doctor --schema` (`ffbbe63`)
-   - `_doctor_schema_descriptor`: `{schema_version, top_level[],
-     quality_fields[], exit_codes{}, notes[]}`.
-   - `--schema` **kısa devre** — sağlık kontrolü YAPMAZ, IO'suz,
-     idempotent.
-   - `--pretty` ile indent=2.
-   - +5 test.
+2. **Görev 042** — `atlas vault verify` (`3965cf7`)
+   - Yeni modül `atlas_core/memory/vault_verify.py`:
+     `BrokenLink` frozen dataclass (`frm/to`; JSON'da `"from"`),
+     `VerifyReport` (broken_links + orphan_notes + orphan_tags +
+     sayaçlar; `is_clean`; `to_dict()`), `verify_graph(graph)`.
+   - CLI `verify [--vault-root] [--json] [--pretty] [--strict]`.
+   - Vault üzerinde YAZMA YOK (salt-okunur analiz).
+   - **Yeni exit kodu 4** = `--strict` + bulgu.
+   - Audit: `atlas-vault` / `verify`.
+   - +14 test (7 birim + 7 CLI).
 
-4. **Görev 041** — vault backup/restore (`dd43737`)
-   - Yeni modül `atlas_core/memory/vault_backup.py`:
-     `backup_vault`, `restore_vault`, `default_backup_path`,
-     `VaultBackupError`.
-   - CLI: `atlas vault backup [--out] [--vault-root] [--archive-root]`
-     ve `atlas vault restore <tar> [--apply] [--vault-root]`.
-   - Path traversal koruma (SPEC 033 kalıbı) + `filter="data"`.
-   - Restore temp-extract + rename kalıbı (mevcut vault dokunulmaz).
-   - Yeni exit kodları: **3** çakışma, **6** extract/backup hatası.
-   - Audit: `atlas-vault` / `backup|restore`.
-   - +14 test.
+3. **Görev 037.4** — `atlas ai-cli status <name>` (`4fbe367`)
+   - Exec çalıştırmadan paket sağlık raporu: kurulu/beklenen sürüm,
+     up_to_date, install_dir, size_bytes, size_human, bin_path.
+   - Yeni yardımcı: `_dir_size_bytes` (rglob, symlink skip),
+     `_human_bytes` (B/KB/MB/GB).
+   - `up_to_date`: declared'daki `^ ~ >= < !` sıyrıp string eşitliği.
+   - Exit 0 başarı; 2 SPEC HATASI (tools/ai-cli yok / dependencies'te
+     yok / kurulu değil — öneri: `list` veya `update`).
+   - +7 test.
+
+4. **Görev 043** — `atlas metrics --format prometheus` (`00145b6`)
+   - Prometheus text v0.0.4 export: 9 metrik (records/tokens/cache/
+     hit_ratio/cost/inflight × 2).
+   - Parser: `--json` ve `--format {human,prometheus}` MUTEX
+     (`add_mutually_exclusive_group`). Default `None` → bit-uyumluluk.
+   - `cache_hit_ratio` gauge 0-1 (Prometheus konvansiyonu — ondalık).
+   - `cost_usd_total` fiyat env'i yoksa 0.0 (Prometheus tutarlılığı).
+   - `inflight_max/avg` yalnız `inflight` alanı olan kayıtlar varsa.
+   - Defensive: `--json + --format prometheus` env'e karşı exit 2.
+   - +6 test.
 
 5. **Merge + kalite kapıları**
-   - Sıra: `037.3 → 023.2 → 040 → 041` (her biri main'e rebase +
-     ff-merge + tam pytest/mypy/ruff/scan).
-   - 4 commit lineer main'e: `36bba4c → e1b0329 → ffbbe63 → dd43737`.
+   - Her görev: branch → kod → test → tam pytest/mypy/ruff/scan →
+     main'e ff-merge.
+   - 4 commit lineer main'e: `614b9ef → 3965cf7 → 4fbe367 → 00145b6`.
+   - Push edildi; local ile origin senkron.
 
 ---
 
@@ -77,14 +94,25 @@ Zincirleme **4 iş** — sıra: `037.3 → 023.2 → 040 → 041`.
 
 **Yeni görev seçimi.** Pipeline'da açık iş yok. Doğal adaylar:
 
-- **Görev 041.1 — `atlas vault backup --auto`:** cron/scheduled
-  senaryo için timestamp'li tekil yedek + `--keep N` retention. Küçük.
-- **Görev 042 — `atlas vault verify`:** vault graph sağlığı (kırık
-  wikilink, yetim not, orfan tag). Orta.
-- **Görev 037.4 — `atlas ai-cli status <name>`:** exec olmadan sürüm
-  + son güncelleme + kurulum boyutu raporu. Küçük.
-- **Görev 043 — Prometheus text export:** `atlas metrics --format
-  prometheus` → scrape edilebilir metrik. Orta.
+- **Görev 044 — `.gitignore`'a `DOCTOR_cmd.png` + `.png` ekran
+  görüntüleri:** 22. turdan beri kalan untracked dosya; iki tur
+  boyunca `git add -A` gafına yol açtı. Micro.
+- **Görev 045 — vault verify pre-commit hook entegrasyonu:** SPEC 034
+  hook zincirine `atlas vault verify --strict` ekle; commit sırasında
+  kırık link/orfan tag'e karşı erken gate. Küçük.
+- **Görev 046 — `atlas vault verify --fix-orphans`:** rapor eden
+  değil, orfan notları `_archive/` altına taşıyan yıkıcı mod
+  (`--apply` gerekli). Orta.
+- **Görev 047 — `atlas doctor` Prometheus export:** metrics gibi
+  doctor sonuçları için `--format prometheus` (up/down gauge'ları).
+  Küçük-orta.
+- **Görev 048 — `atlas vault backup --auto` sistem cron entegrasyonu:**
+  Windows Task Scheduler XML + Unix `systemd.timer` template'i
+  `tools/scheduling/` altında. SPEC değil, deployment artefaktı. Küçük.
+- **Görev 049 — Ortak `SafeExtractError` yardımcısı:** SPEC 033 archive
+  restore + SPEC 041 vault restore ortak kalıbını
+  `atlas_core/utils/safe_tar.py` altına çıkar (path traversal +
+  filter='data' + kolon + temp+rename). Refactor. Orta.
 - Ya da başka öncelik varsa net söyle.
 
 ---
@@ -93,62 +121,59 @@ Zincirleme **4 iş** — sıra: `037.3 → 023.2 → 040 → 041`.
 
 **Branch grafı:**
 ```
-origin/main (30adfb9) ← main (dd43737, 4 commit önde, PUSH bekliyor)
+origin/main == main (00145b6, SENKRON)
 ```
-Kalan local feature branch'ler (silinecek): `feat/037.3-ai-cli-exec`,
-`feat/023.2-metrics-inflight`, `feat/040-doctor-schema`,
-`feat/041-vault-backup-restore`.
-Önceki oturumların branchleri: `feat/paketleme-bulut-secenegi`,
-`feat/tasinabilir-kurulum`, `fix/{arsivleyici-arama,
-kimi-yeniden-etkinlestirme, ollama-kimligi-tasinabilir,
-surum-etiketli-yedek}`.
+Lokal feature branch YOK (temiz).
 
-**main'e giren 4 commit (2026-07-30 21. tur):**
+**main'e giren 4 commit (2026-07-31 23. tur):**
 ```
-dd43737 feat(041): atlas vault backup/restore + vault_backup.py modul
-ffbbe63 feat(040): atlas doctor --schema JSON sema yayimi
-e1b0329 feat(023.2): atlas metrics inflight avg/max istatistigi
-36bba4c feat(037.3): atlas ai-cli exec <name> [args...] portable launcher
+00145b6 feat(043): atlas metrics --format prometheus text v0.0.4 export
+4fbe367 feat(037.4): atlas ai-cli status <name> [--json] paket sagliki raporu
+3965cf7 feat(042): atlas vault verify — kirik link/orfan not-tag raporu
+614b9ef feat(041.1): atlas vault backup --auto + --keep N (cron retention)
 ```
+Öncesi: `b5ce74c` (22. tur doctor bakım) + `51b2fe3` (21. tur docs).
 
 **Kalite kapıları (bu turun sonu):**
 ```bash
 uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
-# 770 passed, 12 skipped, cov 90.76%
+# 810 passed, 12 skipped, cov 90.85%
 uv run mypy src                # temiz
 uv run ruff check src tests    # temiz
 uv run atlas scan src          # sır bulunamadı
 ```
 
 **Yeni CLI davranışları (bu turda):**
-- `atlas ai-cli exec <name> [args...]` (yeni komut)
-- `atlas metrics` insan çıktısına inflight avg/max satırı
-- `atlas doctor --schema [--pretty]` (yeni bayrak — kısa devre)
-- `atlas vault backup [--out]` (yeni komut)
-- `atlas vault restore <tar> [--apply]` (yeni komut)
+- `atlas vault backup --auto` (mutex `--out`)
+- `atlas vault backup --keep N` (retention)
+- `atlas vault verify [--json] [--pretty] [--strict]` (yeni komut)
+- `atlas ai-cli status <name> [--json]` (yeni komut)
+- `atlas metrics --format {human,prometheus}` (mutex `--json`)
 
 **Env sözleşmesi:** DEĞİŞMEDİ.
 
 **Exit kodları:**
-- **Genişledi:** `3` = vault restore çakışma; `6` = vault
-  backup/extract hatası (mevcut archive kodlarıyla aynı sınıf).
+- **Genişledi:** `4` = `vault verify --strict` + bulgu (yeni anlam;
+  `atlas run` içindeki `PlannerExhaustedError` 4 ile çakışmaz).
+- Mevcut: `3` = vault restore çakışma; `6` = vault backup/prune hata.
 
 **Kritik sözleşme değişmezlikleri (bu turda korundu):**
-- Mevcut `atlas doctor` (bayraksız, `--json`, `--strict`, `--ping`,
-  `--scan-src`, `--pretty`) BİT-UYUMLU.
-- `atlas metrics --json` (ham liste) BİT-UYUMLU.
-- `atlas archive` (007/012/017/033) BİT-UYUMLU.
+- `atlas metrics` (bayraksız) ve `atlas metrics --json` (ham liste)
+  BİT-UYUMLU.
+- `atlas vault backup [--out]` (SPEC 041) BİT-UYUMLU.
+- `atlas ai-cli diff-summary / update / list / exec` BİT-UYUMLU.
 - `Vault` API dokunulmadı.
+- SPEC 023.2 inflight tüketimi 043 Prometheus'ta korundu (inflight
+  satırları yalnız veri varsa yayımlanır).
 - Doctor JSON şema v1 korundu.
-- SPEC 037 (diff-summary), 037.1 (update), 037.2 (list) BİT-UYUMLU.
 
 **Bilinen flaky:** yok.
 
 **Docker YASAK:** hâlâ yürürlükte.
 
 **Görev-öncesi zorunlu okuma sırası:**
-1. `DECISIONS.md` — 2026-07-30 altında **29 giriş bloğu** (bu tur 4
-   yeni; toplam 25 → 29); 2026-07-29 altında 39 blok.
+1. `DECISIONS.md` — 2026-07-31 üstteki 14 giriş bloğu (bu tur yeni);
+   2026-07-30 altında 29 blok.
 2. Bu dosya (DEVAM_NOKTASI.md)
 3. Hedef görevin `pipeline/tasks/<XXX>/{00-need,09-ship}.md`
 4. Değişecek modülün üstündeki docstring
@@ -158,19 +183,25 @@ uv run atlas scan src          # sır bulunamadı
 
 ## Kapanış Notları
 
-- 770 test yeşil (baseline 742 → +28; oturum başı 319 → +451)
-- 4 lineer commit main'e; PUSH bekliyor
-- 4 feature branch silinecek (kapanış temizliği)
+- 810 test yeşil (770 → 773 → 810; bu tur +37; oturum başı 319'dan
+  +491)
+- 4 lineer commit + 22. tur `b5ce74c` main'de; origin ile SENKRON
+- 6 eski feature branch temizlendi (kapanış temizliği yapıldı)
 - Yeni env YOK
-- Exit kodları: `3` ve `6` vault backup/restore için genişledi
-- Yeni CLI komutları: `atlas ai-cli exec`, `atlas vault backup`,
-  `atlas vault restore`, `atlas doctor --schema`
-- Yeni modül: `atlas_core/memory/vault_backup.py`
-- Yeni test dosyası: `test_cli_vault_backup.py`
+- Exit kodları: `4` yeni anlamla (vault verify --strict)
+- Yeni CLI komutları: `atlas vault verify`, `atlas ai-cli status`
+- Genişleyen bayraklar: `atlas vault backup --auto`, `--keep N`;
+  `atlas metrics --format {human,prometheus}`
+- Yeni modül: `atlas_core/memory/vault_verify.py`
+- Yeni test dosyaları: `test_cli_vault_verify.py`,
+  `test_cli_ai_cli_status.py`
+- Untracked kalan: `DOCTOR_cmd.png` (ekran görüntüsü) — 044 için
+  aday: `.gitignore`'a ekle
 - Docker YASAK yürürlükte
 - Portable bundle son sürüm: `D:\ATLAS.rar` (28 Temmuz, 1.9 GB)
-- DECISIONS.md 2026-07-30 altında **29 giriş bloğu**, 2026-07-29
-  altında **39 giriş bloğu** (toplam 68+)
+- DECISIONS.md 2026-07-31 üstünde **14 giriş bloğu**, 2026-07-30
+  altında **29 giriş bloğu**, 2026-07-29 altında **39 giriş bloğu**
+  (toplam 82+)
 - Platform sözleşmesi: SPEC 033 (archive restore) + SPEC 041 (vault
-  backup/restore) ortak kalıbı — path traversal koruması + `filter="data"`
-  + temp extract + rename. Gelecekte ortak yardımcıya çıkarılabilir.
+  backup/restore) ortak kalıbı — gelecekte ortak `SafeExtractError`
+  yardımcısına çıkarılabilir (Görev 049 adayı)

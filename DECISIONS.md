@@ -1,6 +1,61 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-31 (23. tur — 041.1 + 042 + 037.4 + 043)
+- [KARAR] Görevler ayrı feature branch'lerde, tek zincirde `main`'e
+  lineer ff-merge; sıra `041.1 → 042 → 037.4 → 043`. Housekeeping
+  önce yapıldı: 22. tur `b5ce74c` (bugün 15:15 doctor bakım commit'i)
+  push edildi, 6 merged branch (feat/paketleme-bulut-secenegi,
+  feat/tasinabilir-kurulum, fix/{arsivleyici-arama,
+  kimi-yeniden-etkinlestirme, ollama-kimligi-tasinabilir,
+  surum-etiketli-yedek}) silindi.
+- [KARAR] 041.1 `--auto` bayrağı `--out` ile MUTEX (exit 2). Explicit
+  intent = cron/scheduled; audit action `backup-auto` (aksi hâlde
+  düz `backup`). `--out` verilirse retention YOK (yalnız
+  `archive_root` glob'unda mantıklı; uyarı stderr).
+- [KARAR] `prune_backups(archive_root, keep)` yalnız `vault-*.tar.gz`
+  desenine dokunur — SPEC 007 task arşivleri veya README.txt korunur.
+  mtime desc + ilk N tutar; `archive_root` yok → boş liste (cron nazikliği).
+- [KARAR] 042 `atlas vault verify`: yeni modül
+  `atlas_core/memory/vault_verify.py` (`BrokenLink` dataclass +
+  `VerifyReport` + `verify_graph(graph)`). Vault üzerinde YAZMA YOK;
+  `Vault.graph()` üzerinden salt-okunur analiz.
+- [KARAR] 042 `--strict` + bulgu → exit **4** (yeni exit kod anlamı).
+  `atlas run` içindeki `PlannerExhaustedError` 4 ile çakışmaz — vault
+  verify bağımsız komut; aynı bağlamda dönmez.
+- [KARAR] `BrokenLink` alan adı `frm` (Python `from` rezerve); JSON
+  dışa aktarımda literal `"from"` yazılır.
+- [KARAR] 037.4 `status` exec çalıştırmaz; `_read_installed_version`
+  (037.2) + `_resolve_ai_cli_bin` (037.3) yeniden kullanır. Boyut için
+  yeni yardımcı `_dir_size_bytes` (rglob, symlink skip, OSError skip);
+  `_human_bytes` (B/KB/MB/GB).
+- [KARAR] 037.4 `up_to_date`: declared'daki `^ ~ >= < !` prefix'leri
+  sıyrılıp string eşitliği. Semver-uyumlu ama farklı sürüm (`^1.18.9`
+  vs installed `1.18.10`) `False` gösterir — kasıtlı: kullanıcı intenti
+  "tam beklenen mi", "semver-uyumlu mu" değil.
+- [KARAR] 043 `--format {human,prometheus}` `--json` ile MUTEX
+  (`add_mutually_exclusive_group`). `--format` default `None` →
+  bit-uyumluluk; `--format human` = default davranış.
+- [KARAR] 043 Prometheus çıktısı `cache_hit_ratio` gauge 0-1 arasında
+  (Prometheus konvansiyonu — ondalık, `%` değil). İnsan çıktısındaki
+  `%` gösterimle ölçek farklı; dashboard tarafı `* 100` yapmalı.
+  HELP metninde yazılı.
+- [KARAR] 043 `records_total` counter adında `_total` var ama semantiği
+  "pencere içindeki gözlem sayısı" (limit=20 default). HELP metninde
+  "observed in window" açıklaması.
+- [KARAR] Fiyat env'i yoksa `cost_usd_total 0.0` yayımlanır — Prometheus
+  için tutarlılık (counter satırının kaybolması scrape'i bozar).
+- [HATA] `git add pipeline/tasks/043-metrics-prometheus/` — trailing slash
+  Windows Git için pathspec hatası; tırnak içine alınca çözüldü.
+  Kalıp: yeni klasörleri `git add "path/dir"` şeklinde tırnaklı ekle.
+- [HATA] İlk 041.1 commit'ine `DOCTOR_cmd.png` (22. turdan kalan
+  untracked ekran görüntüsü) `git add -A` yüzünden girdi; `git rm
+  --cached` + `--amend` ile temizlendi. Kalıp: yeni commit'lerde
+  `git add <path> <path>` (explicit path listesi); `git add -A`
+  kullanılırsa öncesinde `git status --short` ile kontrol.
+- [KARAR] Test toplamı 770 → 773 (22. tur +3 doctor batch) → 810 (bu
+  tur +37: 041.1 +10, 042 +14, 037.4 +7, 043 +6). Cov %90.76 → %90.85.
+
 ## 2026-07-30 (Görev 041 — atlas vault backup/restore)
 - [KARAR] Yeni modül `atlas_core/memory/vault_backup.py` — SPEC 033
   archive kalıbının kardeşi ama vault-özelinde. Ortak yardımcıya
