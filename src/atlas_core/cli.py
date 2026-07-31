@@ -1428,6 +1428,64 @@ def _has_quality_warning(report: dict[str, Any]) -> bool:
     return False
 
 
+def _doctor_report_to_prometheus(report: dict[str, Any]) -> str:
+    """SPEC 047: doctor raporunu Prometheus text v0.0.4 formatına çevir.
+
+    Metrikler:
+      - `atlas_doctor_up` (gauge) — komut çalıştıysa 1 (Prometheus `up`
+        konvansiyonu; alertmanager için canonical sinyal).
+      - `atlas_doctor_warnings_total` (gauge) — `report["warnings"]` uzunluğu.
+      - `atlas_doctor_quality_healthy{field=...}` (gauge) — her quality
+        alanı için 0/1 (1 = warning yok). Alan yoksa satır basılmaz.
+      - `atlas_doctor_scan_src_hits_total` + `_scan_src_unique_files`
+        (gauge, opsiyonel) — yalnız `scan_src` alanı raporda varsa.
+
+    Her metrik HELP + TYPE + değer satırı taşır. Çıktı `\\n` ile birleşir
+    ve son satırda newline YOK (metrics-043 kalıbıyla aynı).
+    """
+    lines: list[str] = []
+    lines += [
+        "# HELP atlas_doctor_up Doctor command executed successfully",
+        "# TYPE atlas_doctor_up gauge",
+        "atlas_doctor_up 1",
+        "# HELP atlas_doctor_warnings_total Number of doctor warnings (env + backend)",
+        "# TYPE atlas_doctor_warnings_total gauge",
+        f"atlas_doctor_warnings_total {len(report.get('warnings', []))}",
+    ]
+
+    quality = report.get("quality", {})
+    if isinstance(quality, dict) and quality:
+        lines += [
+            "# HELP atlas_doctor_quality_healthy Per-field quality gate "
+            "(1=no warning, 0=warning present)",
+            "# TYPE atlas_doctor_quality_healthy gauge",
+        ]
+        for field in sorted(quality.keys()):
+            value = quality[field]
+            if not isinstance(value, dict):
+                continue
+            healthy = 0 if value.get("warning") else 1
+            lines.append(
+                f'atlas_doctor_quality_healthy{{field="{field}"}} {healthy}'
+            )
+
+    # SPEC 032.2 + 038: scan_src detay metrikleri (yalnız alan varsa)
+    scan_src = quality.get("scan_src") if isinstance(quality, dict) else None
+    if isinstance(scan_src, dict):
+        hits = int(scan_src.get("total", 0) or 0)
+        unique = int(scan_src.get("unique_hits", 0) or 0)
+        lines += [
+            "# HELP atlas_doctor_scan_src_hits_total Total secret-scan hits in src/",
+            "# TYPE atlas_doctor_scan_src_hits_total gauge",
+            f"atlas_doctor_scan_src_hits_total {hits}",
+            "# HELP atlas_doctor_scan_src_unique_files Unique files with hits",
+            "# TYPE atlas_doctor_scan_src_unique_files gauge",
+            f"atlas_doctor_scan_src_unique_files {unique}",
+        ]
+
+    return "\n".join(lines)
+
+
 def _check_decisions_drift(
     decisions_path: Path | None = None,
     today: date | None = None,
@@ -1692,6 +1750,15 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         # SPEC 032 + 032.1: --json + --strict → herhangi bir quality.*
         # uyarısı varsa exit 9. JSON çıktısı bası korunur (CI script'i
         # dosyaya kaydedebilir), yalnız exit kodu değişir.
+        if getattr(args, "strict", False) and _has_quality_warning(report):
+            return 9
+        return 0
+
+    # SPEC 047: --format prometheus (mutex --json + --schema, argparse'de).
+    if getattr(args, "format", None) == "prometheus":
+        print(_doctor_report_to_prometheus(report))
+        # --strict format bağımsız: quality warning varsa exit 9 (raporu
+        # Prometheus'a yayarız ama exit kod alertmanager tetikler).
         if getattr(args, "strict", False) and _has_quality_warning(report):
             return 9
         return 0
@@ -3300,8 +3367,20 @@ def main(argv: list[str] | None = None) -> int:
 
     p_doc = sub.add_parser("doctor",
                            help="Env sağlık özeti + quality gate (SPEC 021/032)")
-    p_doc.add_argument("--json", action="store_true",
-                       help="JSON çıktı (CI/pre-flight uyumlu) — SPEC 021.1")
+    # SPEC 047: --json / --schema / --format üçlüsü mutex
+    # (add_mutually_exclusive_group). store_true davranışı korunur.
+    p_doc_out = p_doc.add_mutually_exclusive_group()
+    p_doc_out.add_argument("--json", action="store_true",
+                           help="JSON çıktı (CI/pre-flight uyumlu) — SPEC 021.1")
+    p_doc_out.add_argument("--schema", action="store_true",
+                           help="SPEC 040: sağlık kontrolü YAPMA, yalnız JSON "
+                                "şema tanımını bas (alan listesi + exit kodları). "
+                                "--pretty ile birlikte indent=2.")
+    p_doc_out.add_argument("--format", default=None,
+                           choices=["human", "prometheus"],
+                           help="SPEC 047: 'prometheus' = Prometheus text v0.0.4 "
+                                "export (up + warnings_total + quality_healthy "
+                                "labels); 'human' = default insan çıktısı.")
     p_doc.add_argument("--ping", action="store_true",
                        help="Anthropic'e minimum request at, latency+cost raporla — SPEC 021.2")
     p_doc.add_argument("--strict", action="store_true",
@@ -3311,10 +3390,6 @@ def main(argv: list[str] | None = None) -> int:
                             "(varsayılan yol: src)")
     p_doc.add_argument("--pretty", action="store_true",
                        help="SPEC 032.5: --json ile birlikte, girintili JSON")
-    p_doc.add_argument("--schema", action="store_true",
-                       help="SPEC 040: sağlık kontrolü YAPMA, yalnız JSON "
-                            "şema tanımını bas (alan listesi + exit kodları). "
-                            "--pretty ile birlikte indent=2.")
     p_doc.set_defaults(func=_cmd_doctor)
 
     args = parser.parse_args(argv)
