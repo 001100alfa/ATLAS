@@ -2085,11 +2085,21 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
 
     Varsayılan konum: `<archive_root>/vault-YYYY-MM-DD-HHMM.tar.gz`.
     `--out PATH` verilirse doğrudan oraya yazar.
+
+    SPEC 041.1:
+      - `--auto`  → cron/scheduled explicit intent; `default_backup_path`
+        kullanır (default davranışla aynı) ve audit action = `backup-auto`.
+        `--out` ile birlikte kullanılırsa SPEC HATASI exit 2.
+      - `--keep N` (N>=1) → backup yazıldıktan sonra `archive_root`
+        içindeki `vault-*.tar.gz` yedekleri mtime desc sırayla ilk N
+        tutulup geri kalanı silinir. `--out` verilmişse retention YOK
+        sayılır (stderr uyarısı). Prune hatası → exit 6.
     """
     from atlas_core.memory.vault_backup import (
         VaultBackupError,
         backup_vault,
         default_backup_path,
+        prune_backups,
     )
     vault_root = Path(args.vault_root) if args.vault_root else _vault_root()
     if not vault_root.is_dir():
@@ -2098,11 +2108,28 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+
+    auto = bool(getattr(args, "auto", False))
     out_arg = getattr(args, "out", None)
+    if auto and out_arg:
+        print(
+            "SPEC HATASI: --auto ve --out birlikte kullanılamaz",
+            file=sys.stderr,
+        )
+        return 2
+
+    keep = getattr(args, "keep", None)
+    if keep is not None and keep < 1:
+        print(
+            f"SPEC HATASI: --keep >= 1 olmalı: {keep}",
+            file=sys.stderr,
+        )
+        return 2
+
+    archive_root = Path(args.archive_root)
     if out_arg:
         out_path = Path(out_arg)
     else:
-        archive_root = Path(args.archive_root)
         archive_root.mkdir(parents=True, exist_ok=True)
         out_path = default_backup_path(archive_root)
 
@@ -2114,8 +2141,32 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
         print(f"YEDEK HATASI: {exc}", file=sys.stderr)
         return 6
 
-    audit.record("atlas-vault", "backup", str(result))
+    action = "backup-auto" if auto else "backup"
+    audit.record("atlas-vault", action, str(result))
     print(f"vault yedeği yazıldı: {result}")
+
+    # SPEC 041.1: retention
+    if keep is not None:
+        if out_arg:
+            print(
+                "UYARI: --out ile birlikte --keep YOK sayıldı "
+                "(retention yalnızca archive_root'da çalışır)",
+                file=sys.stderr,
+            )
+        else:
+            try:
+                deleted = prune_backups(archive_root, keep)
+            except VaultBackupError as exc:
+                audit.record("atlas-vault", "prune-error", str(exc)[:180])
+                print(f"PRUNE HATASI: {exc}", file=sys.stderr)
+                return 6
+            for p in deleted:
+                audit.record("atlas-vault", "prune", str(p))
+            if deleted:
+                print(
+                    f"prune: {len(deleted)} eski yedek silindi "
+                    f"(keep={keep})"
+                )
     return 0
 
 
@@ -2873,6 +2924,14 @@ def main(argv: list[str] | None = None) -> int:
                       help="Vault kökü (env: ATLAS_VAULT; varsayılan vault)")
     p_vb.add_argument("--archive-root", default="archive",
                       help="Varsayılan yedek yazma kökü (--out yoksa)")
+    p_vb.add_argument("--auto", action="store_true",
+                      help="SPEC 041.1: cron/scheduled explicit intent — "
+                           "default_backup_path kullanır ve audit'e "
+                           "'backup-auto' yazar (--out ile çakışır)")
+    p_vb.add_argument("--keep", type=int, default=None, metavar="N",
+                      help="SPEC 041.1: backup sonrası archive_root'daki "
+                           "vault-*.tar.gz yedekleri N tut, gerisini sil "
+                           "(N>=1). --out ile birlikte YOK sayılır.")
     p_vb.set_defaults(func=_cmd_vault_backup)
     p_vr = vault_sub.add_parser("restore", help=".tar.gz'i vault'a geri aç")
     p_vr.add_argument("tar", help="Yedek dosyası yolu")

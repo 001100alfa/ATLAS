@@ -11,6 +11,7 @@ from atlas_core.cli import main
 from atlas_core.memory.vault_backup import (
     VaultBackupError,
     backup_vault,
+    prune_backups,
     restore_vault,
 )
 
@@ -259,3 +260,191 @@ def test_041_cli_backup_audit_kaydi(
     audit_txt = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
     assert "atlas-vault" in audit_txt
     assert "backup" in audit_txt
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 041.1 — prune_backups (birim) + CLI --auto / --keep
+# ═════════════════════════════════════════════════════════════════════
+
+
+def _touch_backup(archive_root: Path, name: str, mtime: float) -> Path:
+    """Yardımcı: boş `.tar.gz` yaratıp mtime'ı zorlar."""
+    import os as _os
+    archive_root.mkdir(parents=True, exist_ok=True)
+    p = archive_root / name
+    p.write_bytes(b"\x1f\x8b\x08\x00")  # boş gzip header — içerik denetlenmiyor
+    _os.utime(p, (mtime, mtime))
+    return p
+
+
+def test_041_1_prune_backups_keep_1_siler(tmp_path: Path) -> None:
+    """3 yedek + keep=1 → 1 en yeni kalır, 2 eski silinir."""
+    arc = tmp_path / "archive"
+    old = _touch_backup(arc, "vault-2026-01-01-0000.tar.gz", 1_000.0)
+    mid = _touch_backup(arc, "vault-2026-02-01-0000.tar.gz", 2_000.0)
+    new = _touch_backup(arc, "vault-2026-03-01-0000.tar.gz", 3_000.0)
+
+    deleted = prune_backups(arc, keep=1)
+
+    assert set(deleted) == {old, mid}
+    assert not old.exists()
+    assert not mid.exists()
+    assert new.exists()
+
+
+def test_041_1_prune_backups_keep_gte_toplam_hicbir_sey_silmez(
+    tmp_path: Path,
+) -> None:
+    """keep >= dosya sayısı → silme yok, boş liste."""
+    arc = tmp_path / "archive"
+    a = _touch_backup(arc, "vault-a.tar.gz", 1_000.0)
+    b = _touch_backup(arc, "vault-b.tar.gz", 2_000.0)
+
+    deleted = prune_backups(arc, keep=5)
+
+    assert deleted == []
+    assert a.exists() and b.exists()
+
+
+def test_041_1_prune_backups_dogru_desene_dokunmaz(tmp_path: Path) -> None:
+    """`vault-*.tar.gz` DIŞI dosyalar korunur; keep=1 sadece backup'ları etkiler."""
+    arc = tmp_path / "archive"
+    _touch_backup(arc, "vault-eski.tar.gz", 1_000.0)
+    _touch_backup(arc, "vault-yeni.tar.gz", 2_000.0)
+    baska = arc / "task-007-2026-01-01.tar.gz"  # SPEC 007 arşivi — dokunma
+    baska.write_bytes(b"x")
+    okuma = arc / "README.txt"
+    okuma.write_text("koru", encoding="utf-8")
+
+    prune_backups(arc, keep=1)
+
+    assert baska.exists()
+    assert okuma.exists()
+
+
+def test_041_1_prune_backups_keep_sifir_hata(tmp_path: Path) -> None:
+    with pytest.raises(VaultBackupError, match=">= 1"):
+        prune_backups(tmp_path, keep=0)
+
+
+def test_041_1_prune_backups_archive_yok_bos_liste(tmp_path: Path) -> None:
+    """Cron nazikliği: `archive_root` yoksa hata değil, boş liste."""
+    assert prune_backups(tmp_path / "yok", keep=3) == []
+
+
+def test_041_1_cli_backup_auto_default_yol(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--auto` → archive_root'a vault-*.tar.gz yazılır, audit=backup-auto."""
+    _env(monkeypatch, tmp_path)
+    v = tmp_path / "vault"
+    _make_vault(v, {"a.md": "ok"})
+    arc = tmp_path / "arc"
+    rc = main([
+        "vault", "backup", "--auto",
+        "--vault-root", str(v),
+        "--archive-root", str(arc),
+    ])
+    assert rc == 0
+    tars = list(arc.glob("vault-*.tar.gz"))
+    assert len(tars) == 1
+    audit_txt = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
+    assert "backup-auto" in audit_txt
+
+
+def test_041_1_cli_backup_auto_out_cakisma_exit_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _env(monkeypatch, tmp_path)
+    v = tmp_path / "vault"
+    _make_vault(v, {"a.md": "ok"})
+    rc = main([
+        "vault", "backup", "--auto",
+        "--vault-root", str(v),
+        "--out", str(tmp_path / "b.tar.gz"),
+    ])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "SPEC HATASI" in err
+    assert "--auto ve --out" in err
+
+
+def test_041_1_cli_backup_keep_retention(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Var olan 3 yedek + backup + --keep 2 → 2 kalır (yeni + en yeni eski)."""
+    _env(monkeypatch, tmp_path)
+    v = tmp_path / "vault"
+    _make_vault(v, {"a.md": "ok"})
+    arc = tmp_path / "arc"
+    en_eski = _touch_backup(arc, "vault-2020-01-01-0000.tar.gz", 1_000.0)
+    orta = _touch_backup(arc, "vault-2021-01-01-0000.tar.gz", 2_000.0)
+    en_yeni_eski = _touch_backup(arc, "vault-2022-01-01-0000.tar.gz", 3_000.0)
+
+    rc = main([
+        "vault", "backup", "--auto",
+        "--vault-root", str(v),
+        "--archive-root", str(arc),
+        "--keep", "2",
+    ])
+    assert rc == 0
+    kalan = sorted(arc.glob("vault-*.tar.gz"))
+    # Yeni yazılan (bugün) + en yeni eski (3000.0 mtime) kalır;
+    # ortada (2000.0) ve en eski (1000.0) silinir.
+    assert en_yeni_eski in kalan
+    assert orta not in kalan
+    assert en_eski not in kalan
+    assert len(kalan) == 2
+
+    out = capsys.readouterr().out
+    assert "prune:" in out
+    audit_txt = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
+    assert audit_txt.count('"prune"') == 2
+
+
+def test_041_1_cli_backup_out_ile_keep_uyarisi(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--out` + `--keep` → uyarı, retention YOK, backup başarılı."""
+    _env(monkeypatch, tmp_path)
+    v = tmp_path / "vault"
+    _make_vault(v, {"a.md": "ok"})
+    out = tmp_path / "yedek.tar.gz"
+    # archive-root'da eski dosya olsun; keep uygulansaydı silinirdi
+    arc = tmp_path / "arc"
+    eski = _touch_backup(arc, "vault-2020-01-01.tar.gz", 500.0)
+    rc = main([
+        "vault", "backup",
+        "--vault-root", str(v),
+        "--out", str(out),
+        "--archive-root", str(arc),
+        "--keep", "1",
+    ])
+    assert rc == 0
+    assert out.is_file()
+    assert eski.exists()  # retention atlandı → silinmedi
+    err = capsys.readouterr().err
+    assert "UYARI" in err
+    assert "--keep YOK sayıldı" in err
+
+
+def test_041_1_cli_backup_keep_sifir_exit_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _env(monkeypatch, tmp_path)
+    v = tmp_path / "vault"
+    _make_vault(v, {"a.md": "ok"})
+    rc = main([
+        "vault", "backup", "--auto",
+        "--vault-root", str(v),
+        "--archive-root", str(tmp_path / "arc"),
+        "--keep", "0",
+    ])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--keep" in err

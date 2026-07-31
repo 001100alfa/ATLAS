@@ -50,6 +50,39 @@ def default_backup_path(archive_root: Path) -> Path:
     return archive_root / f"vault-{ts}.tar.gz"
 
 
+def prune_backups(archive_root: Path, keep: int) -> list[Path]:
+    """SPEC 041.1: `<archive_root>/vault-*.tar.gz` yedeklerinden retention.
+
+    Dosyaları mtime desc sıraya koyar (en yeni önce); ilk `keep` tanesini
+    tutar, geri kalanları siler. Sadece `vault-*.tar.gz` desenine uyan
+    dosyalara dokunur — diğer dosya/klasörler korunur.
+
+    - `keep < 1` → `VaultBackupError` (SPEC HATASI eşleniği).
+    - `archive_root` yok → boş liste (hata değil, cron için nazik).
+    - Silme hatası (`OSError`) → `VaultBackupError`.
+
+    Döner: silinen dosya yollarının listesi (kararlı sıralı).
+    """
+    if keep < 1:
+        raise VaultBackupError(f"keep >= 1 olmalı: {keep}")
+    if not archive_root.is_dir():
+        return []
+    candidates = sorted(
+        archive_root.glob("vault-*.tar.gz"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    to_delete = candidates[keep:]
+    deleted: list[Path] = []
+    for p in to_delete:
+        try:
+            p.unlink()
+        except OSError as exc:
+            raise VaultBackupError(f"prune başarısız: {p}: {exc}") from exc
+        deleted.append(p)
+    return deleted
+
+
 def restore_vault(tar_path: Path, target_root: Path) -> Path:
     """SPEC 041: `.tar.gz`'i `target_root`'a aç.
 
