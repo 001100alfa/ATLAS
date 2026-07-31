@@ -2795,6 +2795,121 @@ def _cmd_ai_cli_exec(args: argparse.Namespace) -> int:
     return proc.returncode
 
 
+def _dir_size_bytes(root: Path) -> int:
+    """SPEC 037.4: Bir dizinin tüm dosyalarının toplam boyutu (byte).
+
+    Sembolik link'ler izlenmez (dize sıklaştırma; döngü riski yok).
+    Erişilemeyen dosya (silinmiş/OSError) skip edilir — best-effort.
+    """
+    total = 0
+    if not root.is_dir():
+        return 0
+    for p in root.rglob("*"):
+        try:
+            if p.is_file() and not p.is_symlink():
+                total += p.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _human_bytes(n: int) -> str:
+    """SPEC 037.4: `1536 → '1.5 KB'`, `2_097_152 → '2.0 MB'`."""
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KB"
+    if n < 1024 * 1024 * 1024:
+        return f"{n / (1024 * 1024):.1f} MB"
+    return f"{n / (1024 * 1024 * 1024):.2f} GB"
+
+
+def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
+    """SPEC 037.4: `atlas ai-cli status <name> [--json]` — paket sağlık raporu.
+
+    Exec çalıştırmadan paket durumunu raporlar:
+      - `name`, `installed_version`, `declared_version` (package.json
+        dependencies değeri), `up_to_date` (basit eşitlik/prefix eşleşmesi),
+      - `install_dir` (`tools/ai-cli/node_modules/<name>`),
+      - `size_bytes`, `size_human`, `bin_path` (varsa).
+
+    Exit kodları:
+      - 0: paket kurulu (bilgi komutu; up_to_date bilgisi rapor içinde)
+      - 2: `tools/ai-cli/` yok VEYA paket dependencies'te değil VEYA
+        kurulu değil → SPEC HATASI + `atlas ai-cli list` önerisi.
+    """
+    import json as _json
+
+    if not _AI_CLI_DIR.is_dir():
+        print(
+            f"SPEC HATASI: {_AI_CLI_DIR} yok — portable ai-cli kurulumu bulunamadı",
+            file=sys.stderr,
+        )
+        return 2
+
+    data, err = _read_ai_cli_package_json()
+    if err is not None:
+        print(f"SPEC HATASI: {err}", file=sys.stderr)
+        return 2
+    assert data is not None  # mypy narrow
+
+    name = args.name
+    deps = data.get("dependencies", {}) if isinstance(data, dict) else {}
+    if not isinstance(deps, dict) or name not in deps:
+        print(
+            f"SPEC HATASI: '{name}' package.json dependencies içinde yok. "
+            f"Kurulu paketleri görmek için: atlas ai-cli list",
+            file=sys.stderr,
+        )
+        return 2
+
+    declared = str(deps[name])
+    installed = _read_installed_version(name)
+    if installed is None:
+        print(
+            f"SPEC HATASI: '{name}' kurulu değil "
+            f"({_AI_CLI_DIR}/node_modules/{name}/ yok). "
+            f"Kurmak için: atlas ai-cli update",
+            file=sys.stderr,
+        )
+        return 2
+
+    # up_to_date: declared sürüm sadeleştirmesi (^, ~, >=, boşluk sıyır)
+    declared_clean = declared.lstrip("^~>=<! ").strip()
+    up_to_date = installed == declared_clean
+
+    install_dir = _AI_CLI_DIR / "node_modules" / name
+    size_bytes = _dir_size_bytes(install_dir)
+    bin_path = _resolve_ai_cli_bin(name)
+
+    report = {
+        "name": name,
+        "installed_version": installed,
+        "declared_version": declared,
+        "up_to_date": up_to_date,
+        "install_dir": str(install_dir),
+        "size_bytes": size_bytes,
+        "size_human": _human_bytes(size_bytes),
+        "bin_path": str(bin_path) if bin_path else None,
+    }
+
+    if getattr(args, "json", False):
+        print(_json.dumps(report, ensure_ascii=False))
+        return 0
+
+    print(f"=== ATLAS ai-cli status — {name} ===")
+    print(f"  kurulu sürüm:   {installed}")
+    print(f"  beklenen sürüm: {declared}")
+    print(f"  güncel mi:      {'evet' if up_to_date else 'HAYIR'}")
+    print(f"  kurulum yolu:   {install_dir}")
+    print(f"  boyut:          {_human_bytes(size_bytes)} ({size_bytes} B)")
+    if bin_path:
+        print(f"  bin:            {bin_path}")
+    else:
+        print("  bin:            (yok — 'atlas ai-cli update' gerekebilir)")
+    return 0
+
+
 def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
     """SPEC 037.2: `atlas ai-cli list [--json]` — kurulu AI CLI'ları listele.
 
@@ -3110,6 +3225,13 @@ def main(argv: list[str] | None = None) -> int:
         help="CLI'ya iletilecek argümanlar (opsiyonel; tümü aynen forward)",
     )
     p_ai_ex.set_defaults(func=_cmd_ai_cli_exec)
+    p_ai_st = ai_sub.add_parser(
+        "status",
+        help="Paket sağlık raporu: sürüm+boyut+bin (SPEC 037.4)",
+    )
+    p_ai_st.add_argument("name", help="paket adı (ör. opencode-ai, cline)")
+    p_ai_st.add_argument("--json", action="store_true", help="JSON çıktı")
+    p_ai_st.set_defaults(func=_cmd_ai_cli_status)
 
     p_hooks = sub.add_parser("hooks", help="Git pre-commit hook yönetimi (SPEC 034)")
     hooks_sub = p_hooks.add_subparsers(dest="hooks_cmd", required=True)
