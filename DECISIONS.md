@@ -1,6 +1,64 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-07-31 (24. tur — 044 + 049 + 045 + 047)
+- [KARAR] 24. tur sıra `044 → 049 → 045 → 047`; ayrı feature
+  branch'ler; main'e lineer ff-merge; sonda tek push. Kullanıcı
+  onayı ile SPEC iskeletleri toplu sunuldu, sonra uygulama.
+- [KARAR] 044: `.gitignore`'a `DOCTOR_cmd.png` + `DOCTOR_*.png` deseni.
+  Dosya silinmedi (untracked kullanıcı yerelinde debug değerinde);
+  yalnız gitignore. `git check-ignore` ile doğrulandı.
+- [KARAR] 049 refactor: `src/atlas_core/utils/` yeni namespace
+  (top-level). `utils/safe_tar.py::verify_tar_members(members,
+  expected_root)` — SPEC 033 + 041 restore fonksiyonlarındaki 20
+  satırlık ortak güvenlik loop'u 4 satıra indi.
+- [KARAR] `UnsafeTarMemberError(ValueError)` domain-agnostik
+  (N818 uyumlu). Çağıran taraf `str(exc)` ile RestoreError /
+  VaultBackupError'a re-raise ederek MEVCUT MESAJ SÖZLEŞMESİNİ
+  KORUR — test regex'leri değişmez (bit-uyumluluk mutlak).
+- [KARAR] `filter="data"` extract güvenliği çağıran tarafta
+  KORUNDU (defense-in-depth: verify_tar_members üye-üye kontrol,
+  filter=data extract-time kontrol; ortogonal).
+- [KARAR] 045 hook: `_HOOK_SIGNATURE` `# atlas-hook v1` → `v3`
+  (asıl şablon `v2` idi ama sabit hâlâ v1 yazıyordu — mismatch
+  düzeltildi). `_is_atlas_hook` versiyon bilinçsiz kaldı
+  (`.split(" v")[0]` → "# atlas-hook" prefix'i); v1/v2/v3 hepsi
+  ATLAS shim'i sayılır (mevcut davranış).
+- [KARAR] 045 hook v3: doctor gate KORUNDU, yeni gate `atlas
+  vault verify --strict`. Fresh clone naziksiz olmasın diye
+  `[ -d vault ]` guard verify'den ÖNCE — vault yoksa gate atlanır.
+  Kurulu v2 hook'lar `hooks status`'ta `up_to_date=False`; kullanıcı
+  `hooks install --force` ile v3'e geçer.
+- [KARAR] 045 test kalıbı: `_clean_env` autouse fixture
+  `_HOOK_TEMPLATE_PATH`'i sahte tmp_path şablonuna monkeypatch
+  ediyor. Gerçek şablon içerik testleri için
+  `Path(__file__).parent.parent / "tools/hooks/pre-commit"`
+  explicit repo kökü kullanıldı.
+- [KARAR] 047 doctor prometheus: `_doctor_report_to_prometheus`
+  `_cmd_doctor` yardımcısı olarak eklendi (test edilebilir birim).
+  Metrikler: `atlas_doctor_up 1` (canonical up), `warnings_total`,
+  `quality_healthy{field=NAME} 0|1`, opsiyonel `scan_src_*`.
+- [KARAR] 047 parser: `--json`, `--schema`, `--format` üçlüsü
+  `add_mutually_exclusive_group()`. store_true davranışları
+  KORUNDU. Bonus: `--json --schema` de mutex artık (önceden ayrıydı;
+  mevcut testlerde çakışma denemesi olmadığı için kırılmadı).
+- [KARAR] 047: `--strict` format bağımsız — Prometheus çıktı da
+  basılır ve exit 9 döner (alertmanager scrape + exit-based alert
+  aynı anda çalışır).
+- [KARAR] `--format prometheus` sözleşmesi metrics + doctor için
+  ortak kalıp: mutex `--json` ile, default `None` → bit-uyumluluk,
+  choices `["human", "prometheus"]` (`human` = default davranış).
+  Gelecek görevler bu kalıbı takip etsin.
+- [HATA] 049 test yazarken `tests/test_archive.py` var sandım —
+  yok, doğrusu `tests/test_cli_archive_restore.py`. Kalıp: `ls
+  tests/ | grep <keyword>` ilk adım.
+- [HATA] 045 test yazarken `_prep_repo` diye bir yardımcı
+  varmış gibi çağırdım — yok. Aslında `_clean_env` autouse
+  fixture kullanılıyor. Kalıp: yeni testler eklerken önce
+  test dosyasının conftest/fixture yapısını oku.
+- [KARAR] Test toplamı 810 → 838 (bu tur +28: 044 +0, 049 +12,
+  045 +5, 047 +11). Cov %90.85 → %90.90.
+
 ## 2026-07-31 (23. tur — 041.1 + 042 + 037.4 + 043)
 - [KARAR] Görevler ayrı feature branch'lerde, tek zincirde `main`'e
   lineer ff-merge; sıra `041.1 → 042 → 037.4 → 043`. Housekeeping
