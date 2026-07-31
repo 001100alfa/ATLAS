@@ -2041,6 +2041,54 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
 
     if args.json:
         print(_json.dumps(tail, ensure_ascii=False))
+    elif getattr(args, "format", None) == "prometheus":
+        # SPEC 043: Prometheus text v0.0.4 export
+        # Cost tahmini için fiyat env'i lazım — reuse aşağıdaki mantığın
+        # üstüne ekleme yapmadan burada hesapla.
+        price_in, price_out = _read_llm_prices()
+        cost_total = 0.0
+        if price_in > 0 or price_out > 0:
+            cost_total = (
+                total_in * price_in / 1_000_000
+                + total_cc * price_in * 1.25 / 1_000_000
+                + total_cr * price_in * 0.1 / 1_000_000
+                + total_out * price_out / 1_000_000
+            )
+        lines: list[str] = []
+        lines += [
+            "# HELP atlas_metrics_records_total Number of LLM call records observed",
+            "# TYPE atlas_metrics_records_total counter",
+            f"atlas_metrics_records_total {len(tail)}",
+            "# HELP atlas_metrics_tokens_prompt_total Prompt input token total",
+            "# TYPE atlas_metrics_tokens_prompt_total counter",
+            f"atlas_metrics_tokens_prompt_total {total_in}",
+            "# HELP atlas_metrics_tokens_completion_total Completion output token total",
+            "# TYPE atlas_metrics_tokens_completion_total counter",
+            f"atlas_metrics_tokens_completion_total {total_out}",
+            "# HELP atlas_metrics_cache_creation_tokens_total Cache creation token total",
+            "# TYPE atlas_metrics_cache_creation_tokens_total counter",
+            f"atlas_metrics_cache_creation_tokens_total {total_cc}",
+            "# HELP atlas_metrics_cache_read_tokens_total Cache read token total",
+            "# TYPE atlas_metrics_cache_read_tokens_total counter",
+            f"atlas_metrics_cache_read_tokens_total {total_cr}",
+            "# HELP atlas_metrics_cache_hit_ratio Cache-read share over total input tokens (0-1)",
+            "# TYPE atlas_metrics_cache_hit_ratio gauge",
+            f"atlas_metrics_cache_hit_ratio {hit_ratio / 100:.6f}",
+            "# HELP atlas_metrics_cost_usd_total Estimated aggregate cost in USD",
+            "# TYPE atlas_metrics_cost_usd_total counter",
+            f"atlas_metrics_cost_usd_total {cost_total:.6f}",
+        ]
+        # SPEC 023.2 tüketimi: inflight satırları yalnız veri varsa
+        if inflight_samples > 0:
+            lines += [
+                "# HELP atlas_metrics_inflight_max Peak inflight LLM call count in window",
+                "# TYPE atlas_metrics_inflight_max gauge",
+                f"atlas_metrics_inflight_max {inflight_max}",
+                "# HELP atlas_metrics_inflight_avg Average inflight LLM call count in window",
+                "# TYPE atlas_metrics_inflight_avg gauge",
+                f"atlas_metrics_inflight_avg {inflight_avg:.4f}",
+            ]
+        print("\n".join(lines))
     else:
         print(f"=== ATLAS metrics — son {limit} çağrı ===")
         print(f"  toplam: {len(tail)} çağrı")
@@ -3185,8 +3233,13 @@ def main(argv: list[str] | None = None) -> int:
                            help="LLM çağrı metrikleri özeti (SPEC 023/029)")
     p_met.add_argument("--limit", type=int, default=20,
                        help="son N kaydı özetle (varsayılan 20)")
-    p_met.add_argument("--json", action="store_true",
-                       help="JSON liste çıktısı")
+    p_met_out = p_met.add_mutually_exclusive_group()
+    p_met_out.add_argument("--json", action="store_true",
+                           help="JSON liste çıktısı (ham kayıtlar)")
+    p_met_out.add_argument("--format", default=None,
+                           choices=["human", "prometheus"],
+                           help="SPEC 043: 'prometheus' = Prometheus text "
+                                "v0.0.4 export; 'human' = default insan çıktısı")
     p_met.add_argument("--alert", type=float, default=None,
                        help="SPEC 029: cache-hit oranı bu %'den düşükse "
                             "stderr UYARI + exit 8 (0 kapatır)")

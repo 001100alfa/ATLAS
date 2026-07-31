@@ -319,3 +319,122 @@ def test_0232_json_bit_uyumlu(
     data = json.loads(capsys.readouterr().out.strip())
     assert isinstance(data, list)
     assert data[0]["inflight"] == 4
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 043 — atlas metrics --format prometheus
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_043_metrics_prometheus_temel_ciktisi(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--format prometheus` → v0.0.4 text; her metrik HELP+TYPE+değer."""
+    metrics = _env(monkeypatch, tmp_path)
+    _write_metrics_file(metrics, [
+        {"ts": "t1", "in": 100, "out": 50, "cache_c": 20, "cache_r": 30},
+        {"ts": "t2", "in": 200, "out": 100, "cache_c": 0, "cache_r": 500},
+    ])
+    rc = main(["metrics", "--format", "prometheus"])
+    assert rc == 0
+    out = capsys.readouterr().out
+
+    # Zorunlu satırlar
+    assert "# HELP atlas_metrics_records_total" in out
+    assert "# TYPE atlas_metrics_records_total counter" in out
+    assert "atlas_metrics_records_total 2" in out
+    assert "atlas_metrics_tokens_prompt_total 300" in out
+    assert "atlas_metrics_tokens_completion_total 150" in out
+    assert "atlas_metrics_cache_creation_tokens_total 20" in out
+    assert "atlas_metrics_cache_read_tokens_total 530" in out
+    assert "atlas_metrics_cache_hit_ratio" in out
+    assert "atlas_metrics_cost_usd_total" in out
+
+
+def test_043_metrics_prometheus_inflight_yoksa_satirlar_basilmaz(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`inflight` alanı olmayan kayıtlar → inflight_* satırları YOK."""
+    metrics = _env(monkeypatch, tmp_path)
+    _write_metrics_file(metrics, [
+        {"ts": "t1", "in": 10, "out": 5, "cache_c": 0, "cache_r": 0},
+    ])
+    rc = main(["metrics", "--format", "prometheus"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "atlas_metrics_inflight_max" not in out
+    assert "atlas_metrics_inflight_avg" not in out
+
+
+def test_043_metrics_prometheus_inflight_varsa_avg_max(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`inflight` alanları varsa avg/max satırları basılır."""
+    metrics = _env(monkeypatch, tmp_path)
+    _write_metrics_file(metrics, [
+        {"ts": "t1", "in": 10, "out": 5, "cache_c": 0, "cache_r": 0,
+         "inflight": 1},
+        {"ts": "t2", "in": 20, "out": 10, "cache_c": 0, "cache_r": 0,
+         "inflight": 3},
+        {"ts": "t3", "in": 30, "out": 15, "cache_c": 0, "cache_r": 0,
+         "inflight": 2},
+    ])
+    rc = main(["metrics", "--format", "prometheus"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "atlas_metrics_inflight_max 3" in out
+    assert "atlas_metrics_inflight_avg 2.0000" in out
+
+
+def test_043_metrics_json_ve_format_prometheus_argparse_mutex(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """argparse mutually_exclusive_group → SystemExit (exit 2)."""
+    _env(monkeypatch, tmp_path)
+    with pytest.raises(SystemExit) as excinfo:
+        main(["metrics", "--json", "--format", "prometheus"])
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    err_low = err.lower()
+    assert (
+        "not allowed with argument" in err
+        or "argümanı" in err_low
+        or "mutually" in err_low
+    )
+
+
+def test_043_metrics_default_bit_uyumlu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Default (bayraksız) çıktı: SPEC 023 insan formatı — 'toplam:' satırı korunur."""
+    metrics = _env(monkeypatch, tmp_path)
+    _write_metrics_file(metrics, [
+        {"ts": "t1", "in": 1, "out": 1, "cache_c": 0, "cache_r": 0},
+    ])
+    rc = main(["metrics"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "=== ATLAS metrics" in out
+    assert "toplam: 1 çağrı" in out
+    assert "atlas_metrics_" not in out  # prometheus çıktısı sızmasın
+
+
+def test_043_metrics_format_human_default_bit_uyumlu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--format human = default davranış."""
+    metrics = _env(monkeypatch, tmp_path)
+    _write_metrics_file(metrics, [
+        {"ts": "t1", "in": 1, "out": 1, "cache_c": 0, "cache_r": 0},
+    ])
+    rc = main(["metrics", "--format", "human"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "=== ATLAS metrics" in out
+    assert "atlas_metrics_" not in out
