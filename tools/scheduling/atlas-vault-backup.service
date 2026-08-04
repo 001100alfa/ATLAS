@@ -1,0 +1,28 @@
+[Unit]
+Description=ATLAS vault yedekleme (SPEC 041.1 --auto + --keep N)
+Documentation=file:tools/scheduling/README.md
+# ATLAS repo mount edilmiş olsun (NFS/remote FS)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+# YOL DEĞİŞKENLERİ — kurmadan önce düzenle:
+#   %I% → ATLAS git repo tam yolu (örn /home/user/ATLAS)
+#   %P% → atlas komutunun mutlak yolu (örn /home/user/.local/bin/atlas)
+#   %R% → archive kökü (örn /home/user/ATLAS/archive)
+#   %K% → --keep N değeri (örn 30)
+WorkingDirectory=%I%
+ExecStart=%P% vault backup --auto --archive-root %R% --keep %K%
+# Yedekleme sırasında sistem loaded olmasın:
+Nice=15
+IOSchedulingClass=idle
+# Env: ATLAS_VAULT tanımlı olmalı (yoksa <cwd>/vault kullanılır)
+# Environment="ATLAS_VAULT=/home/user/ATLAS/vault"
+
+# Hata durumunda 3 kez tekrar dene (5 dk arayla):
+Restart=on-failure
+RestartSec=300
+StartLimitBurst=3
+
+[Install]
+WantedBy=default.target

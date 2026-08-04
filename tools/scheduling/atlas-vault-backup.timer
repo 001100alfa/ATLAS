@@ -1,0 +1,14 @@
+[Unit]
+Description=ATLAS vault yedekleme tetikleyici — günlük 03:00 UTC
+Documentation=file:tools/scheduling/README.md
+Requires=atlas-vault-backup.service
+
+[Timer]
+# Her gün UTC 03:00; kullanıcı offline'ken kaçırdıysa açılışta koşar
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+# Farklı sistemlerdeki timer'ların aynı anda vurmaması için ±10 dk jitter
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target
