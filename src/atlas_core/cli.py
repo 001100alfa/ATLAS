@@ -1733,6 +1733,36 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     # SPEC 032.2: --scan-src bayrağı → Path; yoksa None (bit-uyumlu).
     scan_src = getattr(args, "scan_src", None)
     scan_src_path = Path(scan_src) if scan_src else None
+
+    # SPEC 051: --serve HOST:PORT → HTTP scrape endpoint (blocking).
+    # Ping doctor için serve modunda anlamsız (her istek bir ping =
+    # anthropic quota tüketimi); bu yüzden `--ping --serve` mutex.
+    serve_spec = getattr(args, "serve", None)
+    if serve_spec:
+        from atlas_core.observability.prometheus_server import (
+            parse_host_port,
+            serve_prometheus_http,
+        )
+        if getattr(args, "ping", False):
+            print(
+                "SPEC HATASI: --ping ve --serve birlikte kullanılamaz "
+                "(her istek anthropic ping = quota tüketimi)",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            host, port = parse_host_port(serve_spec)
+        except ValueError as exc:
+            print(f"SPEC HATASI: {exc}", file=sys.stderr)
+            return 2
+
+        def _doctor_body() -> str:
+            rep = _collect_doctor_report(scan_src_path=scan_src_path)
+            return _doctor_report_to_prometheus(rep)
+
+        serve_prometheus_http(host, port, _doctor_body)
+        return 0
+
     report = _collect_doctor_report(scan_src_path=scan_src_path)
 
     if getattr(args, "ping", False):
@@ -2042,6 +2072,101 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
     return 0
 
 
+def _build_metrics_prometheus_text(limit: int) -> str:
+    """SPEC 051: `atlas metrics --format prometheus` text çıktısını
+    string olarak üret (print YOK).
+
+    Aynı format v0.0.4 satırları; canlı `.atlas/metrics.jsonl` her
+    çağrıda tekrar okunur (HTTP scrape için).
+    """
+    import json as _json
+
+    from atlas_core.orchestrator.planner import _metrics_path
+
+    path = _metrics_path()
+    records: list[dict[str, Any]] = []
+    if path.is_file():
+        try:
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                s = raw.strip()
+                if not s:
+                    continue
+                try:
+                    obj = _json.loads(s)
+                except _json.JSONDecodeError:
+                    continue
+                if isinstance(obj, dict):
+                    records.append(obj)
+        except OSError:
+            pass
+    tail = records[-limit:]
+
+    total_in = sum(int(r.get("in", 0) or 0) for r in tail)
+    total_out = sum(int(r.get("out", 0) or 0) for r in tail)
+    total_cc = sum(int(r.get("cache_c", 0) or 0) for r in tail)
+    total_cr = sum(int(r.get("cache_r", 0) or 0) for r in tail)
+    denom = total_in + total_cc + total_cr
+    hit_ratio = (total_cr / denom * 100) if denom else 0.0
+
+    inflight_values = [
+        int(r["inflight"])
+        for r in tail
+        if isinstance(r.get("inflight"), int) and r["inflight"] >= 0
+    ]
+    if inflight_values:
+        inflight_avg = sum(inflight_values) / len(inflight_values)
+        inflight_max = max(inflight_values)
+        inflight_samples = len(inflight_values)
+    else:
+        inflight_avg = 0.0
+        inflight_max = 0
+        inflight_samples = 0
+
+    price_in, price_out = _read_llm_prices()
+    cost_total = 0.0
+    if price_in > 0 or price_out > 0:
+        cost_total = (
+            total_in * price_in / 1_000_000
+            + total_cc * price_in * 1.25 / 1_000_000
+            + total_cr * price_in * 0.1 / 1_000_000
+            + total_out * price_out / 1_000_000
+        )
+
+    lines: list[str] = [
+        "# HELP atlas_metrics_records_total Number of LLM call records observed",
+        "# TYPE atlas_metrics_records_total counter",
+        f"atlas_metrics_records_total {len(tail)}",
+        "# HELP atlas_metrics_tokens_prompt_total Prompt input token total",
+        "# TYPE atlas_metrics_tokens_prompt_total counter",
+        f"atlas_metrics_tokens_prompt_total {total_in}",
+        "# HELP atlas_metrics_tokens_completion_total Completion output token total",
+        "# TYPE atlas_metrics_tokens_completion_total counter",
+        f"atlas_metrics_tokens_completion_total {total_out}",
+        "# HELP atlas_metrics_cache_creation_tokens_total Cache creation token total",
+        "# TYPE atlas_metrics_cache_creation_tokens_total counter",
+        f"atlas_metrics_cache_creation_tokens_total {total_cc}",
+        "# HELP atlas_metrics_cache_read_tokens_total Cache read token total",
+        "# TYPE atlas_metrics_cache_read_tokens_total counter",
+        f"atlas_metrics_cache_read_tokens_total {total_cr}",
+        "# HELP atlas_metrics_cache_hit_ratio Cache-read share over total input tokens (0-1)",
+        "# TYPE atlas_metrics_cache_hit_ratio gauge",
+        f"atlas_metrics_cache_hit_ratio {hit_ratio / 100:.6f}",
+        "# HELP atlas_metrics_cost_usd_total Estimated aggregate cost in USD",
+        "# TYPE atlas_metrics_cost_usd_total counter",
+        f"atlas_metrics_cost_usd_total {cost_total:.6f}",
+    ]
+    if inflight_samples > 0:
+        lines += [
+            "# HELP atlas_metrics_inflight_max Peak inflight LLM call count in window",
+            "# TYPE atlas_metrics_inflight_max gauge",
+            f"atlas_metrics_inflight_max {inflight_max}",
+            "# HELP atlas_metrics_inflight_avg Average inflight LLM call count in window",
+            "# TYPE atlas_metrics_inflight_avg gauge",
+            f"atlas_metrics_inflight_avg {inflight_avg:.4f}",
+        ]
+    return "\n".join(lines)
+
+
 def _cmd_metrics(args: argparse.Namespace) -> int:
     """SPEC 023 + 029: `.atlas/metrics.jsonl` son N kaydı özetler.
 
@@ -2105,6 +2230,24 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
         inflight_avg = 0.0
         inflight_max = 0
         inflight_samples = 0
+
+    # SPEC 051: --serve HOST:PORT → HTTP scrape endpoint (blocking)
+    serve_spec = getattr(args, "serve", None)
+    if serve_spec:
+        from atlas_core.observability.prometheus_server import (
+            parse_host_port,
+            serve_prometheus_http,
+        )
+        try:
+            host, port = parse_host_port(serve_spec)
+        except ValueError as exc:
+            print(f"SPEC HATASI: {exc}", file=sys.stderr)
+            return 2
+        serve_prometheus_http(
+            host, port,
+            lambda: _build_metrics_prometheus_text(limit),
+        )
+        return 0
 
     if args.json:
         print(_json.dumps(tail, ensure_ascii=False))
@@ -3463,6 +3606,10 @@ def main(argv: list[str] | None = None) -> int:
                            choices=["human", "prometheus"],
                            help="SPEC 043: 'prometheus' = Prometheus text "
                                 "v0.0.4 export; 'human' = default insan çıktısı")
+    p_met_out.add_argument("--serve", default=None, metavar="HOST:PORT",
+                           help="SPEC 051: Prometheus text HTTP scrape "
+                                "endpoint başlat (blocking; Ctrl+C ile durdur). "
+                                "Ör: ':9090' veya '0.0.0.0:9090'")
     p_met.add_argument("--alert", type=float, default=None,
                        help="SPEC 029: cache-hit oranı bu %'den düşükse "
                             "stderr UYARI + exit 8 (0 kapatır)")
@@ -3542,6 +3689,11 @@ def main(argv: list[str] | None = None) -> int:
                            help="SPEC 047: 'prometheus' = Prometheus text v0.0.4 "
                                 "export (up + warnings_total + quality_healthy "
                                 "labels); 'human' = default insan çıktısı.")
+    p_doc_out.add_argument("--serve", default=None, metavar="HOST:PORT",
+                           help="SPEC 051: Prometheus scrape HTTP endpoint "
+                                "başlat (blocking; Ctrl+C ile durdur). "
+                                "Ör: ':9091' veya '0.0.0.0:9091'. --ping ile "
+                                "mutex (her istek anthropic quota tüketir).")
     p_doc.add_argument("--ping", action="store_true",
                        help="Anthropic'e minimum request at, latency+cost raporla — SPEC 021.2")
     p_doc.add_argument("--strict", action="store_true",
