@@ -1,0 +1,85 @@
+name: vault-health
+# SPEC 056: PR + push'da vault graf sağlığı kapısı.
+# `atlas vault verify --strict` fail ederse PR'a rapor comment olarak
+# yapıştırılır (SPEC 052 --dump-report ile üretilen markdown).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "vault/**"
+      - "src/atlas_core/memory/vault**"
+      - ".github/workflows/vault-health.yml"
+  pull_request:
+    paths:
+      - "vault/**"
+      - "src/atlas_core/memory/vault**"
+      - ".github/workflows/vault-health.yml"
+
+# PR yorumu yazmak için gerekli izin (fork PR'larda otomatik değil;
+# GitHub Actions Settings > "Allow GitHub Actions to create and approve
+# pull requests" AÇIK olmalı).
+permissions:
+  contents: read
+  pull-requests: write
+
+# Aynı PR'ın hızlı ardışık push'ları için önceki koşumu iptal et
+concurrency:
+  group: vault-health-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: atlas vault verify --strict
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install ATLAS
+        run: uv sync --frozen --extra dev
+        # `--frozen` uv.lock ile deterministik kurulum; --extra dev
+        # pytest/mypy vs. gerekmez ama minimum shape korunur.
+
+      - name: Run vault verify --strict
+        id: verify
+        continue-on-error: true
+        run: |
+          set +e
+          uv run atlas vault verify --strict --dump-report health.md
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Upload health report artifact
+        if: always() && hashFiles('health.md') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: vault-health-report
+          path: health.md
+          retention-days: 30
+
+      - name: Comment PR on failure
+        if: >-
+          github.event_name == 'pull_request'
+          && steps.verify.outputs.rc != '0'
+          && hashFiles('health.md') != ''
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: health.md
+          # `atlas-vault-health` slug'ı ile idempotent (aynı PR'da
+          # tekrar çalışırsa YENİ comment atar — update değil,
+          # çünkü peter-evans/create-or-update-comment `comment-id`
+          # olmadan create eder). Delta görmek isteyen artifact'ı indirir.
+
+      - name: Fail the workflow if verify failed
+        if: steps.verify.outputs.rc != '0'
+        run: |
+          echo "::error::atlas vault verify --strict başarısız (rc=${{ steps.verify.outputs.rc }})"
+          echo "Detay: health.md artifact veya PR comment."
+          exit 1
