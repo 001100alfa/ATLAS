@@ -193,6 +193,106 @@ def _unique_dst(base: Path) -> Path:
     raise RuntimeError(f"benzersiz hedef bulunamadı (>1000 çakışma): {base}")
 
 
+@dataclass(slots=True, frozen=True)
+class StubAction:
+    """SPEC 058: tek bir kırık link için stub not oluşturma sonucu.
+
+    - `target`: `<to>` hedefi (notun adı — link'in gösterdiği stem)
+    - `path`: yazılan (veya planlanan) `.md` yolu
+    - `sources`: bu hedefe link veren tüm `from` notları (birden fazla
+      olabilir; stub içeriğinde referans listesi)
+    - `action`: `"planned"` (dry-run) | `"created"` (yazıldı) |
+      `"skipped"` (dosya zaten var, dokunulmadı)
+    """
+
+    target: str
+    path: Path
+    sources: tuple[str, ...]
+    action: str
+
+
+_STUB_TEMPLATE = """# {target}
+
+#stub
+
+Bu not `atlas vault fix-broken` tarafından otomatik oluşturuldu
+(SPEC 058). Kaynağı doldur veya alakasız ise `atlas vault fix-orphans
+--apply` ile temizle.
+
+## Kırık link kaynağı ({n_sources})
+
+{sources_list}
+
+<!-- oluşturulma: {ts} -->
+"""
+
+
+def create_stub_notes(
+    vault: Vault,
+    broken_links: list[BrokenLink],
+    target_dir: Path,
+    *,
+    dry_run: bool,
+) -> list[StubAction]:
+    """SPEC 058: `broken_links` içindeki her hedef `to` için stub not
+    oluştur.
+
+    - Aynı hedefe link veren birden fazla `from` varsa TEK stub üretilir;
+      stub içeriğinde tüm kaynaklar listelenir.
+    - Hedef adı (`to`) vault içinde zaten varsa (yarış durumu — verify
+      sonrası oluşturulmuş) → `action="skipped"`, dokunulmaz.
+    - `target_dir` yoksa `mkdir -p` (dry-run'da klasör oluşturulmaz).
+    - Dry-run: dosya sistemi dokunulmaz.
+
+    Döner: her hedef için StubAction listesi (hedef adı sözlük sırası).
+    """
+    from datetime import datetime
+
+    # Aynı hedefe farklı `from`'lar → tekilleştir + kaynak topla
+    targets: dict[str, list[str]] = {}
+    for bl in broken_links:
+        targets.setdefault(bl.to, []).append(bl.frm)
+
+    actions: list[StubAction] = []
+    if not dry_run and targets:
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    for name in sorted(targets):
+        sources = tuple(sorted(set(targets[name])))
+        # Vault'ta not zaten var mı? (verify sonrası oluşmuş olabilir)
+        if list(vault.root.rglob(f"{name}.md")):
+            actions.append(StubAction(
+                target=name,
+                path=target_dir / f"{name}.md",
+                sources=sources,
+                action="skipped",
+            ))
+            continue
+
+        dst = target_dir / f"{name}.md"
+        if dry_run:
+            actions.append(StubAction(
+                target=name, path=dst, sources=sources, action="planned",
+            ))
+            continue
+
+        sources_list = "\n".join(f"- `[[{s}]]`" for s in sources)
+        content = _STUB_TEMPLATE.format(
+            target=name,
+            n_sources=len(sources),
+            sources_list=sources_list,
+            ts=ts,
+        )
+        dst.write_text(content, encoding="utf-8")
+        actions.append(StubAction(
+            target=name, path=dst, sources=sources, action="created",
+        ))
+
+    return actions
+
+
 def archive_orphan_notes(
     vault: Vault,
     orphan_names: list[str],

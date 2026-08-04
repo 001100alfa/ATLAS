@@ -2832,6 +2832,89 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_vault_fix_broken(args: argparse.Namespace) -> int:
+    """SPEC 058: `atlas vault fix-broken [--apply]` — kırık wikilink'ler
+    için stub not oluştur.
+
+    Dry-run varsayılan (YIKICI). `--apply` ile gerçek yazma.
+
+    Akış:
+      1. Vault graf sağlığını çıkar (SPEC 042 `verify_graph`).
+      2. `broken_links` içindeki her `to` hedefi için stub notu
+         oluşturma planı (SPEC 058 `create_stub_notes`).
+      3. Dry-run → plan raporu bas, exit 0.
+      4. `--apply` → `<vault>/_stubs/` altına stub notları yaz; audit'e
+         yaz.
+
+    Exit kodları:
+      - 0: başarılı (dry-run veya apply)
+      - 2: SPEC HATASI (vault dizini yok)
+
+    Bit-uyumluluk: `atlas vault verify` (SPEC 042) DEĞİŞMEDİ; ayrı
+    alt-komut (SPEC 046 fix-orphans kalıbı).
+    """
+    from atlas_core.memory.vault import Vault
+    from atlas_core.memory.vault_verify import (
+        create_stub_notes,
+        verify_graph,
+    )
+
+    vault_root = Path(args.vault_root) if args.vault_root else _vault_root()
+    if not vault_root.is_dir():
+        print(
+            f"SPEC HATASI: vault dizini yok: {vault_root}",
+            file=sys.stderr,
+        )
+        return 2
+
+    vault = Vault(vault_root)
+    report = verify_graph(vault.graph())
+    if not report.broken_links:
+        print("Kirik link yok — hicbir sey yapilmadi.")
+        return 0
+
+    if getattr(args, "target", None):
+        target = Path(args.target)
+    else:
+        target = vault_root / "_stubs"
+
+    apply = bool(getattr(args, "apply", False))
+    actions = create_stub_notes(
+        vault, report.broken_links, target, dry_run=not apply,
+    )
+
+    audit = AuditLog(_audit_path())
+    if apply:
+        created = len([a for a in actions if a.action == "created"])
+        audit.record(
+            "atlas-vault", "fix-broken",
+            f"{created} stub -> {target}",
+        )
+
+    if apply:
+        print(f"[fix-broken] {len(actions)} islem — hedef: {target}")
+    else:
+        print(f"[dry-run] {len(actions)} kirik hedef plani — hedef: {target}")
+
+    for a in actions:
+        try:
+            rel_path = a.path.relative_to(vault_root)
+        except ValueError:
+            rel_path = a.path
+        marker = {
+            "planned": "  ..",
+            "created": "  OK",
+            "skipped": "  --",
+        }[a.action]
+        sources_str = ", ".join(a.sources) if a.sources else "?"
+        print(f"{marker} {a.target}.md  <-  ({sources_str})  ->  {rel_path}")
+
+    if not apply:
+        print(f"\nUygulamak icin: atlas vault fix-broken --apply "
+              f"--vault-root {vault_root}")
+    return 0
+
+
 def _cmd_vault_fix_orphans(args: argparse.Namespace) -> int:
     """SPEC 046: `atlas vault fix-orphans [--apply]` — orfan notları arşivle.
 
@@ -3821,6 +3904,19 @@ def main(argv: list[str] | None = None) -> int:
                        help="Hedef dizin (varsayılan: "
                             "<vault>/_archive/orphans-YYYY-MM-DD)")
     p_vfo.set_defaults(func=_cmd_vault_fix_orphans)
+    # SPEC 058: vault fix-broken (kırık wikilink'ler için stub not — YIKICI)
+    p_vfb = vault_sub.add_parser(
+        "fix-broken",
+        help="Kırık [[wikilink]]'ler için stub not oluştur "
+             "(SPEC 058 — YIKICI, --apply gerekli)",
+    )
+    p_vfb.add_argument("--vault-root", default=None,
+                       help="Vault kökü (env: ATLAS_VAULT; varsayılan vault)")
+    p_vfb.add_argument("--apply", action="store_true",
+                       help="Dry-run yerine gerçek yazma (yıkıcı)")
+    p_vfb.add_argument("--target", default=None, metavar="DIR",
+                       help="Hedef dizin (varsayılan: <vault>/_stubs)")
+    p_vfb.set_defaults(func=_cmd_vault_fix_broken)
 
     p_arc = sub.add_parser("archive", help="Tamamlanmış görevi arşive taşı")
     p_arc.add_argument("task", nargs="?", default=None,
