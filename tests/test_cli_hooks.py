@@ -383,16 +383,24 @@ def _real_hook_template() -> str:
     )
 
 
-def test_045_hook_signature_sabit_v3() -> None:
-    """`_HOOK_SIGNATURE` `# atlas-hook v3` (SPEC 045 yükseltmesi)."""
-    assert _HOOK_SIGNATURE == "# atlas-hook v3"
+def test_045_hook_signature_sabit_v4() -> None:
+    """`_HOOK_SIGNATURE` `# atlas-hook v4` (SPEC 052 yükseltmesi;
+    045 v3'ten devam)."""
+    assert _HOOK_SIGNATURE == "# atlas-hook v4"
 
 
-def test_045_hook_sablonu_v3_imzali() -> None:
-    """Gerçek şablon ikinci satırda `# atlas-hook v3` imzasını taşır."""
+def test_045_hook_sablonu_v4_imzali() -> None:
+    """Gerçek şablon ikinci satırda `# atlas-hook v4` imzasını taşır."""
     text = _real_hook_template()
     lines = text.splitlines()
-    assert lines[1] == "# atlas-hook v3"
+    assert lines[1] == "# atlas-hook v4"
+
+
+def test_052_hook_sablonu_dump_report_bayragi_iceriyor() -> None:
+    """SPEC 052: hook `--dump-report .atlas/vault-health.md` çağrısı."""
+    text = _real_hook_template()
+    assert "--dump-report .atlas/vault-health.md" in text
+    assert "auto-dump" in text
 
 
 def test_045_hook_sablonu_vault_verify_gate_icerir() -> None:

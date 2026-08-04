@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import UTC
 
 from atlas_core.memory.vault import Graph
 
@@ -64,6 +65,72 @@ class VerifyReport:
             "tags_total": self.tags_total,
             "is_clean": self.is_clean,
         }
+
+
+def format_report_markdown(report: VerifyReport, vault_root: str) -> str:
+    """SPEC 052: `VerifyReport`'u insan-okunur Markdown'a çevir.
+
+    Hook auto-dump çıktısı; `.atlas/vault-health.md` gibi git-ignored
+    bir yola yazılır. Kullanıcı commit engellendiğinde ne düzelteceğini
+    tek dosyadan görür.
+
+    Format deterministik (broken_links + orphan_* zaten sıralı).
+    Timestamp UTC ISO 8601 (deterministik kaynak).
+    """
+    from datetime import datetime
+
+    ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    lines: list[str] = [
+        "# ATLAS vault verify raporu",
+        "",
+        f"- oluşturuldu: {ts}",
+        f"- vault: `{vault_root}`",
+        f"- notlar: {report.notes_total}",
+        f"- linkler: {report.links_total}",
+        f"- taglar: {report.tags_total}",
+        f"- **durum: {'✔ temiz' if report.is_clean else '❌ bulgu var'}**",
+        "",
+    ]
+
+    if report.broken_links:
+        lines.append(f"## Kırık linkler ({len(report.broken_links)})")
+        lines.append("")
+        for b in report.broken_links:
+            lines.append(f"- `{b.frm}` → `{b.to}`")
+        lines.append("")
+
+    if report.orphan_notes:
+        lines.append(f"## Orfan notlar ({len(report.orphan_notes)})")
+        lines.append("")
+        lines.append("*Ne link veren ne link alan notlar — bakım sinyali.*")
+        lines.append("")
+        for n in report.orphan_notes:
+            lines.append(f"- `{n}`")
+        lines.append("")
+
+    if report.orphan_tags:
+        lines.append(f"## Orfan taglar ({len(report.orphan_tags)})")
+        lines.append("")
+        lines.append("*Yalnız bir notta geçen `#tag`'lar — sözlük gürültüsü.*")
+        lines.append("")
+        for t in report.orphan_tags:
+            lines.append(f"- `#{t}`")
+        lines.append("")
+
+    if not report.is_clean:
+        lines += [
+            "## Öneri",
+            "",
+            "1. Kırık linkler → hedef notu oluştur veya link yolunu düzelt.",
+            "2. Orfan notlar → başka bir notta `[[not-adı]]` ile bağla ya",
+            "   da silmeye karar ver.",
+            "3. Orfan taglar → tag'i başka notlarda da kullan ya da",
+            "   yazımını düzelt.",
+            "4. Ayrıntı için: `atlas vault verify` (renkli konsol çıktısı).",
+            "",
+        ]
+
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def verify_graph(graph: Graph) -> VerifyReport:

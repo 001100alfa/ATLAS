@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
-# atlas-hook v3
-# SPEC 034 + 032.2 + 045: ATLAS pre-commit — quality gate + sır taraması
-# + vault graf sağlığı TEK komut zincirinde.
+# atlas-hook v4
+# SPEC 034 + 032.2 + 045 + 052: ATLAS pre-commit — quality gate + sır
+# taraması + vault graf sağlığı + auto-dump raporu TEK komut zincirinde.
 #
 # `atlas hooks install` bu şablonu `.git/hooks/pre-commit`'e kopyalar.
 # `atlas hooks uninstall` ikinci satırdaki `atlas-hook` imzasına bakıp
@@ -22,15 +22,17 @@ if ! atlas doctor --strict --scan-src; then
     exit 1
 fi
 
-# Kapı 2 (SPEC 045): vault graf sağlığı — kırık [[wikilink]] veya orfan
-# not/tag. Fresh clone veya vault-less proje için nazik: `vault/` dizini
-# yoksa sessizce atla (SPEC HATASI exit 2 vermez).
+# Kapı 2 (SPEC 045 + 052): vault graf sağlığı — kırık [[wikilink]] veya
+# orfan not/tag. SPEC 052: `--dump-report .atlas/vault-health.md` ile
+# başarısızlık durumunda insan-okunur markdown rapor otomatik dosyaya
+# yazılır (`.atlas/` git-ignored → commit döngüsü yok). Fresh clone veya
+# vault-less proje için nazik: `vault/` dizini yoksa sessizce atla.
 if [ -d vault ]; then
-    if ! atlas vault verify --strict; then
+    if ! atlas vault verify --strict --dump-report .atlas/vault-health.md; then
         echo "" >&2
         echo "[pre-commit] atlas vault verify --strict başarısız — commit engellendi." >&2
-        echo "Çözüm: kırık [[wikilink]] veya orfan not/tag'i düzelt." >&2
-        echo "Rapor: atlas vault verify (bayraksız insan çıktısı)." >&2
+        echo "Detay rapor: .atlas/vault-health.md (auto-dump)" >&2
+        echo "Renkli konsol: atlas vault verify (bayraksız)" >&2
         exit 1
     fi
 fi

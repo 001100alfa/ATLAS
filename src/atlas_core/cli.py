@@ -2351,7 +2351,7 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
     import json as _json
 
     from atlas_core.memory.vault import Vault
-    from atlas_core.memory.vault_verify import verify_graph
+    from atlas_core.memory.vault_verify import format_report_markdown, verify_graph
 
     vault_root = Path(args.vault_root) if args.vault_root else _vault_root()
     if not vault_root.is_dir():
@@ -2367,6 +2367,21 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
 
     audit = AuditLog(_audit_path())
     audit.record("atlas-vault", "verify", str(vault_root))
+
+    # SPEC 052: --dump-report PATH → markdown rapor otomatik dosyaya yaz.
+    # Verify sonucu bit-uyumlu; sadece yan etki (dosya oluşturma).
+    # Yazma hatası SESSİZ (hook contextinde commit'i patlatmamak için).
+    dump_path = getattr(args, "dump_report", None)
+    if dump_path:
+        try:
+            out = Path(dump_path)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(
+                format_report_markdown(report, str(vault_root)),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass  # rapor yazımı best-effort — verify çıktı sözleşmesi bozulmaz
 
     if getattr(args, "json", False):
         indent = 2 if getattr(args, "pretty", False) else None
@@ -2425,7 +2440,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
 # SPEC 034: pre-commit hook install/uninstall/status
 # ─────────────────────────────────────────────────────────────────────
 
-_HOOK_SIGNATURE = "# atlas-hook v3"
+_HOOK_SIGNATURE = "# atlas-hook v4"
 _HOOK_TEMPLATE_PATH = Path("tools/hooks/pre-commit")
 _HOOK_TARGET_REL = Path(".git/hooks/pre-commit")
 
@@ -3262,6 +3277,10 @@ def main(argv: list[str] | None = None) -> int:
                       help="--json ile birlikte girintili çıktı (indent=2)")
     p_vv.add_argument("--strict", action="store_true",
                       help="Bulgu varsa exit 4 (CI/pre-commit uyumlu)")
+    p_vv.add_argument("--dump-report", default=None, metavar="PATH",
+                      help="SPEC 052: rapor markdown olarak PATH'e yazılır "
+                           "(dizin yoksa oluşturulur). Yazma hatası sessiz "
+                           "geçilir — verify çıktı sözleşmesi bit-uyumlu.")
     p_vv.set_defaults(func=_cmd_vault_verify)
 
     p_arc = sub.add_parser("archive", help="Tamamlanmış görevi arşive taşı")
