@@ -1,6 +1,90 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-04 (26. tur — 056 + 057 + 054 + 058 + 055 + 059)
+
+Kullanıcı "DEVAM ET" tetikleyicisi → 6 aday görev, sıra
+`056 → 057 → 054 → 058 → 055 → 059` (küçükten büyüğe).
+
+- [KARAR] 056 `.github/workflows/vault-health.yml`: PR + push[main]'de
+  vault verify CI gate. Fail → PR comment (peter-evans/create-or-
+  update-comment) + artifact (health.md, 30 gün). `verify` step
+  `continue-on-error: true` + rc `$GITHUB_OUTPUT` → sonraki step'ler
+  comment/artifact yazabilir; sonra fail step exit 1.
+- [KARAR] 056 permissions: `pull-requests: write` (comment için).
+  Fork PR'larda otomatik değil — GitHub güvenlik politikası.
+- [KARAR] 056 test defensive: PyYAML `on:` anahtarını `True`
+  (boolean) olarak parse edebilir (YAML 1.1 backward-compat). Test
+  `data.get("on") or data.get(True)` her iki key'i de dener.
+- [KARAR] 057 `atlas doctor --diff BASELINE_JSON`: mutex GRUBU DIŞINDA
+  (`--json` ile ortogonal). Semantik mutex kod içinde: `--diff +
+  --serve/--schema/--format prometheus` → exit 2.
+- [HATA] 057 sıralama bug: `--diff + --serve` semantik kontrol
+  `--serve` blocking dalından SONRA yapılıyordu → HTTP server açılıp
+  test hang. Çözüm: `--diff + --serve` early check `_cmd_doctor`
+  başında (blocking daldan önce). Kalıp: blocking dallar için
+  semantik mutex'ler ÖNCE.
+- [HATA] 057 Windows cp1254 stdout bug: pytest capsys `→ ⚠ ✓ ✗` gibi
+  Unicode >0xFF karakterleri encode edemez (`UnicodeEncodeError`).
+  Ana kod UTF-8'e reconfigure ediyor ama pytest capture os.dup2 ile
+  file descriptor seviyesinde çalışıyor, cp1254 kalıyor. Çözüm:
+  insan çıktısında ASCII-only marker'lar (`[+] [-] [!] [~]`). Kalıp:
+  yeni print çıktılarında `>0xFF` Unicode kaçın; ASCII marker kullan.
+- [KARAR] 057 `_diff_doctor_reports` `unchanged` alanları raporda
+  YER ALMAZ (gürültü azalt). `has_regression` = yeni uyarı VEYA
+  quality regressed VEYA appeared+warning. `has_improvement` =
+  removed uyarı VEYA resolved VEYA disappeared.
+- [KARAR] 057 warnings duplicate: `set` farkı ile dedup (aynı warning
+  2 kez baseline'da olsa bile bir kez raporlanır).
+- [KARAR] 054 `_check_http(url, timeout=5.0)`: stdlib urllib.request
+  GET; HTTPError → status yakala + `"HTTP <code>"` warning; URLError/
+  Timeout/OSError → status=None + `"bağlantı hatası: ..."`; scheme
+  http/https değil → `"URL scheme geçersiz: ..."`.
+- [KARAR] 054 `quality.http_check` alanı yalnız `--http-check`
+  verildiyse eklenir (bit-uyumluluk + IO maliyeti yok).
+- [KARAR] 054 Prometheus: `atlas_doctor_http_check_up 0|1` + latency
+  gauge (koşullu, latency None değilse). SPEC 043/047 kalıbıyla
+  aynı — koşullu metrikler.
+- [KARAR] 058 `atlas vault fix-broken`: SPEC 046 kalıbı (yıkıcı
+  alt-komut, dry-run varsayılan, --apply gerekli). Ayrı alt-komut,
+  `vault verify` DEĞİŞMEDİ.
+- [KARAR] 058 stub notu tasarımı: aynı hedefe (`to`) birden fazla
+  `from` → TEK stub + kaynak listesi (kısaltma değil, tam liste
+  `[[from1]] [[from2]]` markdown). `#stub` tag'i → sonraki verify'da
+  orfan tag olabilir ama kasıtlı (kullanıcı stub'ları görsün).
+- [KARAR] 058 idempotency: hedef vault'ta zaten varsa (yarış durumu
+  veya elle eklenmiş) → `action="skipped"`, dokunulmaz.
+  Cross-file: vault içinde `<name>.md` `rglob` ile aranır (SPEC 046
+  kalıbı — alt-klasörleri kapsar).
+- [KARAR] 055 SPEC 051 refactor (bit-uyumlu):
+  `observability/prometheus_server.py::make_handler + serve_prometheus_http`
+  `content_type` + `allowed_paths` parametrik. Default değerler
+  Prometheus (`text/plain; version=0.0.4`, `("/","/metrics")`).
+  Handler adı `_PrometheusHandler` → `_AtlasHTTPHandler` (private,
+  çağırıcı etkilenmez).
+- [KARAR] 055 replay serve: `application/json; charset=utf-8` +
+  `("/", "/runs")`. `_build_replay_json_body(limit)` her istek
+  yeniden okur → canlı liste.
+- [KARAR] 055 semantik mutex: `--serve + --list` (blocking vs
+  snapshot), `--serve + <run-id>` (server tüm liste, tek run yayımı
+  YAGNI).
+- [KARAR] 059 `--alert-email`: `--alert PCT` ile birleşince eşik
+  aşılırsa SMTP notify. Env sözleşmesi: HOST/PORT/USER/PASSWORD/
+  STARTTLS + FROM/TO. Exception yakalanır → stderr `[alert-email]
+  gönderim başarısız: ...`; **exit 8 KORUR** (alert semantiği email
+  yan etkiden bağımsız).
+- [KARAR] 059 STARTTLS default "1" (modern SMTP standart). PORT
+  default 587 (SUBMISSION). USER/PASSWORD ikisi de varsa login;
+  ikisi de yoksa anonymous SMTP (test/dev senaryosu).
+- [KARAR] 059 test için `_FakeSMTP` class → `smtplib.SMTP` monkey.
+  starttls/login/send_message çağrıları capture edilir; gerçek network
+  yok.
+- [KARAR] Test toplamı: 921 (056) → 944 (057) → 959 (054) → 973 (058)
+  → 983 (055) → **995** (059). Cov %91.18 → %91.50.
+- [KARAR] 26. tur boyunca 6 lineer feat commit + 1 docs commit; hiç
+  yıkıcı git operasyonu (--amend/force) yok. Push tek seferde tur
+  sonunda.
+
 ## 2026-08-04 (25. tur — housekeeping + 053 + 052 + 050 + 048 + 046 + 051)
 
 Tek turda **6 aday görev + 1 housekeeping**. Sıra:

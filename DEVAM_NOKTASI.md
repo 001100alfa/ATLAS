@@ -13,12 +13,12 @@
 > 5. Zorunlu Döngü'ye (`CLAUDE.md` §Zorunlu Döngü) gir; ilk iş
 >    `DECISIONS.md`'nin son 2026-08-04 girişlerini kaba tarama.
 
-**Son çalışma:** 2026-08-04 (25. tur — housekeeping + 053 + 052 + 050 + 048 + 046 + 051)
-**Branch:** `main` (7 lineer commit push edildi — SENKRON)
+**Son çalışma:** 2026-08-04 (26. tur — 056 + 057 + 054 + 058 + 055 + 059)
+**Branch:** `main` (6 feat + docs, PUSH edilecek)
 **Working tree:** temiz
-**Durum:** 25. tur tamamlandı; 6 aday görev + housekeeping;
-tümü main'e lineer ff-merge + push. **912/912 test yeşil**
-(+12 skip), cov %91.18, mypy strict + ruff + scan temiz.
+**Durum:** 26. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
+**995/995 test yeşil** (+12 skip), cov %91.50, mypy strict + ruff + scan
+temiz.
 
 ---
 
@@ -28,104 +28,106 @@ Yeni oturumda tek cümle yeter: **"devam et"**
 
 ---
 
-## Bu turda yapılan (2026-08-04 — 25. tur)
+## Bu turda yapılan (2026-08-04 — 26. tur)
 
-Kullanıcı "DEVAM ET VE SIRA İLE HEPSİNİ YAP" komutu — 6 aday görevin
-tamamı + housekeeping. Sıra: `chore → 053 → 052 → 050 → 048 → 046 → 051`.
+Kullanıcı "DEVAM ET" tetikleyicisi → 26. tur seçimi "HEPSİ" onay
+verildi. 6 görev zincirleme, sıra `056 → 057 → 054 → 058 → 055 → 059`
+(küçükten büyüğe).
 
-0. **Housekeeping** — ai-cli bump commit'i (`173ea4e`)
-   - 24. tur DIŞINDA oluşan `tools/ai-cli/package.json` bump'ı
-     (`opencode-ai ^1.18.10 → ^1.18.11`) tekil `chore(ai-cli):` commit
-     olarak temizlendi.
+1. **Görev 056** — `.github/workflows/vault-health.yml` (`288c769`)
+   - PR + push[main] tetikleyici, vault + src path filtresi.
+   - 7 step: checkout → setup-uv → uv sync → `atlas vault verify
+     --strict --dump-report health.md` (continue-on-error + rc
+     `$GITHUB_OUTPUT`) → upload-artifact (30 gün) → PR comment
+     (peter-evans/create-or-update-comment@v4, fail-only) → fail step
+     (rc != 0 → exit 1).
+   - permissions `pull-requests: write`; concurrency cancel-in-progress.
+   - +9 test (PyYAML defensive `on:` boolean parse).
 
-1. **Görev 053** — `atlas --version` / `-V` (`d5d877e`, micro)
-   - `argparse.action="version"` parse_args'ta erken exit — subparser
-     `required=True` olsa da çalışır.
-   - Kaynak: `atlas_core.__version__` (pyproject.toml drift kontrolü
-     test'te).
-   - +4 test.
+2. **Görev 057** — `atlas doctor --diff BASELINE_JSON` (`7e697be`)
+   - `_diff_doctor_reports(baseline, current)` yeni yardımcı.
+   - `warnings_added/removed` (set fark sorted) + `quality_deltas`
+     (regressed/resolved/changed/appeared/disappeared) + `has_regression`
+     / `has_improvement` + schema_version delta.
+   - `--diff` mutex GRUBU DIŞINDA (`--json` ile ortogonal); semantik
+     mutex kod içinde: `--diff + --serve/--schema/--format prometheus`.
+   - `--strict + has_regression` → exit 9.
+   - **Bug fix**: `--diff + --serve` sıralaması — semantik check
+     blocking dal ÖNCE (aksi hâlde HTTP server açılıp test hang).
+   - **Bug fix**: Windows cp1254 stdout — pytest capsys Unicode >0xFF
+     encode edemez → insan çıktısında ASCII-only marker
+     (`[+] [-] [!] [~]`).
+   - +23 test.
 
-2. **Görev 052** — `vault verify --dump-report` + hook v3→v4 (`85e4db4`)
-   - `format_report_markdown(report, vault_root)` UTC timestamp +
-     koşullu bulgu bölümleri + Öneri.
-   - `--dump-report PATH` yeni bayrak — verify çıktı sözleşmesi
-     bit-uyumlu (yan etki dosya yazımı).
-   - Hook v3→v4: `atlas vault verify --strict --dump-report
-     .atlas/vault-health.md` gate; `.atlas/` git-ignored.
-   - Yazma hatası SESSİZ (hook contextinde commit'i patlatmasın).
-   - +9 test + 1 hook regression.
+3. **Görev 054** — `atlas doctor --http-check URL` (`0a4474e`)
+   - `_check_http(url, timeout=5.0)` yardımcı (stdlib urllib.request).
+   - `quality.http_check` alanı: url/status_code/latency_ms/warning.
+   - Prometheus: `atlas_doctor_http_check_up 0|1` + `_latency_ms`
+     gauge (koşullu).
+   - `--strict + warning` → exit 9.
+   - +15 test (gerçek HTTP `ThreadingHTTPServer(0)` ephemeral).
 
-3. **Görev 050** — `atlas ai-cli update <name>` (`7fe8a05`)
-   - `_run_npm_update(bin, dry_run, package=None)` keyword arg.
-   - `update <name>` verilirse `dependencies` kontrolü (yoksa exit 2 +
-     `atlas ai-cli list` önerisi); yoksa mevcut davranış (hepsi).
-   - Konsol scope label: `[ai-cli] npm update (name) (source: bin)`.
-   - +5 test; mevcut 27 test bit-uyumlu (3 mock lambda paralel güncellendi).
+4. **Görev 058** — `atlas vault fix-broken` YIKICI (`8d35d38`)
+   - Ayrı alt-komut (SPEC 046 kalıbı — `verify` DEĞİŞMEDİ).
+   - `StubAction` frozen dataclass; `create_stub_notes(vault, broken,
+     target, *, dry_run)`.
+   - Aynı hedefe birden çok `from` → TEK stub + kaynak listesi.
+   - Hedef vault'ta zaten var → `action="skipped"` (yarış durumu).
+   - Varsayılan hedef `<vault>/_stubs/`; `--target` override.
+   - Audit: `atlas-vault / fix-broken`.
+   - +14 test.
 
-4. **Görev 048** — `tools/scheduling/` deployment templates (`92b633d`)
-   - Linux (systemd --user): `.service` + `.timer` (03:00 UTC gunluk
-     + jitter + Persistent) + `install-linux.sh` (sed placeholder).
-   - Windows (Task Scheduler): v1.2 XML + `install-windows.ps1`
-     (`[CmdletBinding()]` + Replace + UTF-16 temp XML + schtasks
-     /Delete /F + /Create /XML).
-   - `README.md` — kurulum + doğrulama + kaldırma.
-   - +13 test (şablon bütünlüğü, XML parse, install script sözdizim).
+5. **Görev 055** — `atlas replay --serve HOST:PORT` JSON (`81eac09`)
+   - **SPEC 051 refactor** (bit-uyumlu): `make_handler` +
+     `serve_prometheus_http` `content_type` + `allowed_paths`
+     parametrik. Default Prometheus. Handler adı
+     `_PrometheusHandler` → `_AtlasHTTPHandler`.
+   - `_build_replay_json_body(limit)` → JSON string, her istek
+     yeniden.
+   - Endpoint: `GET / | /runs`; content-type
+     `application/json; charset=utf-8`.
+   - Mutex: `--serve + --list` / `--serve + <run-id>` → exit 2.
+   - +10 test.
 
-5. **Görev 046** — `atlas vault fix-orphans` YIKICI alt-komut (`047e8bf`)
-   - Yeni alt-komut (ana `verify` DEĞİŞMEDİ — bit-uyumlu).
-   - Dry-run varsayılan; `--apply` yıkıcı `shutil.move`.
-   - Hedef: `<vault>/_archive/orphans-YYYY-MM-DD/` (varsayılan) veya
-     `--target DIR`.
-   - Çakışma çözümü: `<name>-N.md` (1000 deneme koruması).
-   - Alt-klasör orfanları (`daily/`, `tasks/`) `rglob` ile bulunur.
-   - Audit: `atlas-vault / fix-orphans / '<N> not -> <target>'`.
-   - +16 test.
+6. **Görev 059** — `atlas metrics --alert-email` SMTP (`0db2bec`)
+   - `_send_alert_email(subject, body) -> (ok, err)` (stdlib smtplib).
+   - Env: `ATLAS_SMTP_HOST/PORT/USER/PASSWORD/STARTTLS` +
+     `ATLAS_ALERT_FROM/TO`.
+   - `--alert PCT --alert-email` → eşik aşılırsa SMTP notify; exit 8
+     KORUR (email yan etkiden bağımsız).
+   - +12 test (`_FakeSMTP` monkey; gerçek network yok).
 
-6. **Görev 051** — `metrics/doctor --serve HOST:PORT` HTTP (`f4b5572`)
-   - Yeni namespace `src/atlas_core/observability/`
-   - `prometheus_server.py` stdlib `ThreadingHTTPServer` (dış
-     bağımlılık YOK).
-   - `parse_host_port`, `make_handler(body_fn)`, `serve_prometheus_http`.
-   - Endpoint: `GET / | /metrics` → 200 text v0.0.4; diğerleri 404.
-     `body_fn` exception → 500. Access log sessiz.
-   - Her istek `body_fn()` yeniden çağırır (canlı scrape).
-   - `--serve` metrics + doctor argparse mutex gruplarına eklendi.
-   - `doctor --ping --serve` semantik exit 2 (her istek anthropic quota).
-   - +26 test (7 birim + 6 HTTP + 3 CLI metrics + 4 CLI doctor +
-     2 bit-uyumluluk); mevcut 91 test bit-uyumlu.
-
-7. **Merge + kalite kapıları**
-   - Her görev: branch → kod → test → tam pytest/mypy/ruff/scan →
-     main'e ff-merge.
-   - 7 commit lineer main'e: `173ea4e → d5d877e → 85e4db4 → 7fe8a05 →
-     92b633d → 047e8bf → f4b5572`.
-   - Push edildi; origin ↔ main SENKRON.
+7. **Kalite kapıları:**
+   - Her görev: branch → kod → test → tam pytest/mypy/ruff/scan → main'e ff-merge.
+   - 6 lineer commit `288c769 → 7e697be → 0a4474e → 8d35d38 → 81eac09 → 0db2bec`.
+   - Push ve final durum: aşağıda.
 
 ---
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-**Yeni görev seçimi.** Pipeline'da açık iş yok. Doğal adaylar:
+**Yeni görev seçimi.** Pipeline'da açık iş yok. 26. tur adayları
+tamamlandı; yeni 6 aday üretildi:
 
-- **Görev 054 — `atlas doctor --http-check URL`:** eğer ATLAS dış bir
-  HTTP servise (LLM proxy, MLflow, dashboard) bağlıysa, doctor bu
-  URL'nin sağlığını raporda `quality.http_check` alanına ekler.
-  Prometheus için: `atlas_doctor_http_check_up 0|1`. Küçük-orta.
-- **Görev 055 — `atlas replay --run-id ID --serve`:** SPEC 028
-  replay'i HTTP endpoint olarak yayımla (Prometheus DEĞİL, JSON):
-  UI dashboard için. Orta.
-- **Görev 056 — vault verify GitHub Actions template:**
-  `.github/workflows/vault-health.yml` — PR'da vault verify --strict
-  çalıştırıp bulguları PR comment'e yazan action. Küçük (workflow
-  YAML + jq).
-- **Görev 057 — `atlas doctor --diff`:** son 2 doctor JSON snapshot'ı
-  arasındaki delta (yeni uyarılar, çözülmüş bulgular). CI regresyon
-  için. Orta.
-- **Görev 058 — `atlas vault verify --fix-broken`:** SPEC 046 orfan
-  taşımanın kardeşi — kırık `[[wikilink]]`'leri stub not oluşturarak
-  çözer (`--apply` gerekli). Orta.
-- **Görev 059 — `atlas metrics --alert-email`:** SPEC 029 alert
-  eşiğinde stderr yerine SMTP email. Orta (smtplib + credential env).
+- **Görev 060 — `atlas ai-cli install <name>`:** SPEC 037 ailesine
+  yeni komut — tek paket ekleme (`npm install <name>` wrap +
+  `package.json` update). Küçük-orta.
+- **Görev 061 — vault verify JSON schema doc:** SPEC 042 VerifyReport
+  şemasını `docs/api/vault-verify-schema.json` altında JSON Schema
+  Draft-07 olarak yayımla. Küçük.
+- **Görev 062 — `atlas doctor --diff --auto-baseline`:** SPEC 057
+  genişleme — `.atlas/doctor-baseline.json` otomatik snapshot
+  yönetimi (`--save-baseline` + `--diff` default `.atlas/`'tan
+  oku). Küçük-orta.
+- **Görev 063 — vault backup encryption:** SPEC 041 `--encrypt
+  PASSPHRASE` — GPG symmetric ile encrypted tar. Orta (gnupg env
+  bağımlılığı).
+- **Görev 064 — `atlas metrics --alert-webhook URL`:** SPEC 059
+  kardeşi — SMTP yerine POST JSON webhook (Slack/Discord/Teams
+  incoming). Küçük-orta.
+- **Görev 065 — `atlas archive --search PATTERN`:** SPEC 007 arşive
+  eklenen full-text arama; tar açmadan Vault içindeki not adlarında
+  regex. Orta.
 - Ya da başka öncelik varsa net söyle.
 
 ---
@@ -134,73 +136,79 @@ tamamı + housekeeping. Sıra: `chore → 053 → 052 → 050 → 048 → 046 �
 
 **Branch grafı:**
 ```
-origin/main == main (f4b5572 + docs, SENKRON)
+origin/main + 7 commit local (26. tur — push edilecek)
 ```
 Lokal feature branch YOK (temiz).
 
-**main'e giren 7 commit (2026-08-04 25. tur):**
+**main'e giren 6 feat + 1 docs commit (2026-08-04 26. tur):**
 ```
-f4b5572 feat(051): atlas metrics/doctor --serve HTTP scrape endpoint
-047e8bf feat(046): atlas vault fix-orphans — orfan not arsivleme (YIKICI)
-92b633d feat(048): tools/scheduling systemd + Task Scheduler sablonlari
-7fe8a05 feat(050): atlas ai-cli update <name> tek paket guncelleme
-85e4db4 feat(052): vault verify --dump-report + hook v3 -> v4 auto-dump
-d5d877e feat(053): atlas --version / -V root bayragi
-173ea4e chore(ai-cli): opencode-ai ^1.18.10 -> ^1.18.11 npm bump
+0db2bec feat(059): atlas metrics --alert-email SMTP notify
+81eac09 feat(055): atlas replay --serve HOST:PORT JSON HTTP endpoint
+8d35d38 feat(058): atlas vault fix-broken — kirik wikilink icin stub not (YIKICI)
+0a4474e feat(054): atlas doctor --http-check URL dis HTTP saglik kontrolu
+7e697be feat(057): atlas doctor --diff BASELINE_JSON delta raporu
+288c769 feat(056): .github/workflows/vault-health.yml — vault verify CI gate
 ```
 
 **Kalite kapıları (bu turun sonu):**
 ```bash
 uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
-# 912 passed, 12 skipped, cov 91.18%
+# 995 passed, 12 skipped, cov 91.50%
 uv run mypy src                # temiz (31 kaynak dosya)
 uv run ruff check src tests    # temiz
 uv run atlas scan src          # sır bulunamadı
 ```
 
 **Yeni CLI davranışları (bu turda):**
-- `atlas --version` / `-V` (yeni root bayrak)
-- `atlas vault verify --dump-report PATH` (yeni bayrak)
-- `atlas vault fix-orphans [--apply] [--target DIR]` (yeni alt-komut)
-- `atlas ai-cli update <name>` (yeni positional)
-- `atlas metrics --serve HOST:PORT` (yeni bayrak)
-- `atlas doctor --serve HOST:PORT` (yeni bayrak)
+- `atlas doctor --diff BASELINE_JSON` (delta rapor + JSON + strict/9)
+- `atlas doctor --http-check URL` (dış HTTP sağlık kontrolü)
+- `atlas vault fix-broken [--apply] [--target DIR]` (YIKICI stub)
+- `atlas replay --serve HOST:PORT` (JSON HTTP endpoint)
+- `atlas metrics --alert-email` (SMTP notify)
 
 **Yeni davranış (kullanıcı-görünür):**
-- Pre-commit hook v3→v4: fail durumunda `.atlas/vault-health.md`
-  auto-dump (kurulu v3 kullanıcıları `hooks install --force` şart).
-- `tools/scheduling/` — Linux + Windows zamanlanmış görev şablonları.
+- `.github/workflows/vault-health.yml` — PR + push'da CI gate.
+- `_stubs/` klasörü vault içinde (fix-broken YIKICI ile).
+- Prometheus 2 yeni metrik: `atlas_doctor_http_check_up`,
+  `atlas_doctor_http_check_latency_ms`.
 
-**Yeni modüller:**
-- `src/atlas_core/observability/__init__.py`
-- `src/atlas_core/observability/prometheus_server.py`
+**Yeni env sözleşmesi:**
+- SPEC 059 SMTP: `ATLAS_SMTP_HOST/PORT/USER/PASSWORD/STARTTLS` +
+  `ATLAS_ALERT_FROM/TO`.
 
-**Env sözleşmesi:** DEĞİŞMEDİ.
+**Yeni yardımcı modüller/fonksiyonlar:**
+- `_diff_doctor_reports` (cli.py, SPEC 057)
+- `_check_http` (cli.py, SPEC 054)
+- `_build_replay_json_body` (cli.py, SPEC 055)
+- `_send_alert_email` (cli.py, SPEC 059)
+- `StubAction` + `create_stub_notes` (vault_verify.py, SPEC 058)
 
-**Exit kodları:** DEĞİŞMEDİ (mevcut 0/2/3/4/6/7/8/9 sınıfı korunur).
-Yeni exit 2 nedenleri: `doctor --ping --serve` semantik mutex;
-`ai-cli update <name>` deps'te yok; `--serve` geçersiz port.
+**Refactor:**
+- `observability/prometheus_server.py`: `make_handler` +
+  `serve_prometheus_http` `content_type` + `allowed_paths`
+  parametrik. Handler class `_AtlasHTTPHandler`. Mevcut çağırıcılar
+  bit-uyumlu.
 
-**Kritik sözleşme değişmezlikleri (bu turda korundu):**
-- `atlas metrics` mevcut çıktıları (bayraksız, `--json`, `--format
-  prometheus`, `--alert`) BİT-UYUMLU.
-- `atlas doctor` mevcut çıktıları (bayraksız, `--json`, `--schema`,
-  `--format`, `--strict`, `--scan-src`, `--ping`, `--pretty`)
-  BİT-UYUMLU.
-- `atlas vault verify` (SPEC 042) BİT-UYUMLU — fix-orphans BAĞIMSIZ.
-- `atlas ai-cli update` (name yok) BİT-UYUMLU — SPEC 037.1.
-- `atlas hooks {install,uninstall,status}` BİT-UYUMLU.
-- Prometheus text formatı (SPEC 043 + 047) BİT-UYUMLU — sadece
-  transport eklendi (stdout ∪ HTTP).
+**Exit kodları:** DEĞİŞMEDİ.
+- SPEC 057 `--strict + regresyon` → **9** (SPEC 032 kalıbı).
+- SPEC 059 email başarısız → **8** KORUR (semantik önemli).
+
+**Kritik sözleşme değişmezlikleri:**
+- `atlas doctor`, `atlas metrics`, `atlas replay`, `atlas vault
+  verify/fix-orphans` mevcut çıktıları BİT-UYUMLU.
+- SPEC 043/047 Prometheus text formatı — 054 iki yeni koşullu metrik
+  ekledi ama diğer satırlar dokunulmadı.
+- SPEC 028 `atlas replay --list --json` çıktı sözleşmesi = SPEC 055
+  HTTP body (aynı `_collect_replay_runs`).
 
 **Bilinen flaky:** yok.
 
 **Docker YASAK:** hâlâ yürürlükte.
 
 **Görev-öncesi zorunlu okuma sırası:**
-1. `DECISIONS.md` — 2026-08-04 üstteki 25. tur bloğu (bu tur ~24
-   giriş); 2026-07-31 altında 28 giriş (23+24. tur); 2026-07-30
-   altında 29; 2026-07-29 altında 39.
+1. `DECISIONS.md` — 2026-08-04 üstteki iki blok (26. tur ~23 giriş +
+   25. tur ~24 giriş = ~47 giriş bugün — daha 2 gün önce); 2026-07-31
+   altında 28; 2026-07-30 altında 29; 2026-07-29 altında 39.
 2. Bu dosya (DEVAM_NOKTASI.md)
 3. Hedef görevin `pipeline/tasks/<XXX>/{00-need,09-ship}.md`
 4. Değişecek modülün üstündeki docstring
@@ -210,29 +218,27 @@ Yeni exit 2 nedenleri: `doctor --ping --serve` semantik mutex;
 
 ## Kapanış Notları
 
-- 912 test yeşil (838 → 912; bu tur +74; oturum başı 319'dan +593)
-- 7 lineer commit + docs; origin ile SENKRON
+- **995 test yeşil** (838 → 912 → 995; 25. tur +157, 26. tur +83;
+  oturum başı 319'dan +676)
+- 6 lineer commit + docs; push edilecek → sonra SENKRON
 - Lokal feature branch YOK (temiz)
-- Yeni env YOK
-- Yeni exit kodu YOK (mevcut sınıf korunur; yeni exit 2 nedenleri)
-- Yeni CLI komutları: `vault fix-orphans` (yeni alt-komut);
-  yeni bayraklar: `--version`, `-V`, `--dump-report`, `--serve`,
-  `update <name>`
-- Yeni modül: `src/atlas_core/observability/prometheus_server.py`
-- Yeni test dosyaları: `test_cli_version.py`,
-  `test_cli_vault_verify_dump.py`, `test_cli_ai_cli_update_single.py`,
-  `test_scheduling_templates.py`, `test_cli_vault_fix_orphans.py`,
-  `test_observability_prometheus_server.py`
-- Hook şablonu v3 → v4 (mevcut kullanıcılar `hooks install --force`
-  ile güncellemeli)
-- Yeni deployment artefaktları: `tools/scheduling/` (systemd + Task
-  Scheduler)
+- Yeni env sözleşmesi: SMTP (`ATLAS_SMTP_*` + `ATLAS_ALERT_FROM/TO`)
+- Yeni CLI komutu: `vault fix-broken`; yeni bayraklar: `doctor
+  --diff`, `--http-check`, `replay --serve`, `metrics --alert-email`
+- Yeni yardımcılar: 5 fonksiyon (cli.py) + 1 dataclass + 1 fonksiyon
+  (vault_verify.py)
+- Yeni test dosyaları: `test_github_workflows.py`,
+  `test_cli_doctor_diff.py`, `test_cli_doctor_http_check.py`,
+  `test_cli_vault_fix_broken.py`, `test_cli_replay_serve.py`,
+  `test_cli_metrics_alert_email.py` (6 dosya, +83 test)
+- Refactor: `prometheus_server.py` genelleştirildi (JSON scrape için
+  yeniden kullanım)
 - Docker YASAK yürürlükte
 - Portable bundle son sürüm: `D:\ATLAS.rar` (28 Temmuz, 1.9 GB)
-- DECISIONS.md 2026-08-04 altında ~24 giriş; 2026-07-31 altında 28;
-  2026-07-30 altında 29; 2026-07-29 altında 39 (toplam 120+)
-- Platform sözleşmesi: Prometheus scrape endpoint ortak kalıbı
-  (`metrics + doctor` `--serve HOST:PORT` mutex `--json/--format/
-  --schema`); gelecek Prometheus tabanlı komutlar bu kalıbı takip etsin.
-- Yeni namespace `atlas_core/utils/` (SPEC 049) + `atlas_core/
-  observability/` (SPEC 051) — top-level yardımcı modüller için hazır.
+- DECISIONS.md 2026-08-04 altında ~47 giriş (25 + 26. tur);
+  2026-07-31 altında 28; 2026-07-30 altında 29; 2026-07-29 altında 39
+- Platform sözleşmesi: `--serve HOST:PORT` genel HTTP kalıbı
+  (metrics/doctor Prometheus + replay JSON); gelecek `--serve`
+  gerektiren komutlar `prometheus_server.py` altyapısını `content_type
+  + allowed_paths` ile yeniden kullansın.
+- Sıradaki tur için 6 aday hazır (060–065).
