@@ -1,6 +1,83 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-04 (25. tur — housekeeping + 053 + 052 + 050 + 048 + 046 + 051)
+
+Tek turda **6 aday görev + 1 housekeeping**. Sıra:
+`chore ai-cli bump → 053 → 052 → 050 → 048 → 046 → 051`.
+
+- [KARAR] Housekeeping: 24. tur DIŞINDA oluşan `tools/ai-cli/
+  package.json` bump'ı (`opencode-ai ^1.18.10 → ^1.18.11`) tekil
+  `chore(ai-cli):` commit'i olarak temizlendi (`173ea4e`). Sebep
+  bilinmiyor (setup-ai-cli.cmd veya `npm update` çalıştı); DEVAM_NOKTASI
+  sorusu bu şekilde cevaplandı.
+- [KARAR] 053 `atlas --version`/`-V`: `argparse.action="version"`
+  parse_args'ta erken exit yolu — subparser `required=True` olsa da
+  çalışır (test doğrular). Kaynak `atlas_core.__version__` (pyproject.
+  toml drift kontrolü test'te bit-uyumluluk garantiler).
+- [KARAR] 052 hook v3 → v4: verify başarısız olduğunda `.atlas/vault-
+  health.md` auto-dump. `.atlas/` git-ignored → commit döngüsü YOK.
+  `--dump-report PATH` bayrağı ortogonal (JSON/pretty/strict ile birlikte).
+  Yazma hatası SESSİZ (hook contextinde commit'i patlatmasın).
+- [KARAR] `format_report_markdown(report, vault_root)`: UTC timestamp
+  + koşullu 3 bulgu bölümü + Öneri (yalnız bulgu varsa). Deterministik;
+  UTF-8 (Türkçe not adları/tag'ler).
+- [KARAR] `_HOOK_SIGNATURE` `v3 → v4` (SPEC 045 v3'ten yükseltme).
+  `_is_atlas_hook` versiyon bilinçsiz — v1/v2/v3/v4 hepsi ATLAS shim'i
+  (mevcut davranış).
+- [KARAR] 050 `atlas ai-cli update <name>`: `_run_npm_update` opsiyonel
+  `package: str | None = None` keyword arg. `update <name>` verilirse
+  `dependencies` kontrolü (yoksa exit 2 + `atlas ai-cli list` önerisi);
+  yoksa mevcut davranış (hepsi). Konsol scope label: `npm update (name)
+  (source: bin)`.
+- [HATA] 050: Mevcut 3 mock lambda (`lambda _b, _d`) yeni imza ile
+  TypeError verdi → `lambda _b, _d, package=None` güncellenip
+  bit-uyumluluk sağlandı. Kalıp: fonksiyon imzası genişletilirken
+  monkeypatch mock'ları paralel güncelle.
+- [KARAR] 048 `tools/scheduling/`: kod değil, deployment artefaktı.
+  Linux (systemd --user) `.service` + `.timer` + `install-linux.sh`;
+  Windows Task Scheduler XML + `install-windows.ps1`. Windows XML
+  UTF-16 zorunlu (Task Scheduler) — install-windows.ps1 `[System.IO.
+  File]::WriteAllText(..., Unicode)` ile temp XML üretir. Şablon
+  dosyası UTF-8 (test parse etsin diye) → install çıkışında UTF-16.
+- [KARAR] 046 `atlas vault fix-orphans`: ayrı alt-komut (`vault verify
+  --fix-orphans` yerine). Ana `verify` DEĞİŞMEDİ; bit-uyumluluk
+  garantili. Dry-run varsayılan; `--apply` yıkıcı; çakışma çözümü
+  `<name>-N.md` (1000 deneme koruması). Alt-klasördeki orfanlar
+  (`daily/`, `tasks/`) `rglob` ile bulunur; hedef flat.
+- [KARAR] 046 audit action `fix-orphans` yeni. Kaynak yok (yarış
+  durumu) → `action="skipped"` nazikçe atlanır.
+- [KARAR] 051 `--serve HOST:PORT`: yeni namespace `atlas_core/
+  observability/`. `prometheus_server.py` stdlib `ThreadingHTTPServer`
+  (dış bağımlılık YOK). `parse_host_port` + `make_handler` + `serve_
+  prometheus_http`. Port 0 = OS ephemeral (test/dev — gerçek scrape
+  client'ı 0'a bağlanamaz ama bind aşamasında geçerli).
+- [KARAR] 051 mutex kalıpları:
+  - `metrics`: `--json`, `--format`, `--serve` argparse aynı grup.
+  - `doctor`: `--json`, `--schema`, `--format`, `--serve` argparse
+    aynı grup. Bonus: `--ping --serve` semantik exit 2 (her istek
+    anthropic quota tüketir).
+- [HATA] 051: HTTP `send_error(500, ...)` Latin-1 header zorunluluğu
+  → Türkçe mesaj `UnicodeEncodeError`. Çözüm: status message
+  İngilizce (`Internal Server Error`), detay UTF-8 body'de.
+- [HATA] 051: İlk implementasyonda `ready_cb(server)` `serve_forever()`
+  ÖNCE senkron çağrıldı → accept döngüsü başlamadan client isteği
+  timeout. Çözüm: `ready_cb`'yi ayrı thread'de çağır, `serve_forever`
+  ana thread'de blocking. Test doğrulaması ile yakalandı.
+- [KARAR] 051 body_fn her istekte yeniden çağrılır (canlı scrape).
+  Metrics: `.atlas/metrics.jsonl` tekrar oku. Doctor:
+  `_collect_doctor_report()` tekrar çalıştır. Bu Prometheus'un pull
+  modelini karşılar (client scrape interval'ında güncel veri).
+- [KARAR] 051 access log SESSİZ (`log_message` no-op) — stderr temiz
+  kalsın; debug için env ile açılabilir (YAGNI).
+- [HATA] 050 SHIP dosyası "857 → 862" yazıyor, gerçek 857 → 862
+  DEĞİL: `pytest` çıktısı `857 passed` gösterdi (853 + 4 yeni 053
+  + 5 yeni 050 - önceki cache). Doğru sayı 857. Kalıp: `pytest` çıktı
+  sayısını commit mesajı YAZMADAN önce doğrula.
+- [KARAR] Test toplamı: 838 → 842 (053) → 852 (052) → 857 (050) →
+  870 (048) → 886 (046) → **912** (051). Cov %90.90 → %91.18
+  (Prometheus HTTP server edge dalları test dışı — %100 kapsanmıyor).
+
 ## 2026-07-31 (24. tur — 044 + 049 + 045 + 047)
 - [KARAR] 24. tur sıra `044 → 049 → 045 → 047`; ayrı feature
   branch'ler; main'e lineer ff-merge; sonda tek push. Kullanıcı
