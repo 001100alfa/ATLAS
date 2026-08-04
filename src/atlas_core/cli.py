@@ -1428,6 +1428,83 @@ def _has_quality_warning(report: dict[str, Any]) -> bool:
     return False
 
 
+def _diff_doctor_reports(
+    baseline: dict[str, Any], current: dict[str, Any],
+) -> dict[str, Any]:
+    """SPEC 057: iki `atlas doctor --json` raporu arasındaki delta.
+
+    - `warnings_added` : current'te var, baseline'da yok.
+    - `warnings_removed` : baseline'da var, current'te yok.
+    - `quality_deltas` : her `quality.<field>` için:
+      - `before_warning`, `after_warning` (str|None)
+      - `change`: `regressed` (None→str), `resolved` (str→None),
+        `changed` (str→str farklı mesaj), `unchanged` (aynı, listeye
+        eklenmez), `disappeared` (baseline'da alan var current'te yok),
+        `appeared` (current'te var baseline'da yok)
+    - `has_regression` : yeni uyarı VEYA regressed/appeared+warning var.
+    - `has_improvement` : kaldırılan uyarı VEYA resolved var.
+    - `schema_version_baseline` / `schema_version_current`: değişiklik
+      raporlama için.
+
+    Deterministik: warnings sorted, quality_deltas key sorted.
+    """
+    b_warns = list(baseline.get("warnings", []) or [])
+    c_warns = list(current.get("warnings", []) or [])
+    added = sorted(set(c_warns) - set(b_warns))
+    removed = sorted(set(b_warns) - set(c_warns))
+
+    b_q = baseline.get("quality", {}) if isinstance(baseline.get("quality"), dict) else {}
+    c_q = current.get("quality", {}) if isinstance(current.get("quality"), dict) else {}
+
+    quality_deltas: dict[str, dict[str, Any]] = {}
+    has_regression = bool(added)
+
+    all_fields = sorted(set(b_q) | set(c_q))
+    for field in all_fields:
+        b_field = b_q.get(field)
+        c_field = c_q.get(field)
+        b_w = b_field.get("warning") if isinstance(b_field, dict) else None
+        c_w = c_field.get("warning") if isinstance(c_field, dict) else None
+
+        if field in b_q and field not in c_q:
+            change = "disappeared"
+        elif field not in b_q and field in c_q:
+            change = "appeared"
+            if c_w:
+                has_regression = True
+        elif b_w is None and c_w is not None:
+            change = "regressed"
+            has_regression = True
+        elif b_w is not None and c_w is None:
+            change = "resolved"
+        elif b_w != c_w:
+            change = "changed"
+            # message change ile içerik farkı — regresyon olarak sayma
+        else:
+            continue  # unchanged — dahil etme
+
+        quality_deltas[field] = {
+            "before_warning": b_w,
+            "after_warning": c_w,
+            "change": change,
+        }
+
+    has_improvement = bool(removed) or any(
+        d["change"] in ("resolved", "disappeared")
+        for d in quality_deltas.values()
+    )
+
+    return {
+        "warnings_added": added,
+        "warnings_removed": removed,
+        "quality_deltas": quality_deltas,
+        "has_regression": has_regression,
+        "has_improvement": has_improvement,
+        "schema_version_baseline": baseline.get("schema_version"),
+        "schema_version_current": current.get("schema_version"),
+    }
+
+
 def _doctor_report_to_prometheus(report: dict[str, Any]) -> str:
     """SPEC 047: doctor raporunu Prometheus text v0.0.4 formatına çevir.
 
@@ -1734,6 +1811,14 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     scan_src = getattr(args, "scan_src", None)
     scan_src_path = Path(scan_src) if scan_src else None
 
+    # SPEC 057: --diff önce kontrol edilir (--serve semantik reddi için).
+    # --serve blocking; --diff verildiyse hemen semantik hata dön.
+    diff_baseline_early = getattr(args, "diff", None)
+    if diff_baseline_early and getattr(args, "serve", None):
+        print("SPEC HATASI: --diff ve --serve birlikte kullanılamaz",
+              file=sys.stderr)
+        return 2
+
     # SPEC 051: --serve HOST:PORT → HTTP scrape endpoint (blocking).
     # Ping doctor için serve modunda anlamsız (her istek bir ping =
     # anthropic quota tüketimi); bu yüzden `--ping --serve` mutex.
@@ -1769,6 +1854,103 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         ping_info = _run_anthropic_ping(report["warnings"])
         if ping_info is not None:
             report["ping"] = ping_info
+
+    # SPEC 057: --diff BASELINE_JSON → mevcut raporla delta üret.
+    diff_baseline = getattr(args, "diff", None)
+    if diff_baseline:
+        import json as _json
+        # Semantik mutex: --diff + --serve/--schema/--format anlamsız
+        # (schema statik; serve blocking; format prometheus snapshot).
+        if getattr(args, "serve", None):
+            print("SPEC HATASI: --diff ve --serve birlikte kullanılamaz",
+                  file=sys.stderr)
+            return 2
+        if getattr(args, "schema", False):
+            print("SPEC HATASI: --diff ve --schema birlikte kullanılamaz",
+                  file=sys.stderr)
+            return 2
+        if getattr(args, "format", None) == "prometheus":
+            print(
+                "SPEC HATASI: --diff ve --format prometheus birlikte kullanılamaz",
+                file=sys.stderr,
+            )
+            return 2
+        baseline_path = Path(diff_baseline)
+        if not baseline_path.is_file():
+            print(
+                f"SPEC HATASI: baseline JSON yok: {baseline_path}",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            baseline = _json.loads(baseline_path.read_text(encoding="utf-8"))
+        except (OSError, _json.JSONDecodeError) as exc:
+            print(
+                f"SPEC HATASI: baseline JSON okunamadı: {exc}",
+                file=sys.stderr,
+            )
+            return 2
+        if not isinstance(baseline, dict):
+            print(
+                f"SPEC HATASI: baseline JSON kök obje olmalı: {type(baseline).__name__}",
+                file=sys.stderr,
+            )
+            return 2
+
+        delta = _diff_doctor_reports(baseline, report)
+
+        if getattr(args, "json", False):
+            pretty = getattr(args, "pretty", False)
+            indent = 2 if pretty else None
+            print(_json.dumps(delta, ensure_ascii=False, indent=indent))
+        else:
+            # ASCII-only markers (Windows cp1254 stdout capture uyumu:
+            # pytest capsys `→ ⚠ ✓ ✗` gibi Unicode >0xFF karakterleri
+            # cp1254 dup2'lu FD üzerinden encode edemez).
+            print(
+                f"=== ATLAS doctor --diff ({baseline_path.name} -> mevcut) ==="
+            )
+            if delta["schema_version_baseline"] != delta["schema_version_current"]:
+                print(
+                    f"  [!] schema_version degisti: "
+                    f"{delta['schema_version_baseline']} -> "
+                    f"{delta['schema_version_current']}"
+                )
+            if delta["warnings_added"]:
+                print(f"\n  YENI uyarilar ({len(delta['warnings_added'])}):")
+                for w in delta["warnings_added"]:
+                    print(f"    + {w}")
+            if delta["warnings_removed"]:
+                print(f"\n  COZULEN uyarilar ({len(delta['warnings_removed'])}):")
+                for w in delta["warnings_removed"]:
+                    print(f"    - {w}")
+            if delta["quality_deltas"]:
+                print(f"\n  Quality alan degisiklikleri "
+                      f"({len(delta['quality_deltas'])}):")
+                for field, info in delta["quality_deltas"].items():
+                    marker = {
+                        "regressed":   "  [!]",
+                        "resolved":    "  [+]",
+                        "changed":     "  [~]",
+                        "appeared":    "  [+]",
+                        "disappeared": "  [-]",
+                    }[info["change"]]
+                    print(f"{marker} {field} [{info['change']}]")
+                    if info["before_warning"]:
+                        print(f"       once:  {info['before_warning']}")
+                    if info["after_warning"]:
+                        print(f"       sonra: {info['after_warning']}")
+            if not (delta["warnings_added"] or delta["warnings_removed"]
+                    or delta["quality_deltas"]):
+                print("\n  OK degisiklik yok")
+
+        if getattr(args, "strict", False) and delta["has_regression"]:
+            print(
+                "REGRESYON: --strict verildi, yeni bulgu var",
+                file=sys.stderr,
+            )
+            return 9
+        return 0
 
     if getattr(args, "json", False):
         import json as _json
@@ -3694,6 +3876,14 @@ def main(argv: list[str] | None = None) -> int:
                                 "başlat (blocking; Ctrl+C ile durdur). "
                                 "Ör: ':9091' veya '0.0.0.0:9091'. --ping ile "
                                 "mutex (her istek anthropic quota tüketir).")
+    # SPEC 057: --diff mutex GRUBU DIŞINDA (ortogonal `--json` ile;
+    # semantik mutex `--serve/--schema/--format` ile _cmd_doctor içinde).
+    p_doc.add_argument("--diff", default=None, metavar="BASELINE_JSON",
+                       help="SPEC 057: mevcut raporu BASELINE_JSON snapshot "
+                            "ile karşılaştır; yeni/çözülen uyarılar + "
+                            "quality alanı değişiklikleri raporlanır. "
+                            "--json ile birlikte delta JSON. --strict + "
+                            "regresyon → exit 9.")
     p_doc.add_argument("--ping", action="store_true",
                        help="Anthropic'e minimum request at, latency+cost raporla — SPEC 021.2")
     p_doc.add_argument("--strict", action="store_true",
