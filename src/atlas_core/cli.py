@@ -2643,13 +2643,92 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
     # SPEC 029: alarm — eşik altı → stderr UYARI + exit 8
     # --alert 0 alarmı kapatır (0 < 0 asla doğru değil).
     if alert is not None and alert > 0.0 and hit_ratio < alert:
-        print(
-            f"UYARI: cache-hit %{hit_ratio:.1f} < eşik %{alert:.1f}",
-            file=sys.stderr,
-        )
+        msg = f"UYARI: cache-hit %{hit_ratio:.1f} < eşik %{alert:.1f}"
+        print(msg, file=sys.stderr)
+        # SPEC 059: --alert-email → SMTP notify (env ile config)
+        if getattr(args, "alert_email", False):
+            subject = (
+                f"[ATLAS] metrics alert: cache-hit "
+                f"{hit_ratio:.1f}% < {alert:.1f}%"
+            )
+            body = (
+                f"{msg}\n\n"
+                f"toplam: {len(tail)} çağrı\n"
+                f"input tokens:   {total_in}\n"
+                f"output tokens:  {total_out}\n"
+                f"cache creation: {total_cc}\n"
+                f"cache read:     {total_cr}\n"
+                f"denominator:    {denom}\n"
+            )
+            ok, err = _send_alert_email(subject, body)
+            if ok:
+                print("[alert-email] gönderildi", file=sys.stderr)
+            else:
+                print(
+                    f"[alert-email] gönderim başarısız: {err}",
+                    file=sys.stderr,
+                )
         return 8
 
     return 0
+
+
+def _send_alert_email(subject: str, body: str) -> tuple[bool, str]:
+    """SPEC 059: SMTP üzerinden alert emaili gönder (stdlib smtplib).
+
+    Env sözleşmesi:
+      - ATLAS_SMTP_HOST (zorunlu): SMTP server hostname
+      - ATLAS_SMTP_PORT (default 587): SMTP server portu
+      - ATLAS_SMTP_USER (opsiyonel): auth user
+      - ATLAS_SMTP_PASSWORD (opsiyonel): auth password
+      - ATLAS_SMTP_STARTTLS (default "1"): TLS upgrade ("1"|"true"|"True")
+      - ATLAS_ALERT_FROM (zorunlu): gönderici adresi
+      - ATLAS_ALERT_TO (zorunlu): virgülle liste (bir veya çok)
+
+    Return: `(ok, error_message)`. Hata mesajı stderr'e basılır;
+    exception yakalanır, ATLAS çıktı sözleşmesi bozulmaz.
+    """
+    import smtplib
+    from email.message import EmailMessage
+
+    host = os.environ.get("ATLAS_SMTP_HOST", "").strip()
+    if not host:
+        return False, "ATLAS_SMTP_HOST tanımlı değil"
+    try:
+        port = int(os.environ.get("ATLAS_SMTP_PORT", "587"))
+    except ValueError:
+        return False, "ATLAS_SMTP_PORT int olmalı"
+    user = os.environ.get("ATLAS_SMTP_USER", "").strip() or None
+    password = os.environ.get("ATLAS_SMTP_PASSWORD", "").strip() or None
+    starttls = os.environ.get("ATLAS_SMTP_STARTTLS", "1").lower() in (
+        "1", "true", "yes",
+    )
+    sender = os.environ.get("ATLAS_ALERT_FROM", "").strip()
+    recipients_raw = os.environ.get("ATLAS_ALERT_TO", "").strip()
+    if not sender:
+        return False, "ATLAS_ALERT_FROM tanımlı değil"
+    if not recipients_raw:
+        return False, "ATLAS_ALERT_TO tanımlı değil"
+    recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
+    if not recipients:
+        return False, "ATLAS_ALERT_TO boş liste"
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = ", ".join(recipients)
+    msg.set_content(body)
+
+    try:
+        with smtplib.SMTP(host, port, timeout=10.0) as smtp:
+            if starttls:
+                smtp.starttls()
+            if user and password:
+                smtp.login(user, password)
+            smtp.send_message(msg)
+    except (smtplib.SMTPException, OSError, TimeoutError) as exc:
+        return False, f"SMTP hatası: {exc}"
+    return True, ""
 
 
 def _cmd_vault_backup(args: argparse.Namespace) -> int:
@@ -4028,6 +4107,11 @@ def main(argv: list[str] | None = None) -> int:
     p_met.add_argument("--alert", type=float, default=None,
                        help="SPEC 029: cache-hit oranı bu %'den düşükse "
                             "stderr UYARI + exit 8 (0 kapatır)")
+    p_met.add_argument("--alert-email", action="store_true",
+                       help="SPEC 059: --alert eşiği aşıldığında SMTP "
+                            "email at (env: ATLAS_SMTP_HOST/PORT/USER/"
+                            "PASSWORD/STARTTLS + ATLAS_ALERT_FROM/TO). "
+                            "Env eksik → uyarı stderr'e; exit 8 KORUR.")
     p_met.set_defaults(func=_cmd_metrics)
 
     p_ai = sub.add_parser(
