@@ -3151,6 +3151,18 @@ def main(argv: list[str] | None = None) -> int:
         _load_dotenv(Path.cwd() / ".env")
 
     parser = argparse.ArgumentParser(prog="atlas", description=__doc__)
+    # SPEC 053: `atlas --version` — pyproject.toml ile eş güncel; kaynağı
+    # `atlas_core.__version__` (paket metadata bağımsız, portable + wheel
+    # kurulumu için de çalışır). `--version` action argparse'ın erken exit
+    # yolu; alt-komut required=True olsa da parse_args sırasında `sys.exit(0)`
+    # ile biter, dolayısıyla `atlas --version` alt-komut istemeden çalışır.
+    from atlas_core import __version__ as _atlas_version
+    parser.add_argument(
+        "--version", "-V",
+        action="version",
+        version=f"atlas {_atlas_version}",
+        help="Sürüm bilgisini bas ve çık",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_ctx = sub.add_parser("context", help="Göreve bağlam paketi üret")
