@@ -48,20 +48,32 @@ def parse_host_port(spec: str, default_host: str = "127.0.0.1") -> tuple[str, in
     return host, port
 
 
-def make_handler(body_fn: Callable[[], str]) -> type[BaseHTTPRequestHandler]:
+_DEFAULT_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
+"""Prometheus text v0.0.4 default content-type."""
+
+
+def make_handler(
+    body_fn: Callable[[], str],
+    *,
+    content_type: str = _DEFAULT_CONTENT_TYPE,
+    allowed_paths: tuple[str, ...] = ("/", "/metrics"),
+) -> type[BaseHTTPRequestHandler]:
     """SPEC 051: `body_fn`'i her istek için çağıran handler sınıfı üret.
+
+    SPEC 055: `content_type` + `allowed_paths` parametrik → JSON scrape
+    ve diğer endpoint'ler için yeniden kullanılabilir.
 
     Ayrı fonksiyon → test edilebilirlik: threading.Thread ile serve
     başlatıp handler'ı override etmeden istek yapmak mümkün.
     """
 
-    class _PrometheusHandler(BaseHTTPRequestHandler):
+    class _AtlasHTTPHandler(BaseHTTPRequestHandler):
         # Her istek `body_fn()` üzerinden canlı veri alır.
-        server_version = "atlas-prometheus/1.0"
+        server_version = "atlas-http/1.1"
 
         def do_GET(self) -> None:  # noqa: N802 (BaseHTTPRequestHandler API)
-            if self.path not in ("/", "/metrics"):
-                self.send_error(404, "Only /metrics")
+            if self.path not in allowed_paths:
+                self.send_error(404, f"Only {' or '.join(allowed_paths)}")
                 return
             try:
                 body = body_fn().encode("utf-8")
@@ -76,9 +88,7 @@ def make_handler(body_fn: Callable[[], str]) -> type[BaseHTTPRequestHandler]:
                 self.wfile.write(msg)
                 return
             self.send_response(200)
-            self.send_header(
-                "Content-Type", "text/plain; version=0.0.4; charset=utf-8",
-            )
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -90,7 +100,7 @@ def make_handler(body_fn: Callable[[], str]) -> type[BaseHTTPRequestHandler]:
             # environment ile açılabilir (YAGNI).
             return
 
-    return _PrometheusHandler
+    return _AtlasHTTPHandler
 
 
 def serve_prometheus_http(
@@ -98,24 +108,32 @@ def serve_prometheus_http(
     *,
     server_cls: type[ThreadingHTTPServer] = ThreadingHTTPServer,
     ready_cb: Callable[[ThreadingHTTPServer], None] | None = None,
+    content_type: str = _DEFAULT_CONTENT_TYPE,
+    allowed_paths: tuple[str, ...] = ("/", "/metrics"),
 ) -> None:
-    """SPEC 051: Prometheus scrape HTTP endpoint başlat (blocking).
+    """SPEC 051: HTTP scrape endpoint başlat (blocking).
 
     Args:
         host: bind adresi (loopback için `"127.0.0.1"`, tüm arayüzler
             için `"0.0.0.0"`).
         port: bind portu.
-        body_fn: her istekte çağrılan text üretici (SPEC 043 kalıbı).
+        body_fn: her istekte çağrılan text üretici.
         server_cls: test için server sınıfı override (varsayılan
             `ThreadingHTTPServer` — eşzamanlı istek desteği).
         ready_cb: server bind edildikten sonra çağrılan opsiyonel
             callback (test/monitör; None → yalnız stdout log).
+        content_type: response content-type (SPEC 055: JSON için
+            override). Default Prometheus v0.0.4.
+        allowed_paths: kabul edilen GET path'leri. Default
+            `("/", "/metrics")`.
 
     KeyboardInterrupt ile nazikçe kapanır.
     """
     import threading
 
-    handler = make_handler(body_fn)
+    handler = make_handler(
+        body_fn, content_type=content_type, allowed_paths=allowed_paths,
+    )
     server = server_cls((host, port), handler)
     actual_port = server.server_address[1]
     print(

@@ -1021,12 +1021,55 @@ def _cmd_replay_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _build_replay_json_body(limit: int) -> str:
+    """SPEC 055: `_collect_replay_runs(limit)` sonucu JSON string.
+
+    Her istek yeniden okur (canlı liste). SPEC 028 `--list --json`
+    çıktı sözleşmesiyle BİT-UYUMLU (aynı `_collect_replay_runs`).
+    """
+    import json as _json
+    runs = _collect_replay_runs(limit)
+    return _json.dumps(runs, ensure_ascii=False)
+
+
 def _cmd_replay(args: argparse.Namespace) -> int:
-    """SPEC 027 + 028: `atlas replay [<run-id>|--list]`.
+    """SPEC 027 + 028 + 055: `atlas replay [<run-id>|--list|--serve]`.
 
     `--list` → mevcut run'ları listele (`_cmd_replay_list`).
+    `--serve HOST:PORT` → SPEC 055: `_collect_replay_runs(limit)` sonucu
+    JSON HTTP endpoint (blocking; Ctrl+C ile durdur).
     Aksi → 027 davranışı: kopyayı bulup çalıştır.
     """
+    # SPEC 055: --serve HOST:PORT (blocking) — --list/--run-id ile mutex
+    serve_spec = getattr(args, "serve", None)
+    if serve_spec:
+        from atlas_core.observability.prometheus_server import (
+            parse_host_port,
+            serve_prometheus_http,
+        )
+        if getattr(args, "list", False):
+            print("SPEC HATASI: --serve ve --list birlikte kullanılamaz",
+                  file=sys.stderr)
+            return 2
+        if args.run_id:
+            print("SPEC HATASI: --serve ile birlikte run-id verilemez "
+                  "(server tüm liste yayımlar)",
+                  file=sys.stderr)
+            return 2
+        try:
+            host, port = parse_host_port(serve_spec)
+        except ValueError as exc:
+            print(f"SPEC HATASI: {exc}", file=sys.stderr)
+            return 2
+        limit = int(args.limit)
+        serve_prometheus_http(
+            host, port,
+            lambda: _build_replay_json_body(limit),
+            content_type="application/json; charset=utf-8",
+            allowed_paths=("/", "/runs"),
+        )
+        return 0
+
     # SPEC 028: --list dallanması
     if getattr(args, "list", False):
         return _cmd_replay_list(args)
@@ -3960,6 +4003,11 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 028: --list JSON çıktısı")
     p_rep.add_argument("--limit", type=int, default=20,
                        help="SPEC 028: --list son N kaydı verir (varsayılan 20)")
+    p_rep.add_argument("--serve", default=None, metavar="HOST:PORT",
+                       help="SPEC 055: replay run listesini JSON HTTP endpoint "
+                            "olarak yayımla (blocking; Ctrl+C ile durdur). "
+                            "GET / veya /runs → --limit N kayıt "
+                            "(application/json). --list/run-id ile mutex.")
     p_rep.set_defaults(func=_cmd_replay)
 
     p_met = sub.add_parser("metrics",
