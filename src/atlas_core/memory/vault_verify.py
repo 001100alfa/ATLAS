@@ -10,11 +10,13 @@ YAZMA YOK — salt-okunur analiz. Yan etkisi yok.
 
 from __future__ import annotations
 
+import shutil
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC
+from pathlib import Path
 
-from atlas_core.memory.vault import Graph
+from atlas_core.memory.vault import Graph, Vault
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +133,107 @@ def format_report_markdown(report: VerifyReport, vault_root: str) -> str:
         ]
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 046: orfan not arşivleme
+# ═════════════════════════════════════════════════════════════════════
+
+
+@dataclass(slots=True, frozen=True)
+class OrphanAction:
+    """SPEC 046: tek bir orfan not için taşıma planı/sonucu.
+
+    - `src`: kaynak `.md` yolu (vault kökünden çözümlenmiş)
+    - `dst`: hedef yol (`_archive/orphans-YYYY-MM-DD/<name>.md` veya
+      çakışma varsa `-N.md` suffix)
+    - `action`: `"planned"` (dry-run) | `"moved"` (gerçek taşıma) |
+      `"skipped"` (src yok — ör. verify sonrası silinmiş)
+    """
+
+    src: Path
+    dst: Path
+    action: str
+
+
+def _find_orphan_paths(vault: Vault, orphan_names: list[str]) -> list[Path]:
+    """SPEC 046: orfan not adlarını vault kökünde `.md` yollarına çöz.
+
+    Not adları vault'ın rglob taramasından geldiği için hepsi vault
+    içindedir; ancak alt-klasörde (`daily/`, `tasks/`) olabilirler.
+    `Vault.graph()` `p.stem` kullanıyor → düz not adı; klasörü bulmak
+    için `rglob(f"{name}.md")`.
+    """
+    root = vault.root
+    resolved: list[Path] = []
+    for name in orphan_names:
+        matches = list(root.rglob(f"{name}.md"))
+        if matches:
+            # Aynı stem birden fazla klasörde olabilir; hepsini ekle
+            resolved.extend(matches)
+    return resolved
+
+
+def _unique_dst(base: Path) -> Path:
+    """SPEC 046: `base` mevcut ise `<stem>-1.md`, `-2.md` ... suffix.
+
+    Sonsuz döngü koruması: 1000 denemede bulunamazsa raise
+    `RuntimeError`. Pratikte gerçekleşmez (aynı isimde 1000 orfan
+    imkânsız), ama defense-in-depth.
+    """
+    if not base.exists():
+        return base
+    stem = base.stem
+    suffix = base.suffix
+    parent = base.parent
+    for n in range(1, 1001):
+        candidate = parent / f"{stem}-{n}{suffix}"
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"benzersiz hedef bulunamadı (>1000 çakışma): {base}")
+
+
+def archive_orphan_notes(
+    vault: Vault,
+    orphan_names: list[str],
+    target_dir: Path,
+    *,
+    dry_run: bool,
+) -> list[OrphanAction]:
+    """SPEC 046: `orphan_names` içindeki notları `target_dir`'e taşı.
+
+    - `target_dir` yoksa `mkdir -p` (dry-run'da da klasör oluşturulmaz —
+      salt-okunur).
+    - Her not için hedef: `target_dir/<name>.md`; çakışma → `-N.md`.
+    - `dry_run=True` → dosya sistemi dokunulmaz; `OrphanAction(action=
+      "planned")` üretilir.
+    - `dry_run=False` → `shutil.move` ile atomik taşıma (aynı FS içinde
+      rename; farklı FS'de copy+delete). Kaynak yok → `action="skipped"`.
+
+    Döner: her not için OrphanAction listesi (kararlı sıralı — girdi
+    sırası korunur). Hata durumunda bile başlanan işlemlerin sonucu
+    döner (kısmi ilerleme).
+    """
+    paths = _find_orphan_paths(vault, orphan_names)
+    actions: list[OrphanAction] = []
+
+    if not dry_run and paths:
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+    for src in paths:
+        if not src.is_file():
+            # verify ile fix arasında silinmiş olabilir — nazikçe atla
+            actions.append(OrphanAction(
+                src=src, dst=target_dir / src.name, action="skipped",
+            ))
+            continue
+        dst = _unique_dst(target_dir / src.name)
+        if dry_run:
+            actions.append(OrphanAction(src=src, dst=dst, action="planned"))
+        else:
+            shutil.move(str(src), str(dst))
+            actions.append(OrphanAction(src=src, dst=dst, action="moved"))
+    return actions
 
 
 def verify_graph(graph: Graph) -> VerifyReport:

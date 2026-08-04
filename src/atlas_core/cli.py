@@ -2418,6 +2418,82 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_vault_fix_orphans(args: argparse.Namespace) -> int:
+    """SPEC 046: `atlas vault fix-orphans [--apply]` — orfan notları arşivle.
+
+    Dry-run varsayılan (YIKICI işlem — mevcut `archive` kalıbı).
+    `--apply` ile gerçek taşıma.
+
+    Akış:
+      1. Vault graf sağlığını çıkar (SPEC 042 `verify_graph`).
+      2. `orphan_notes` listesindeki her not için hedef dosyayı bul
+         (vault kökünde `rglob("<name>.md")`).
+      3. Dry-run → plan raporu bas, exit 0.
+      4. `--apply` → hedef klasörü oluştur, dosyaları `shutil.move` ile
+         taşı; her taşımayı audit'e yaz.
+
+    Exit kodları:
+      - 0: başarılı (dry-run veya apply)
+      - 2: SPEC HATASI (vault dizini yok)
+
+    Bit-uyumluluk: `atlas vault verify` (SPEC 042) DEĞİŞMEDİ.
+    """
+    from atlas_core.memory.vault import Vault
+    from atlas_core.memory.vault_verify import (
+        archive_orphan_notes,
+        verify_graph,
+    )
+
+    vault_root = Path(args.vault_root) if args.vault_root else _vault_root()
+    if not vault_root.is_dir():
+        print(
+            f"SPEC HATASI: vault dizini yok: {vault_root}",
+            file=sys.stderr,
+        )
+        return 2
+
+    vault = Vault(vault_root)
+    report = verify_graph(vault.graph())
+    if not report.orphan_notes:
+        print("Orfan not yok — hiçbir şey yapılmadı.")
+        return 0
+
+    today = date.today().isoformat()
+    if getattr(args, "target", None):
+        target = Path(args.target)
+    else:
+        target = vault_root / "_archive" / f"orphans-{today}"
+
+    apply = bool(getattr(args, "apply", False))
+    actions = archive_orphan_notes(
+        vault, report.orphan_notes, target, dry_run=not apply,
+    )
+
+    audit = AuditLog(_audit_path())
+    if apply:
+        audit.record(
+            "atlas-vault", "fix-orphans",
+            f"{len([a for a in actions if a.action == 'moved'])} not -> {target}",
+        )
+
+    if apply:
+        print(f"[fix-orphans] {len(actions)} işlem — hedef: {target}")
+    else:
+        print(f"[dry-run] {len(actions)} orfan not planı — hedef: {target}")
+    for a in actions:
+        rel_src = a.src.relative_to(vault_root)
+        try:
+            rel_dst = a.dst.relative_to(vault_root)
+        except ValueError:
+            rel_dst = a.dst  # target vault dışı ise mutlak yol
+        marker = {"planned": "  ⋯", "moved": "  ✔", "skipped": "  ⚠"}[a.action]
+        print(f"{marker} {rel_src}  →  {rel_dst}")
+    if not apply:
+        print(f"\nUygulamak için: atlas vault fix-orphans --apply "
+              f"--vault-root {vault_root}")
+    return 0
+
+
 def _cmd_scan(args: argparse.Namespace) -> int:
     """`atlas scan <path>` — sır taraması (bağımsız komut).
 
@@ -3317,6 +3393,20 @@ def main(argv: list[str] | None = None) -> int:
                            "(dizin yoksa oluşturulur). Yazma hatası sessiz "
                            "geçilir — verify çıktı sözleşmesi bit-uyumlu.")
     p_vv.set_defaults(func=_cmd_vault_verify)
+    # SPEC 046: vault fix-orphans (orfan notları arşivle — YIKICI)
+    p_vfo = vault_sub.add_parser(
+        "fix-orphans",
+        help="Orfan notları vault/_archive/orphans-YYYY-MM-DD/ altına taşı "
+             "(SPEC 046 — YIKICI, --apply gerekli)",
+    )
+    p_vfo.add_argument("--vault-root", default=None,
+                       help="Vault kökü (env: ATLAS_VAULT; varsayılan vault)")
+    p_vfo.add_argument("--apply", action="store_true",
+                       help="Dry-run yerine gerçek taşıma (yıkıcı)")
+    p_vfo.add_argument("--target", default=None, metavar="DIR",
+                       help="Hedef dizin (varsayılan: "
+                            "<vault>/_archive/orphans-YYYY-MM-DD)")
+    p_vfo.set_defaults(func=_cmd_vault_fix_orphans)
 
     p_arc = sub.add_parser("archive", help="Tamamlanmış görevi arşive taşı")
     p_arc.add_argument("task", nargs="?", default=None,
