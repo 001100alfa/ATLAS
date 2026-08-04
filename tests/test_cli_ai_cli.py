@@ -195,7 +195,9 @@ def test_0371_dry_run_outdated_exit_0(
 
     calls: list[tuple[str, bool]] = []
 
-    def fake_run(npm_bin: str, dry_run: bool) -> tuple[int, str, str]:
+    def fake_run(
+        npm_bin: str, dry_run: bool, package: str | None = None,
+    ) -> tuple[int, str, str]:
         calls.append((npm_bin, dry_run))
         # npm outdated → paket bulundu → exit 1, ama biz dry-run'da 0 döneriz
         return 1, "opencode-ai  1.18.8  1.18.9\n", ""
@@ -220,7 +222,7 @@ def test_0371_update_npm_exit_yansitilir(
     monkeypatch.setattr(cli_mod, "_find_npm_bin", lambda: ("/fake/npm", "path"))
     monkeypatch.setattr(
         cli_mod, "_run_npm_update",
-        lambda _b, _d: (0, "changed 3 packages\n", ""),
+        lambda _b, _d, package=None: (0, "changed 3 packages\n", ""),
     )
     rc = main(["ai-cli", "update"])
     assert rc == 0
@@ -240,7 +242,9 @@ def test_0371_run_npm_hatasi_exit_2(
     monkeypatch.setattr(cli_mod, "_find_npm_bin", lambda: ("/fake/npm", "path"))
     monkeypatch.setattr(
         cli_mod, "_run_npm_update",
-        lambda _b, _d: (-1, "", "npm çağrısı başarısız: [Errno 2] ..."),
+        lambda _b, _d, package=None: (
+            -1, "", "npm çağrısı başarısız: [Errno 2] ...",
+        ),
     )
     rc = main(["ai-cli", "update"])
     assert rc == 2

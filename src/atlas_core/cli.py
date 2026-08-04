@@ -2794,16 +2794,28 @@ def _find_npm_bin() -> tuple[str | None, str]:
     return None, ""
 
 
-def _run_npm_update(npm_bin: str, dry_run: bool) -> tuple[int, str, str]:
-    """SPEC 037.1: `npm update` veya `npm outdated` çağır.
+def _run_npm_update(
+    npm_bin: str, dry_run: bool, package: str | None = None,
+) -> tuple[int, str, str]:
+    """SPEC 037.1 + 050: `npm update` veya `npm outdated` çağır.
 
-    Dry-run → `npm outdated --long` (exit 0 veya 1; 1 = güncellemesi
-    olan paket var, hata değil). Uygula → `npm update`.
+    Dry-run → `npm outdated --long [<package>]` (exit 0 veya 1;
+    1 = güncellemesi olan paket var, hata değil). Uygula → `npm update
+    [<package>]`.
     `cwd = tools/ai-cli` sabit.
+
+    SPEC 050: `package` verilirse `npm outdated <package>` veya
+    `npm update <package>` — sadece o paket etkilenir; kalan paketler
+    dokunulmaz. `None` → mevcut davranış (hepsi güncellenir/kontrol edilir).
 
     Döner: `(returncode, stdout, stderr)`. Subprocess hatası → (-1, "", err).
     """
-    args = [npm_bin, "outdated", "--long"] if dry_run else [npm_bin, "update"]
+    if dry_run:
+        args = [npm_bin, "outdated", "--long"]
+    else:
+        args = [npm_bin, "update"]
+    if package:
+        args.append(package)
     try:
         proc = subprocess.run(  # noqa: S603 - argv sabit + npm_bin filtrelendi
             args,
@@ -3108,14 +3120,19 @@ def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
 
 
 def _cmd_ai_cli_update(args: argparse.Namespace) -> int:
-    """SPEC 037.1: `atlas ai-cli update [--dry-run]` — portable npm wrap.
+    """SPEC 037.1 + 050: `atlas ai-cli update [name] [--dry-run]` — npm wrap.
 
     - `tools/node/npm.cmd` (Windows portable) veya `tools/node/npm`
       (Unix portable) tercih; yoksa sistem `npm` (PATH).
     - `cwd = tools/ai-cli`.
-    - `--dry-run` → `npm outdated --long` (güncellemesi olan paketleri
-      listele; exit 0 döner, npm 1 dönse bile "bulgu = hata değil").
-    - Uygula → `npm update`; npm exit kodunu doğrudan yansıt.
+    - `--dry-run` → `npm outdated --long [<name>]` (güncellemesi olan
+      paketleri listele; exit 0 döner, npm 1 dönse bile "bulgu = hata
+      değil").
+    - Uygula → `npm update [<name>]`; npm exit kodunu doğrudan yansıt.
+    - **SPEC 050**: `name` positional argümanı verilirse yalnız o paket
+      etkilenir (sadece dependencies içindeki paketler kabul edilir;
+      aksi hâlde exit 2 SPEC HATASI + `atlas ai-cli list` önerisi).
+      `name` verilmezse mevcut davranış (hepsi).
     - npm bulunamadı → stderr uyarı + exit 2 (SPEC HATASI).
     - `tools/ai-cli/` yoksa → stderr uyarı + exit 2.
     """
@@ -3125,6 +3142,23 @@ def _cmd_ai_cli_update(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+
+    # SPEC 050: paket adı verildiyse dependencies'te olmalı
+    package: str | None = getattr(args, "name", None) or None
+    if package:
+        data, err = _read_ai_cli_package_json()
+        if err is not None:
+            print(f"SPEC HATASI: {err}", file=sys.stderr)
+            return 2
+        assert data is not None
+        deps = data.get("dependencies", {}) if isinstance(data, dict) else {}
+        if not isinstance(deps, dict) or package not in deps:
+            print(
+                f"SPEC HATASI: '{package}' package.json dependencies içinde yok. "
+                f"Kurulu paketleri görmek için: atlas ai-cli list",
+                file=sys.stderr,
+            )
+            return 2
 
     npm_bin, source = _find_npm_bin()
     if npm_bin is None:
@@ -3137,9 +3171,10 @@ def _cmd_ai_cli_update(args: argparse.Namespace) -> int:
 
     dry_run = getattr(args, "dry_run", False)
     label = "npm outdated" if dry_run else "npm update"
-    print(f"[ai-cli] {label} ({source}: {npm_bin})")
+    scope = f" ({package})" if package else ""
+    print(f"[ai-cli] {label}{scope} ({source}: {npm_bin})")
 
-    rc, out, err = _run_npm_update(npm_bin, dry_run)
+    rc, out, err = _run_npm_update(npm_bin, dry_run, package=package)
     if rc == -1:
         print(err, file=sys.stderr)
         return 2
@@ -3353,7 +3388,12 @@ def main(argv: list[str] | None = None) -> int:
     p_ai_ds.set_defaults(func=_cmd_ai_cli_diff_summary)
     p_ai_up = ai_sub.add_parser(
         "update",
-        help="tools/ai-cli/ paketlerini güncelle (portable npm wrap, SPEC 037.1)",
+        help="tools/ai-cli/ paketlerini güncelle (portable npm wrap, SPEC 037.1 + 050)",
+    )
+    p_ai_up.add_argument(
+        "name", nargs="?", default=None,
+        help="SPEC 050: yalnız bu paketi güncelle (dependencies'te olmalı); "
+             "verilmezse hepsi güncellenir",
     )
     p_ai_up.add_argument(
         "--dry-run", action="store_true",
