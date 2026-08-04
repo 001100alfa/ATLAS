@@ -6,6 +6,6 @@
   "dependencies": {
     "@kilocode/cli": "^7.4.17",
     "cline": "^3.0.48",
-    "opencode-ai": "^1.18.10"
+    "opencode-ai": "^1.18.11"
   }
 }
