@@ -14,10 +14,20 @@
 
 **Son çalışma:** 2026-07-31 (24. tur — 044 + 049 + 045 + 047)
 **Branch:** `main` (origin ile SENKRON, 4 lineer commit push edildi)
-**Working tree:** temiz (DOCTOR_*.png artık ignore — SPEC 044)
+**Working tree:** ⚠️ **2 dosya M** — `tools/ai-cli/{package,package-lock}.json`
+(bu turun DIŞINDA bir `npm update`/`setup-ai-cli.cmd` sonucu:
+`opencode-ai ^1.18.10 → ^1.18.11` + `cline ^3.0.47 → ^3.0.48`).
+**24. TUR KAPSAMINDA DEĞİL**; commit veya revert onay ister.
 **Durum:** 24. tur tamamlandı; 4 görev zincirleme; tümü main'e lineer
 ff-merge + push. **838/838 test yeşil** (+12 skip), cov %90.90,
 mypy strict + ruff + scan temiz.
+
+**⚠️ Yarın ilk iş — kullanıcıya SOR:**
+Bu 2 M dosya için ne yapayım?
+  1. Commit et: `chore(ai-cli): opencode-ai 1.18.10→1.18.11 + cline 3.0.47→3.0.48 bump`
+  2. Revert et: `git checkout HEAD -- tools/ai-cli/package.json tools/ai-cli/package-lock.json`
+  3. Elleme (kullanıcı manuel karar verecek)
+Onaysız hiçbirini yapma.
 
 ---
 
