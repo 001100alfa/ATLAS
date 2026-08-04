@@ -1366,6 +1366,63 @@ def _iter_scan_hits(scan_path: Path) -> list[tuple[Path, str, str]]:
     return hits
 
 
+def _check_http(url: str, timeout: float = 5.0) -> dict[str, Any]:
+    """SPEC 054: HTTP GET URL — sağlık kontrolü.
+
+    - 2xx → warning=None, status_code=<code>, latency_ms=<ölçüm>
+    - non-2xx → warning="HTTP <code>"
+    - connect timeout / DNS / socket error → warning="<exc>", status=None
+    - `URL` scheme http/https değil → warning="URL scheme geçersiz"
+
+    Test için urllib.request'i monkeypatch et.
+    """
+    import time
+    import urllib.error
+    import urllib.request
+    from urllib.parse import urlparse
+
+    scheme = urlparse(url).scheme
+    if scheme not in ("http", "https"):
+        return {
+            "url": url,
+            "status_code": None,
+            "latency_ms": None,
+            "warning": f"URL scheme geçersiz: '{scheme}' (http/https bekleniyor)",
+        }
+
+    req = urllib.request.Request(url, method="GET")
+    start = time.perf_counter()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            status = resp.status
+            elapsed_ms = (time.perf_counter() - start) * 1000
+    except urllib.error.HTTPError as exc:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        return {
+            "url": url,
+            "status_code": exc.code,
+            "latency_ms": round(elapsed_ms, 2),
+            "warning": f"HTTP {exc.code}",
+        }
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return {
+            "url": url,
+            "status_code": None,
+            "latency_ms": None,
+            "warning": f"bağlantı hatası: {exc}",
+        }
+
+    result: dict[str, Any] = {
+        "url": url,
+        "status_code": status,
+        "latency_ms": round(elapsed_ms, 2),
+        "warning": None,
+    }
+    if not 200 <= status < 300:
+        result["warning"] = f"HTTP {status}"
+    return result
+
+
 def _check_scan_src(scan_path: Path | None = None) -> dict[str, Any]:
     """SPEC 032.2 + 032.3 + 038: Kaynak dizininde `scan_secrets` çalıştır.
 
@@ -1560,6 +1617,25 @@ def _doctor_report_to_prometheus(report: dict[str, Any]) -> str:
             f"atlas_doctor_scan_src_unique_files {unique}",
         ]
 
+    # SPEC 054: http_check detay metrikleri (yalnız alan varsa)
+    http_check = quality.get("http_check") if isinstance(quality, dict) else None
+    if isinstance(http_check, dict):
+        # up=1 → 2xx başarı, 0 → herhangi bir sorun (warning != None)
+        up = 0 if http_check.get("warning") else 1
+        lines += [
+            "# HELP atlas_doctor_http_check_up External HTTP endpoint "
+            "reachable + 2xx (1=up, 0=down)",
+            "# TYPE atlas_doctor_http_check_up gauge",
+            f"atlas_doctor_http_check_up {up}",
+        ]
+        latency = http_check.get("latency_ms")
+        if latency is not None:
+            lines += [
+                "# HELP atlas_doctor_http_check_latency_ms External HTTP endpoint latency in ms",
+                "# TYPE atlas_doctor_http_check_latency_ms gauge",
+                f"atlas_doctor_http_check_latency_ms {float(latency):.2f}",
+            ]
+
     return "\n".join(lines)
 
 
@@ -1603,6 +1679,7 @@ def _check_decisions_drift(
 
 def _collect_doctor_report(
     scan_src_path: Path | None = None,
+    http_check_url: str | None = None,
 ) -> dict[str, Any]:
     """SPEC 021 + 021.1 + 032 + 032.2: env sağlık özetini yapılandırılmış
     dict olarak topla.
@@ -1718,6 +1795,10 @@ def _collect_doctor_report(
     if scan_src_path is not None:
         quality["scan_src"] = _check_scan_src(scan_src_path)
 
+    # SPEC 054: --http-check URL → HTTP GET sağlık kontrolü
+    if http_check_url is not None:
+        quality["http_check"] = _check_http(http_check_url)
+
     return {
         # SPEC 032.4: şema versiyonu — JSON tüketicileri sürüm bumpu'nda
         # kırılmadan tanıyabilsin. Alan ekleme = aynı; kaldırma/rename =
@@ -1810,6 +1891,8 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     # SPEC 032.2: --scan-src bayrağı → Path; yoksa None (bit-uyumlu).
     scan_src = getattr(args, "scan_src", None)
     scan_src_path = Path(scan_src) if scan_src else None
+    # SPEC 054: --http-check URL (opsiyonel)
+    http_check_url = getattr(args, "http_check", None)
 
     # SPEC 057: --diff önce kontrol edilir (--serve semantik reddi için).
     # --serve blocking; --diff verildiyse hemen semantik hata dön.
@@ -1842,13 +1925,19 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             return 2
 
         def _doctor_body() -> str:
-            rep = _collect_doctor_report(scan_src_path=scan_src_path)
+            rep = _collect_doctor_report(
+                scan_src_path=scan_src_path,
+                http_check_url=http_check_url,
+            )
             return _doctor_report_to_prometheus(rep)
 
         serve_prometheus_http(host, port, _doctor_body)
         return 0
 
-    report = _collect_doctor_report(scan_src_path=scan_src_path)
+    report = _collect_doctor_report(
+        scan_src_path=scan_src_path,
+        http_check_url=http_check_url,
+    )
 
     if getattr(args, "ping", False):
         ping_info = _run_anthropic_ping(report["warnings"])
@@ -3884,6 +3973,11 @@ def main(argv: list[str] | None = None) -> int:
                             "quality alanı değişiklikleri raporlanır. "
                             "--json ile birlikte delta JSON. --strict + "
                             "regresyon → exit 9.")
+    p_doc.add_argument("--http-check", default=None, metavar="URL",
+                       help="SPEC 054: URL'ye HTTP GET at (timeout 5s); "
+                            "quality.http_check alanına status + latency "
+                            "raporla. 2xx dışı veya bağlantı hatası → "
+                            "warning; --strict altında exit 9.")
     p_doc.add_argument("--ping", action="store_true",
                        help="Anthropic'e minimum request at, latency+cost raporla — SPEC 021.2")
     p_doc.add_argument("--strict", action="store_true",
