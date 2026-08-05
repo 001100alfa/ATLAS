@@ -490,3 +490,69 @@ def test_095_atlas_metrics_mevcut_3_artifact_dokunulmadi() -> None:
     assert "metrics-human.txt" in path_str
     assert "metrics.json" in path_str
     assert "metrics.prom" in path_str
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 100 — atlas-doctor.yml --diff-history-all entegrasyonu
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_100_atlas_doctor_diff_history_all_step() -> None:
+    """`Generate diff-history-all trend` step'i var + `--diff-history-all --json`."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "diff-history-all trend" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "--diff-history-all" in run
+    assert "--json" in run
+    assert "doctor-diff-history-all.json" in run
+
+
+def test_100_atlas_doctor_diff_history_all_fallback() -> None:
+    """`||` fallback bos snapshots (workflow durmaz)."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "diff-history-all trend" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert '||' in run
+    assert '"snapshots":[]' in run
+
+
+def test_100_atlas_doctor_artifact_uploaded() -> None:
+    """Upload artifact listesinde `doctor-diff-history-all.json`."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    path_str = str(upload_step.get("with", {}).get("path", ""))
+    assert "doctor-diff-history-all.json" in path_str
+
+
+def test_100_atlas_doctor_mevcut_2_artifact_dokunulmadi() -> None:
+    """SPEC 070 mevcut 2 artifact (`doctor-report.json`, `doctor-diff.txt`)
+    upload listesinde AYNI (BİT-UYUMLU)."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    path_str = str(upload_step.get("with", {}).get("path", ""))
+    assert "doctor-report.json" in path_str
+    assert "doctor-diff.txt" in path_str

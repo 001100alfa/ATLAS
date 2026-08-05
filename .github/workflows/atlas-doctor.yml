@@ -69,6 +69,14 @@ jobs:
           fi
           echo "rc_strict=$rc_strict" >> "$GITHUB_OUTPUT"
 
+      - name: Generate diff-history-all trend (SPEC 091/100)
+        run: |
+          # SPEC 091: tum tarihce ile mevcut arasi toplu diff.
+          # Tarihce yoksa/bossa || fallback bos snapshots (fail-safe).
+          uv run atlas doctor --diff-history-all --json \
+            > doctor-diff-history-all.json 2>/dev/null \
+            || echo '{"snapshots":[]}' > doctor-diff-history-all.json
+
       - name: Upload doctor artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -77,6 +85,7 @@ jobs:
           path: |
             doctor-report.json
             doctor-diff.txt
+            doctor-diff-history-all.json
           retention-days: 30
 
       - name: Comment PR on failure
