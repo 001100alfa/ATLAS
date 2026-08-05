@@ -1645,6 +1645,80 @@ _DECISIONS_MD_DEFAULT = Path("DECISIONS.md")
 # SPEC 062: `atlas doctor --diff --auto-baseline` için varsayılan snapshot
 # konumu. `.atlas/` git-ignored → commit döngüsü yok.
 _DEFAULT_DOCTOR_BASELINE = Path(".atlas/doctor-baseline.json")
+
+# SPEC 080: baseline tarihçesi dizini
+_DEFAULT_DOCTOR_HISTORY_DIR = Path(".atlas/doctor-history")
+
+
+def _list_doctor_history() -> list[dict[str, Any]]:
+    """SPEC 080: `.atlas/doctor-history/baseline-*.json` metadata listesi.
+
+    Return: her snapshot için `{path, date, size_bytes, size_human, mtime}`.
+    Sıra: date desc (en yeni önce). Dosya yok → [].
+    """
+    from datetime import datetime as _dt
+    if not _DEFAULT_DOCTOR_HISTORY_DIR.is_dir():
+        return []
+    out: list[dict[str, Any]] = []
+    for p in sorted(_DEFAULT_DOCTOR_HISTORY_DIR.glob("baseline-*.json")):
+        try:
+            stat = p.stat()
+        except OSError:
+            continue
+        # `baseline-YYYY-MM-DD.json` → date
+        stem = p.stem  # baseline-YYYY-MM-DD
+        date_str = stem[9:] if stem.startswith("baseline-") else ""
+        size = stat.st_size
+        out.append({
+            "path": str(p),
+            "date": date_str,
+            "size_bytes": size,
+            "size_human": _human_bytes_or_fallback(size),
+            "mtime": _dt.fromtimestamp(stat.st_mtime).isoformat(
+                timespec="seconds"),
+        })
+    # Date desc: alfabetik ters (YYYY-MM-DD lex sıra = tarih sıra)
+    out.sort(key=lambda e: e["date"], reverse=True)
+    return out
+
+
+def _human_bytes_or_fallback(n: int) -> str:
+    """`_human_bytes` var, forward. Bulunmazsa basit fallback."""
+    try:
+        return _human_bytes(n)
+    except NameError:
+        # Forward reference — cli.py içinde _human_bytes daha sonra tanımlanmış
+        if n < 1024:
+            return f"{n} B"
+        if n < 1024 * 1024:
+            return f"{n / 1024:.1f} KB"
+        return f"{n / (1024 * 1024):.1f} MB"
+
+
+def _prune_doctor_history(keep: int) -> list[Path]:
+    """SPEC 080: `.atlas/doctor-history/baseline-*.json` retention.
+
+    date desc + ilk `keep` tutar; geri kalanı siler. `keep < 1` →
+    ValueError. Dizin yok → [].
+    """
+    if keep < 1:
+        raise ValueError(f"keep >= 1 olmalı: {keep}")
+    if not _DEFAULT_DOCTOR_HISTORY_DIR.is_dir():
+        return []
+    files = sorted(
+        _DEFAULT_DOCTOR_HISTORY_DIR.glob("baseline-*.json"),
+        key=lambda p: p.name,  # baseline-YYYY-MM-DD alfabetik = tarih sıra
+        reverse=True,
+    )
+    to_delete = files[keep:]
+    deleted: list[Path] = []
+    for p in to_delete:
+        try:
+            p.unlink()
+            deleted.append(p)
+        except OSError:
+            continue
+    return deleted
 _DECISIONS_DATE_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})")
 
 # SPEC 032.4: `atlas doctor` çıktısı şema versiyonu (JSON tüketicileri
@@ -2341,6 +2415,28 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         ))
         return 0
 
+    # SPEC 080: --history-list kısa devre — sağlık kontrolü YAPMA,
+    # yalnız .atlas/doctor-history/*.json listele (bilgi komutu).
+    if getattr(args, "history_list", False):
+        import json as _json_hl
+        entries = _list_doctor_history()
+        if getattr(args, "json", False):
+            print(_json_hl.dumps(entries, ensure_ascii=False))
+        else:
+            print(
+                f"=== ATLAS doctor --history-list "
+                f"({_DEFAULT_DOCTOR_HISTORY_DIR}) — {len(entries)} snapshot ==="
+            )
+            if not entries:
+                print("  (snapshot yok)")
+            else:
+                for e in entries:
+                    print(
+                        f"  {e['date']:<12}  {e['size_human']:>10}  "
+                        f"{e['mtime']}"
+                    )
+        return 0
+
     # SPEC 032.2: --scan-src bayrağı → Path; yoksa None (bit-uyumlu).
     scan_src = getattr(args, "scan_src", None)
     scan_src_path = Path(scan_src) if scan_src else None
@@ -2427,11 +2523,35 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             return 2
         target = Path(save_baseline)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            _json_sb.dumps(report, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        report_json = _json_sb.dumps(report, ensure_ascii=False, indent=2)
+        target.write_text(report_json, encoding="utf-8")
         print(f"[doctor] baseline yazıldı: {target}")
+        # SPEC 080: default path kullanıldıysa tarihçe kopyası da yaz
+        # (custom path → sadece PATH). Retention (`--history-keep N`)
+        # opsiyonel.
+        if target.resolve() == _DEFAULT_DOCTOR_BASELINE.resolve():
+            from datetime import date as _date
+            _DEFAULT_DOCTOR_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+            history_path = _DEFAULT_DOCTOR_HISTORY_DIR / (
+                f"baseline-{_date.today().isoformat()}.json"
+            )
+            history_path.write_text(report_json, encoding="utf-8")
+            print(f"[doctor] tarihce snapshot: {history_path}")
+            # --history-keep N retention
+            keep_hist = getattr(args, "history_keep", None)
+            if keep_hist is not None:
+                if keep_hist < 1:
+                    print(
+                        f"SPEC HATASI: --history-keep >= 1 olmalı: {keep_hist}",
+                        file=sys.stderr,
+                    )
+                    return 2
+                deleted = _prune_doctor_history(keep_hist)
+                if deleted:
+                    print(
+                        f"[doctor] tarihce prune: {len(deleted)} eski silindi "
+                        f"(keep={keep_hist})"
+                    )
         return 0
 
     # SPEC 062: --auto-baseline → --diff için .atlas/doctor-baseline.json
@@ -5264,7 +5384,15 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 062: Mevcut raporu baseline olarak diske "
                             "yaz (default: .atlas/doctor-baseline.json). "
                             "--diff/--auto-baseline/--serve/--format prometheus "
-                            "ile mutex.")
+                            "ile mutex. SPEC 080: default path kullanılırsa "
+                            "tarihçe snapshot da yazılır "
+                            "(.atlas/doctor-history/baseline-<today>.json).")
+    p_doc.add_argument("--history-keep", type=int, default=None, metavar="N",
+                       help="SPEC 080: --save-baseline default path ile birlikte, "
+                            "tarihçe snapshot'larını N tut, gerisini sil.")
+    p_doc.add_argument("--history-list", action="store_true",
+                       help="SPEC 080: .atlas/doctor-history/*.json snapshot "
+                            "listele (sağlık kontrolü yapma; --json ile JSON).")
     p_doc.add_argument("--ping", action="store_true",
                        help="Anthropic'e minimum request at, latency+cost raporla — SPEC 021.2")
     p_doc.add_argument("--strict", action="store_true",
