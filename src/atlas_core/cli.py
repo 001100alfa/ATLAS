@@ -707,13 +707,18 @@ def _read_ship_summary(task_dir: Path) -> str:
 
 
 def _cmd_archive_restore(args: argparse.Namespace) -> int:
-    """SPEC 033: `atlas archive --restore <id>` — arşivi geri aç.
+    """SPEC 033 + 071: `atlas archive --restore <id>` — arşivi geri aç.
 
     Dry-run varsayılan (yıkıcı: mevcut task klasörü olabilir → yazma
     yok, --apply zorunlu).
+
+    SPEC 071: `--restore --search PATTERN` verilirse `<id>` yerine
+    pattern'e uyan tek arşiv otomatik bulunur. 0 eşleşme → exit 6;
+    2+ eşleşme → exit 2 (belirsizlik; kullanıcı `--search` daraltmalı).
+
     Exit kodları:
       - 0: başarılı (veya dry-run)
-      - 2: SPEC HATASI (task_id yok)
+      - 2: SPEC HATASI (task_id yok / --search belirsiz / regex hata)
       - 3: çakışma (hedef zaten var)
       - 6: extract hatası (RestoreError, path traversal, I/O)
     """
@@ -722,9 +727,53 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
         _find_archive_for_task,
         restore_task,
     )
-    task_id = args.restore
     tasks_root = Path(args.tasks_root)
     archive_root = Path(args.archive_root)
+
+    # SPEC 071: --restore boş (`--restore --search P`) veya --restore
+    # <id> + --search her ikisi de arama-tabanlı seçim yapar.
+    restore_arg = args.restore  # "" (bayraksız) veya <id> string
+    search_pattern = getattr(args, "search", None)
+
+    if search_pattern:
+        try:
+            hits = _search_archive_contents(archive_root, search_pattern)
+        except ValueError as exc:
+            print(f"SPEC HATASI: {exc}", file=sys.stderr)
+            return 2
+        if not hits:
+            print(
+                f"ARŞİV HATASI: --search '{search_pattern}' hiç eşleşme "
+                f"vermedi: {archive_root}",
+                file=sys.stderr,
+            )
+            return 6
+        if len(hits) > 1:
+            print(
+                f"SPEC HATASI: --search '{search_pattern}' {len(hits)} "
+                f"arşive uyuyor; belirsiz, daralt:",
+                file=sys.stderr,
+            )
+            for h in hits:
+                print(f"  - {h['archive']}", file=sys.stderr)
+            return 2
+        # Tek eşleşme: <task_id>-YYYY-MM-DD.tar.gz → task_id çıkar
+        archive_name = hits[0]["archive"]
+        stem = archive_name[:-len(".tar.gz")]
+        # `-YYYY-MM-DD` (11 karakter) kaldır
+        if len(stem) > 11 and stem[-11] == "-":
+            task_id = stem[:-11]
+        else:
+            task_id = stem
+    else:
+        task_id = restore_arg
+
+    if not task_id:
+        print(
+            "SPEC HATASI: --restore için <task_id> veya --search gerekli",
+            file=sys.stderr,
+        )
+        return 2
 
     tar_path = _find_archive_for_task(archive_root, task_id)
     if tar_path is None:
@@ -843,16 +892,27 @@ def _cmd_archive_search(args: argparse.Namespace) -> int:
 
 
 def _cmd_archive(args: argparse.Namespace) -> int:
-    """SPEC 007+012+033+065: `atlas archive [<task>|--all|--restore <id>|--search P]`.
+    """SPEC 007+012+033+065+071: `atlas archive [<task>|--all|--restore
+    <id>|--search P|--restore --search P]`.
 
     Dry-run varsayılan (yıkıcı işlem). Tekil: `--apply` yeter. Toplu:
     `--all --apply --yes` (çift onay). Geri yükleme: `--restore <id>
     [--apply]`. Arama: `--search PATTERN [--json]` (SPEC 065).
+    SPEC 071: `--restore --search PATTERN` → arama sonucu tek arşivse
+    otomatik geri yükle.
+
+    Dispatcher sırası:
+      1. `--restore` (SPEC 033/071) — --search ile birlikte olabilir
+      2. `--search` (SPEC 065) — list-only mod
+      3. `--all` (SPEC 012)
+      4. tekil task (SPEC 007)
     """
+    # SPEC 071: --restore --search PATTERN → restore-search birleşim.
+    # `--restore` `nargs="?"` const="" default=None → `is not None` truthy.
+    if getattr(args, "restore", None) is not None:
+        return _cmd_archive_restore(args)
     if getattr(args, "search", None):
         return _cmd_archive_search(args)
-    if getattr(args, "restore", None):
-        return _cmd_archive_restore(args)
     if getattr(args, "all", False):
         return _cmd_archive_all(args)
     if not args.task:
@@ -4509,9 +4569,12 @@ def main(argv: list[str] | None = None) -> int:
                        help="--all --apply için ikinci onay (çift kapı)")
     p_arc.add_argument("--apply", action="store_true",
                        help="dry-run yerine gerçek taşımayı çalıştır (yıkıcı)")
-    p_arc.add_argument("--restore", default=None, metavar="TASK_ID",
+    p_arc.add_argument("--restore", nargs="?", const="", default=None,
+                       metavar="TASK_ID",
                        help="SPEC 033: <TASK_ID> arşivini pipeline/tasks/ "
-                            "altına geri aç (dry-run varsayılan)")
+                            "altına geri aç (dry-run varsayılan). "
+                            "SPEC 071: bayraksız (`--restore --search P`) "
+                            "arama sonucu tek arşiv otomatik seçilir.")
     p_arc.add_argument("--search", default=None, metavar="PATTERN",
                        help="SPEC 065: archive/*.tar.gz içinde dosya adı "
                             "regex ara (tar açılmaz — metadata yeter). "
