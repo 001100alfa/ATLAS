@@ -3104,6 +3104,53 @@ def _filter_records_by_window(
     return out
 
 
+def _group_records_by(
+    records: list[dict[str, Any]], unit: str,
+) -> list[dict[str, Any]]:
+    """SPEC 081: metric records'ı `ts` alanına göre grupla.
+
+    Args:
+        records: `ts` (ISO 8601) alanı olan dict listesi.
+        unit: `"hour"` (`YYYY-MM-DDTHH`) veya `"day"` (`YYYY-MM-DD`).
+
+    Return: gruplar `[{key, records, tokens_in, tokens_out,
+    cache_creation, cache_read}]`. Grup key'e göre sıralı (ISO 8601
+    lex = kronolojik). `ts` yok/bozuk kayıt → `"unknown"` grup.
+    """
+    from datetime import datetime as _dt
+    if unit not in ("hour", "day"):
+        raise ValueError(f"unit hour|day olmalı: {unit}")
+    grouped: dict[str, dict[str, Any]] = {}
+    for r in records:
+        ts_raw = r.get("ts")
+        key = "unknown"
+        if isinstance(ts_raw, str):
+            try:
+                ts_dt = _dt.fromisoformat(ts_raw)
+                if unit == "hour":
+                    key = ts_dt.strftime("%Y-%m-%dT%H")
+                else:
+                    key = ts_dt.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        g = grouped.setdefault(key, {
+            "key": key,
+            "records": 0,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "cache_creation": 0,
+            "cache_read": 0,
+        })
+        g["records"] += 1
+        g["tokens_in"] += int(r.get("in", 0) or 0)
+        g["tokens_out"] += int(r.get("out", 0) or 0)
+        g["cache_creation"] += int(r.get("cache_c", 0) or 0)
+        g["cache_read"] += int(r.get("cache_r", 0) or 0)
+    # unknown'ı sona koy, diğerleri lex sıralı
+    keys = sorted(grouped.keys(), key=lambda k: (k == "unknown", k))
+    return [grouped[k] for k in keys]
+
+
 def _cmd_metrics(args: argparse.Namespace) -> int:
     """SPEC 023 + 029: `.atlas/metrics.jsonl` son N kaydı özetler.
 
@@ -3195,6 +3242,50 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
             host, port,
             lambda: _build_metrics_prometheus_text(limit),
         )
+        return 0
+
+    # SPEC 081: --group-by hour|day → aggregation, mevcut özet yerine
+    # gruplar tablosu. --format/--serve/--alert ile mutex (semantik).
+    group_by = getattr(args, "group_by", None)
+    if group_by is not None:
+        if getattr(args, "format", None) == "prometheus":
+            print(
+                "SPEC HATASI: --group-by ve --format prometheus birlikte "
+                "kullanılamaz",
+                file=sys.stderr,
+            )
+            return 2
+        if getattr(args, "alert", None) is not None:
+            print(
+                "SPEC HATASI: --group-by ve --alert birlikte kullanılamaz "
+                "(alert hit-ratio tekil değere, group aggregation)",
+                file=sys.stderr,
+            )
+            return 2
+        groups = _group_records_by(tail, group_by)
+        if args.json:
+            print(_json.dumps({
+                "unit": group_by, "groups": groups,
+            }, ensure_ascii=False))
+        else:
+            print(
+                f"=== ATLAS metrics --group-by {group_by} — "
+                f"{len(groups)} grup ==="
+            )
+            if not groups:
+                print("  (kayit yok)")
+                return 0
+            key_w = max(20, *(len(g["key"]) for g in groups))
+            print(
+                f"  {'key':<{key_w}}  {'records':>7}  {'in':>8}  "
+                f"{'out':>8}  {'cache_r':>8}"
+            )
+            for g in groups:
+                print(
+                    f"  {g['key']:<{key_w}}  {g['records']:>7}  "
+                    f"{g['tokens_in']:>8}  {g['tokens_out']:>8}  "
+                    f"{g['cache_read']:>8}"
+                )
         return 0
 
     if args.json:
@@ -5236,6 +5327,10 @@ def main(argv: list[str] | None = None) -> int:
     p_met.add_argument("--window", type=float, default=None, metavar="MINUTES",
                        help="SPEC 076: sadece son N dakikadaki kayıtlar. "
                             "--limit ile ORTOGONAL (önce window sonra limit).")
+    p_met.add_argument("--group-by", default=None, choices=["hour", "day"],
+                       help="SPEC 081: records'ı ts alanına göre saat/gün "
+                            "gruplarına ayır; aggregation tablosu. "
+                            "--format/--alert ile MUTEX.")
     p_met_out = p_met.add_mutually_exclusive_group()
     p_met_out.add_argument("--json", action="store_true",
                            help="JSON liste çıktısı (ham kayıtlar)")
