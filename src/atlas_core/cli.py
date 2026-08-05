@@ -5188,6 +5188,7 @@ def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
     # SPEC 088: --outdated filtresi
     outdated_mode = bool(getattr(args, "outdated", False))
     strict_mode = bool(getattr(args, "strict", False))
+    jsonl_mode = bool(getattr(args, "json_lines", False))
     # SPEC 094: --strict yalnız --outdated ile birlikte
     if strict_mode and not outdated_mode:
         print(
@@ -5196,7 +5197,23 @@ def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    # SPEC 099: --json-lines yalnız --outdated ile anlamlı; --json ile MUTEX
+    if jsonl_mode and not outdated_mode:
+        print(
+            "SPEC HATASI: --json-lines yalnız --outdated ile birlikte "
+            "kullanılır",
+            file=sys.stderr,
+        )
+        return 2
+    if jsonl_mode and getattr(args, "json", False):
+        print(
+            "SPEC HATASI: --json ile --json-lines birlikte kullanılamaz "
+            "(MUTEX)",
+            file=sys.stderr,
+        )
+        return 2
 
+    total_deps = len(packages)
     if outdated_mode:
         packages = [
             p for p in packages
@@ -5209,6 +5226,22 @@ def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
     exit_rc = 0
     if outdated_mode and strict_mode and packages:
         exit_rc = 4
+
+    # SPEC 099: --json-lines NDJSON stream + son satır summary
+    if jsonl_mode:
+        for p in packages:
+            print(_json.dumps({
+                "name": p["name"],
+                "expected": p["expected"],
+                "installed": p["installed"],
+            }, ensure_ascii=False))
+        print(_json.dumps({
+            "type": "summary",
+            "path": str(_AI_CLI_DIR),
+            "outdated": len(packages),
+            "total_deps": total_deps,
+        }, ensure_ascii=False))
+        return exit_rc
 
     if getattr(args, "json", False):
         print(_json.dumps(
@@ -5804,6 +5837,10 @@ def main(argv: list[str] | None = None) -> int:
     p_ai_ls.add_argument("--strict", action="store_true",
                          help="SPEC 094: --outdated ile birlikte; "
                               "boş değilse exit 4 (CI/pre-commit uyumlu)")
+    p_ai_ls.add_argument("--json-lines", action="store_true",
+                         help="SPEC 099: --outdated ile birlikte; NDJSON "
+                              "stream (paket başına satır + son satır "
+                              "summary). --json ile MUTEX.")
     p_ai_ls.set_defaults(func=_cmd_ai_cli_list)
     p_ai_ex = ai_sub.add_parser(
         "exec",
