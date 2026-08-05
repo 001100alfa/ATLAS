@@ -4179,6 +4179,7 @@ def _cmd_vault_restore(args: argparse.Namespace) -> int:
     """
     from atlas_core.memory.vault_backup import (
         VaultBackupError,
+        combine_split_parts,
         decrypt_backup,
         decrypt_backup_recipient,
         restore_vault,
@@ -4194,12 +4195,30 @@ def _cmd_vault_restore(args: argparse.Namespace) -> int:
 
     decrypt_pass = getattr(args, "decrypt", None)
     decrypt_recipient = getattr(args, "decrypt_recipient", False)
+    split_mode = bool(getattr(args, "split", False))
 
     # SPEC 078: --decrypt + --decrypt-recipient MUTEX
     if decrypt_pass is not None and decrypt_recipient:
         print(
             "SPEC HATASI: --decrypt ve --decrypt-recipient birlikte "
             "kullanılamaz (symmetric vs asimetrik)",
+            file=sys.stderr,
+        )
+        return 2
+
+    # SPEC 102: --split + --decrypt/--decrypt-recipient MUTEX
+    if split_mode and (decrypt_pass is not None or decrypt_recipient):
+        print(
+            "SPEC HATASI: --split ile --decrypt/--decrypt-recipient "
+            "birlikte kullanılamaz (encrypted split ayrı SPEC — YAGNI)",
+            file=sys.stderr,
+        )
+        return 2
+
+    # SPEC 102: --split → `.001` olmalı
+    if split_mode and tar_path.suffix != ".001":
+        print(
+            f"SPEC HATASI: --split ilk parça '.001' olmalı: {tar_path.name}",
             file=sys.stderr,
         )
         return 2
@@ -4221,6 +4240,8 @@ def _cmd_vault_restore(args: argparse.Namespace) -> int:
             print("  mod: GPG symmetric decrypt → restore (SPEC 066)")
         elif decrypt_recipient:
             print("  mod: GPG asimetrik decrypt (private key) → restore (SPEC 078)")
+        elif split_mode:
+            print("  mod: split parça birleştir → restore (SPEC 102)")
         if target_root.exists() and any(target_root.iterdir()):
             print("  UYARI: hedef mevcut ve boş değil — --apply exit 3")
         print(f"Uygulamak için: atlas vault restore {tar_path} --apply")
@@ -4228,9 +4249,18 @@ def _cmd_vault_restore(args: argparse.Namespace) -> int:
 
     audit = AuditLog(_audit_path())
 
-    # SPEC 066/078: --decrypt/--decrypt-recipient → önce decrypt, sonra restore
+    # SPEC 066/078/102: decrypt VEYA split → önce hazırla, sonra restore
     plain_path = tar_path
     tmp_plain: Path | None = None
+    if split_mode:
+        try:
+            tmp_plain = combine_split_parts(tar_path)
+        except VaultBackupError as exc:
+            audit.record("atlas-vault", "split-combine-error", str(exc)[:180])
+            print(f"SPLIT HATASI: {exc}", file=sys.stderr)
+            return 6
+        audit.record("atlas-vault", "split-combine", str(tmp_plain))
+        plain_path = tmp_plain
     if decrypt_pass is not None:
         if not decrypt_pass:
             print(
@@ -5828,6 +5858,10 @@ def main(argv: list[str] | None = None) -> int:
                            "(private key + gpg-agent) → restore. Passphrase "
                            "YOK; kullanıcı keyring/gpg-agent unlock yapmış "
                            "olmalı. --decrypt ile MUTEX.")
+    p_vr.add_argument("--split", action="store_true",
+                      help="SPEC 102: <path> `.001` başlayan split parça; "
+                           "aynı base + `.NNN` sıralı parçalar birleştirilir "
+                           "→ restore. --decrypt/--decrypt-recipient MUTEX.")
     p_vr.set_defaults(func=_cmd_vault_restore)
     # SPEC 042: vault verify (graf sağlığı)
     p_vv = vault_sub.add_parser(

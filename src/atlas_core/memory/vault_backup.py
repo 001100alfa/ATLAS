@@ -142,6 +142,52 @@ def default_backup_path(archive_root: Path) -> Path:
     return archive_root / f"vault-{ts}.tar.gz"
 
 
+def combine_split_parts(first_part: Path) -> Path:
+    """SPEC 102: `.001` başlayan parçaları birleştirip tek dosyaya yaz.
+
+    - `first_part` `.001` uzantılı olmalı (aksi hâlde `VaultBackupError`).
+    - Aynı base + `.NNN` (3 haneli) sıralı parçaları okur; eksik/boş
+      → `VaultBackupError`.
+    - Sonuç: birleştirilmiş geçici dosya `<base>.combined-<pid>` — çağıran
+      restore + temp silme yapmalı (SPEC 066 kalıbı).
+    - Parçaların orijinali korunur (silinmez).
+
+    Döner: birleştirilmiş geçici dosya yolu.
+    """
+    if first_part.suffix != ".001":
+        raise VaultBackupError(
+            f"split first_part '.001' olmalı: {first_part.name}",
+        )
+    base = first_part.with_suffix("")  # `.001` sıyır → `<x>.tar.gz`
+    if not first_part.is_file():
+        raise VaultBackupError(f"split ilk parça yok: {first_part}")
+    # Aynı base + .NNN deseni
+    parts: list[Path] = []
+    idx = 1
+    while True:
+        p = base.with_suffix(base.suffix + f".{idx:03d}")
+        if not p.is_file():
+            break
+        parts.append(p)
+        idx += 1
+    if not parts:
+        raise VaultBackupError(f"split hiç parça bulunamadı: {base.name}")
+    tmp_out = base.parent / f".{base.name}.combined-{os.getpid()}"
+    try:
+        with tmp_out.open("wb") as fout:
+            for p in parts:
+                with p.open("rb") as fin:
+                    shutil.copyfileobj(fin, fout)
+    except OSError as exc:
+        # Cleanup
+        try:
+            tmp_out.unlink()
+        except OSError:
+            pass
+        raise VaultBackupError(f"split birleştirme IO hatası: {exc}") from exc
+    return tmp_out
+
+
 def split_backup(src: Path, size_mb: int) -> list[Path]:
     """SPEC 101: `src` dosyasını `size_mb * 1024 * 1024` byte parçalara böl.
 
