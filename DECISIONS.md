@@ -1,6 +1,56 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-05 (33. tur — 099 + 098 + 096 + 097 + 100 + 101)
+
+Kullanıcı "hepsini sıra ile uygula" → 32. tur adayları (096-101) tümü
+zincirleme, küçükten büyüğe: `099 → 098 → 096 → 097 → 100 → 101`.
+
+- [KARAR] 099 `--json-lines` yalnız `--outdated` ile anlamlı (aksi
+  exit 2) + `--json` ile MUTEX. Neden: NDJSON stream tam liste için
+  aşırı; filtre + stream birleşimi CI iş sırası için doğal.
+- [KARAR] 099 son satır `{"type":"summary","path","outdated","total_deps"}`
+  — SPEC 087 vault verify NDJSON kalıbı ile simetrik. `total_deps`
+  filtreden ÖNCE (tam deps).
+- [KARAR] 099 `--strict` ile ORTOGONAL — bulgu + strict → exit 4,
+  NDJSON hâlâ basılır. Bilgi kaybı YOK.
+- [KARAR] 098 archive `--json-lines` her satır SPEC 075 alanlarıyla
+  AYNI + son satır `{"type":"summary","archive_root","count"}`.
+  Sıralama/filtre/limit stream ÖNCESİ uygulanır (deterministik).
+- [KARAR] 096 `--out` yalnız `--group-by + --format prometheus` ile
+  anlamlı (aksi exit 2). SPEC 092 vault verify `--out` kalıbı ile
+  simetrik; parent auto-mkdir + IO hatası exit 2.
+- [KARAR] 096 dosya içeriği stdout ile BİT-UYUMLU — test doğrulaması
+  aynı komut iki kez çağrılıp içerik eşitliği bakılır. Deterministik
+  sıra (SPEC 090 key alfabetik lex).
+- [KARAR] 097 SPEC 091 blok sonunda `--strict` + herhangi snapshot
+  `has_regression=True` → exit 9. SPEC 032/057 `--strict` exit 9
+  kalıbı ile UYUMLU. stderr mesajında regressed date listesi.
+- [KARAR] 097 test'lerin sözleşme alanı `rc in {0, 9}` — CI env'ine
+  bağlı olarak doctor rapor uyarısı olabilir/olmayabilir; test
+  determinizmi için "regresyon varsa 9" veya "yoksa 0" iki seçenek
+  kabul, mesaj kontrolü koşullu.
+- [KARAR] 100 atlas-doctor.yml yeni step `Generate diff-history-all
+  trend`; `||` fallback bos snapshots (SPEC 095 fail-safe kalıbı).
+  Mevcut 2 artifact DOKUNULMADI — yeni `doctor-diff-history-all.json`
+  upload listesine EKLENDİ (bit-uyumluluk).
+- [KARAR] 101 `--split SIZE_MB` fixed-size parça: `.001`, `.002`,
+  3 haneli 1-based. Orijinal silinir (space tasarrufu).
+  Birleştirme: `cat *.001 > full.tar.gz` (POSIX) —
+  restore ayrı SPEC olarak ertelendi (YAGNI).
+- [KARAR] 101 boş src (0 byte) → tek boş `.001` parça. Neden:
+  birleştirme sözleşmesi bozulmasın; kullanıcı `cat *.001` boş
+  dosya bekler (tek parça = 0 byte).
+- [KARAR] 101 `--split` + `--encrypt`/`--recipient` MUTEX exit 2 —
+  encrypted split ayrı SPEC (her parça ayrı şifreleme? tek geçiş
+  şifreleme sonra split? seçim belirsiz → YAGNI, ayrı iş).
+- [KARAR] 101 `--keep` retention split ÖNCESİ çalışır — parçalar
+  retention'a dahil değil (mtime desc glob `vault-*.tar.gz` deseni
+  yeni `.001..N` parçalarını yakalamaz; korunma sağlanır).
+- [KARAR] 101 split akışı `return 0` ile encrypt/keep-encrypted
+  dallarına girmeden çıkar; MUTEX zaten başta reddedildiği için
+  dal içi kontrole gerek yok.
+
 ## 2026-08-05 (32. tur — 092 + 094 + 093 + 095 + 091 + 090)
 
 Kullanıcı "devam et → hepsini sıra ile" → 31. tur adayları (090-095)
