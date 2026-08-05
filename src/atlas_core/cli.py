@@ -1054,17 +1054,19 @@ def _list_archive_entries(archive_root: Path) -> list[dict[str, Any]]:
 
 
 def _cmd_archive_list(args: argparse.Namespace) -> int:
-    """SPEC 075 + 079: `atlas archive --list [--json] [--sort-by KEY]
-    [--desc]`.
+    """SPEC 075 + 079 + 085: `atlas archive --list [--json] [--sort-by KEY]
+    [--desc] [--limit N]`.
 
     Arşiv kökündeki tar.gz dosyalarının metadata listesi. Yıkıcı iş yok.
 
     SPEC 079: `--sort-by {name,size,date,members}` (default `name`;
     SPEC 075 alfabetik davranış). `--desc` ters sıra.
+    SPEC 085: `--limit N` sıralamadan SONRA top-N (verilmezse tam liste,
+    BİT-UYUMLU).
 
     Exit:
       - 0: başarı (bilgi komutu)
-      - 2: archive_root yok
+      - 2: archive_root yok / --limit N <= 0
     """
     import json as _json
     archive_root = Path(args.archive_root)
@@ -1092,6 +1094,16 @@ def _cmd_archive_list(args: argparse.Namespace) -> int:
         )
         return 2
     entries = sorted(entries, key=key_map[sort_by], reverse=desc)
+    # SPEC 085: top-N (sıralamadan sonra)
+    limit = getattr(args, "limit", None)
+    if limit is not None:
+        if limit <= 0:
+            print(
+                f"SPEC HATASI: --limit N > 0 olmalı (verilen: {limit})",
+                file=sys.stderr,
+            )
+            return 2
+        entries = entries[:limit]
     if getattr(args, "json", False):
         print(_json.dumps(entries, ensure_ascii=False))
         return 0
@@ -5284,6 +5296,9 @@ def main(argv: list[str] | None = None) -> int:
                             "(default 'name' — SPEC 075 bit-uyumlu).")
     p_arc.add_argument("--desc", action="store_true",
                        help="SPEC 079: --sort-by için azalan sıra")
+    p_arc.add_argument("--limit", type=int, default=None, metavar="N",
+                       help="SPEC 085: --list için sıralamadan sonra top-N "
+                            "(N > 0). Verilmezse tüm liste (bit-uyumlu).")
     p_arc.add_argument("--json", action="store_true",
                        help="SPEC 065/075: --search veya --list ile birlikte "
                             "JSON çıktı")
