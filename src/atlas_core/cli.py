@@ -2714,6 +2714,17 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
                     f"{len(d['warnings_removed']):>6}  "
                     f"{len(d['quality_deltas']):>10}"
                 )
+        # SPEC 097: --strict + herhangi snapshot regresyonu → exit 9
+        if getattr(args, "strict", False):
+            regressions = [s for s in snapshots if s["delta"].get("has_regression")]
+            if regressions:
+                dates = ", ".join(s["date"] for s in regressions)
+                print(
+                    f"REGRESYON: --strict verildi, {len(regressions)} "
+                    f"snapshot'ta regresyon ({dates})",
+                    file=sys.stderr,
+                )
+                return 9
         return 0
 
     # SPEC 086: --diff-history N → N. snapshot (1-based, en yeni=1) ile
