@@ -1077,6 +1077,18 @@ def _cmd_archive_list(args: argparse.Namespace) -> int:
         )
         return 2
     entries = _list_archive_entries(archive_root)
+    # SPEC 093: --name-match PATTERN → arşiv adı regex filtresi (sort öncesi)
+    name_match = getattr(args, "name_match", None)
+    if name_match is not None:
+        try:
+            pat = re.compile(name_match)
+        except re.error as exc:
+            print(
+                f"SPEC HATASI: --name-match regex hatası: {exc}",
+                file=sys.stderr,
+            )
+            return 2
+        entries = [e for e in entries if pat.search(e["archive"])]
     # SPEC 079: sıralama
     sort_by = getattr(args, "sort_by", "name") or "name"
     desc = bool(getattr(args, "desc", False))
@@ -1109,7 +1121,10 @@ def _cmd_archive_list(args: argparse.Namespace) -> int:
         return 0
     print(f"=== ATLAS archive --list ({archive_root}) — {len(entries)} arsiv ===")
     if not entries:
-        print("  (arsiv yok)")
+        if getattr(args, "name_match", None) is not None:
+            print("  (esleme yok)")
+        else:
+            print("  (arsiv yok)")
         return 0
     # Sütun genişliği
     tid_w = max(24, *(len(e["task_id"]) for e in entries))
@@ -5534,6 +5549,9 @@ def main(argv: list[str] | None = None) -> int:
     p_arc.add_argument("--limit", type=int, default=None, metavar="N",
                        help="SPEC 085: --list için sıralamadan sonra top-N "
                             "(N > 0). Verilmezse tüm liste (bit-uyumlu).")
+    p_arc.add_argument("--name-match", default=None, metavar="PATTERN",
+                       help="SPEC 093: --list için arşiv adı regex filtresi "
+                            "(sort öncesi). Geçersiz regex -> exit 2.")
     p_arc.add_argument("--json", action="store_true",
                        help="SPEC 065/075: --search veya --list ile birlikte "
                             "JSON çıktı")
