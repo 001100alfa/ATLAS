@@ -3116,6 +3116,22 @@ def _filter_records_by_window(
     return out
 
 
+def _group_cost_usd(
+    group: dict[str, Any], price_in: float, price_out: float,
+) -> float:
+    """SPEC 084: grup dict'inden cost USD hesabı (SPEC 043 Prometheus AYNI).
+
+    `cost = in*price_in/1M + cache_c*price_in*1.25/1M
+          + cache_r*price_in*0.1/1M + out*price_out/1M`.
+    """
+    return (
+        int(group.get("tokens_in", 0)) * price_in / 1_000_000
+        + int(group.get("cache_creation", 0)) * price_in * 1.25 / 1_000_000
+        + int(group.get("cache_read", 0)) * price_in * 0.1 / 1_000_000
+        + int(group.get("tokens_out", 0)) * price_out / 1_000_000
+    )
+
+
 def _group_records_by(
     records: list[dict[str, Any]], unit: str,
 ) -> list[dict[str, Any]]:
@@ -3258,7 +3274,16 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
 
     # SPEC 081: --group-by hour|day → aggregation, mevcut özet yerine
     # gruplar tablosu. --format/--serve/--alert ile mutex (semantik).
+    # SPEC 084: --with-cost yalnız --group-by ile anlamlı.
     group_by = getattr(args, "group_by", None)
+    with_cost = bool(getattr(args, "with_cost", False))
+    if with_cost and group_by is None:
+        print(
+            "SPEC HATASI: --with-cost yalnız --group-by ile birlikte "
+            "kullanılır",
+            file=sys.stderr,
+        )
+        return 2
     if group_by is not None:
         if getattr(args, "format", None) == "prometheus":
             print(
@@ -3275,6 +3300,13 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
             )
             return 2
         groups = _group_records_by(tail, group_by)
+        # SPEC 084: --with-cost → grup dict'e cost_usd ekle
+        if with_cost:
+            price_in, price_out = _read_llm_prices()
+            for g in groups:
+                g["cost_usd"] = round(
+                    _group_cost_usd(g, price_in, price_out), 6,
+                )
         if args.json:
             print(_json.dumps({
                 "unit": group_by, "groups": groups,
@@ -3288,16 +3320,34 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                 print("  (kayit yok)")
                 return 0
             key_w = max(20, *(len(g["key"]) for g in groups))
-            print(
-                f"  {'key':<{key_w}}  {'records':>7}  {'in':>8}  "
-                f"{'out':>8}  {'cache_r':>8}"
-            )
-            for g in groups:
+            if with_cost:
+                if price_in == 0.0 and price_out == 0.0:
+                    print(
+                        "  UYARI: fiyat env yok "
+                        "(ATLAS_LLM_PRICE_IN / _OUT) — cost 0.0",
+                        file=sys.stderr,
+                    )
                 print(
-                    f"  {g['key']:<{key_w}}  {g['records']:>7}  "
-                    f"{g['tokens_in']:>8}  {g['tokens_out']:>8}  "
-                    f"{g['cache_read']:>8}"
+                    f"  {'key':<{key_w}}  {'records':>7}  {'in':>8}  "
+                    f"{'out':>8}  {'cache_r':>8}  {'cost':>12}"
                 )
+                for g in groups:
+                    print(
+                        f"  {g['key']:<{key_w}}  {g['records']:>7}  "
+                        f"{g['tokens_in']:>8}  {g['tokens_out']:>8}  "
+                        f"{g['cache_read']:>8}  ${g['cost_usd']:>10.6f}"
+                    )
+            else:
+                print(
+                    f"  {'key':<{key_w}}  {'records':>7}  {'in':>8}  "
+                    f"{'out':>8}  {'cache_r':>8}"
+                )
+                for g in groups:
+                    print(
+                        f"  {g['key']:<{key_w}}  {g['records']:>7}  "
+                        f"{g['tokens_in']:>8}  {g['tokens_out']:>8}  "
+                        f"{g['cache_read']:>8}"
+                    )
         return 0
 
     if args.json:
@@ -5428,6 +5478,10 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 081: records'ı ts alanına göre saat/gün "
                             "gruplarına ayır; aggregation tablosu. "
                             "--format/--alert ile MUTEX.")
+    p_met.add_argument("--with-cost", action="store_true",
+                       help="SPEC 084: --group-by ile birlikte; grup dict'e "
+                            "cost_usd alanı ekle "
+                            "(ATLAS_LLM_PRICE_IN/_OUT env; env yok → 0.0).")
     p_met_out = p_met.add_mutually_exclusive_group()
     p_met_out.add_argument("--json", action="store_true",
                            help="JSON liste çıktısı (ham kayıtlar)")
