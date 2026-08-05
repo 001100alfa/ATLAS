@@ -763,13 +763,94 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
     return 0
 
 
+def _search_archive_contents(
+    archive_root: Path, pattern: str,
+) -> list[dict[str, Any]]:
+    """SPEC 065: `<archive_root>/*.tar.gz` içinde dosya adı regex arama.
+
+    Tar açmaz — `tarfile.open + getnames()` metadata'sı yeter.
+    Return: her eşleşen tar için `{archive: <tar-adı>, matches: [str, ...]}`
+    (sorted archive-adı, sorted matches; deterministik).
+
+    Regex `re.search` (part-match); büyük/küçük harf duyarlı. Kullanıcı
+    isterse `(?i)` inline flag kullanabilir.
+    """
+    import re
+    import tarfile
+
+    if not archive_root.is_dir():
+        return []
+    try:
+        prog = re.compile(pattern)
+    except re.error as exc:
+        raise ValueError(f"regex hatası: {exc}") from exc
+    results: list[dict[str, Any]] = []
+    for tar_path in sorted(archive_root.glob("*.tar.gz")):
+        try:
+            with tarfile.open(tar_path, "r:gz") as tar:
+                names = tar.getnames()
+        except (OSError, tarfile.TarError):
+            continue
+        matched = sorted({n for n in names if prog.search(n)})
+        if matched:
+            results.append({
+                "archive": tar_path.name,
+                "matches": matched,
+            })
+    return results
+
+
+def _cmd_archive_search(args: argparse.Namespace) -> int:
+    """SPEC 065: `atlas archive --search PATTERN [--json]`.
+
+    Archive kökündeki tüm `*.tar.gz` dosyaları içinde dosya adı (arcname)
+    regex araması. Tar dosyaları AÇILMAZ — metadata yeter.
+
+    Exit:
+      - 0: arama tamam (bulgu olsa da olmasa da bilgi komutu)
+      - 2: SPEC HATASI (archive_root yok / pattern regex hatası)
+    """
+    import json as _json
+    archive_root = Path(args.archive_root)
+    if not archive_root.is_dir():
+        print(
+            f"SPEC HATASI: arşiv kökü yok: {archive_root}",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        hits = _search_archive_contents(archive_root, args.search)
+    except ValueError as exc:
+        print(f"SPEC HATASI: {exc}", file=sys.stderr)
+        return 2
+
+    if getattr(args, "json", False):
+        print(_json.dumps(hits, ensure_ascii=False))
+        return 0
+
+    total = sum(len(h["matches"]) for h in hits)
+    print(
+        f"=== ATLAS archive search — {len(hits)} arsivde {total} eslesme ==="
+    )
+    if not hits:
+        print("  (bulgu yok)")
+        return 0
+    for h in hits:
+        print(f"\n  {h['archive']} ({len(h['matches'])} eslesme):")
+        for name in h["matches"]:
+            print(f"    - {name}")
+    return 0
+
+
 def _cmd_archive(args: argparse.Namespace) -> int:
-    """SPEC 007+012+033: `atlas archive <task> | --all | --restore <id> ...`.
+    """SPEC 007+012+033+065: `atlas archive [<task>|--all|--restore <id>|--search P]`.
 
     Dry-run varsayılan (yıkıcı işlem). Tekil: `--apply` yeter. Toplu:
     `--all --apply --yes` (çift onay). Geri yükleme: `--restore <id>
-    [--apply]`.
+    [--apply]`. Arama: `--search PATTERN [--json]` (SPEC 065).
     """
+    if getattr(args, "search", None):
+        return _cmd_archive_search(args)
     if getattr(args, "restore", None):
         return _cmd_archive_restore(args)
     if getattr(args, "all", False):
@@ -4269,6 +4350,12 @@ def main(argv: list[str] | None = None) -> int:
     p_arc.add_argument("--restore", default=None, metavar="TASK_ID",
                        help="SPEC 033: <TASK_ID> arşivini pipeline/tasks/ "
                             "altına geri aç (dry-run varsayılan)")
+    p_arc.add_argument("--search", default=None, metavar="PATTERN",
+                       help="SPEC 065: archive/*.tar.gz içinde dosya adı "
+                            "regex ara (tar açılmaz — metadata yeter). "
+                            "--json ile JSON çıktı.")
+    p_arc.add_argument("--json", action="store_true",
+                       help="SPEC 065: --search ile birlikte JSON çıktı")
     p_arc.add_argument("--summary", default=None,
                        help="vault notunun gövdesi (yoksa 09-ship.md okunur)")
     p_arc.add_argument("--tasks-root", default="pipeline/tasks",
