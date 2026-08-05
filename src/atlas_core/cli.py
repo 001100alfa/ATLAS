@@ -2532,10 +2532,11 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             diff_baseline_arg
             or auto_baseline
             or getattr(args, "diff_history", None) is not None
+            or getattr(args, "diff_history_all", False)
         ):
             print(
                 "SPEC HATASI: --save-baseline ile --diff/--auto-baseline/"
-                "--diff-history birlikte kullanılamaz",
+                "--diff-history/--diff-history-all birlikte kullanılamaz",
                 file=sys.stderr,
             )
             return 2
@@ -2605,6 +2606,97 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             )
             return 0
         diff_baseline_arg = str(default_baseline)
+
+    # SPEC 091: --diff-history-all → tüm tarihçe ile mevcut arası toplu diff.
+    # MUTEX: --diff/--auto-baseline/--diff-history/--save-baseline (yukarıda).
+    diff_history_all = bool(getattr(args, "diff_history_all", False))
+    if diff_history_all:
+        import json as _json_dha
+        if (
+            diff_baseline_arg
+            or auto_baseline
+            or getattr(args, "diff_history", None) is not None
+        ):
+            print(
+                "SPEC HATASI: --diff-history-all ile --diff/--auto-baseline/"
+                "--diff-history birlikte kullanılamaz",
+                file=sys.stderr,
+            )
+            return 2
+        if getattr(args, "serve", None):
+            print(
+                "SPEC HATASI: --diff-history-all ile --serve birlikte "
+                "kullanılamaz",
+                file=sys.stderr,
+            )
+            return 2
+        # `--schema` zaten kısa devre (SPEC 040) — MUTEX gereksiz.
+        if getattr(args, "format", None) == "prometheus":
+            print(
+                "SPEC HATASI: --diff-history-all ile --format prometheus "
+                "birlikte kullanılamaz",
+                file=sys.stderr,
+            )
+            return 2
+        history = _list_doctor_history()
+        if not history:
+            print(
+                "SPEC HATASI: doctor tarihçesi bos "
+                f"({_DEFAULT_DOCTOR_HISTORY_DIR})",
+                file=sys.stderr,
+            )
+            print(
+                "İlk kalibrasyon için: atlas doctor --save-baseline",
+                file=sys.stderr,
+            )
+            return 2
+        snapshots: list[dict[str, Any]] = []
+        for entry in history:  # zaten date desc
+            try:
+                bp = Path(entry["path"])
+                baseline = _json_dha.loads(bp.read_text(encoding="utf-8"))
+            except (OSError, _json_dha.JSONDecodeError) as exc:
+                print(
+                    f"UYARI: snapshot okunamadi {entry['path']}: {exc}",
+                    file=sys.stderr,
+                )
+                continue
+            if not isinstance(baseline, dict):
+                continue
+            delta = _diff_doctor_reports(baseline, report)
+            snapshots.append({
+                "date": entry["date"],
+                "path": entry["path"],
+                "delta": delta,
+            })
+        if getattr(args, "json", False):
+            pretty = getattr(args, "pretty", False)
+            indent = 2 if pretty else None
+            print(_json_dha.dumps(
+                {"snapshots": snapshots},
+                ensure_ascii=False, indent=indent,
+            ))
+        else:
+            print(
+                f"=== ATLAS doctor --diff-history-all — {len(snapshots)} "
+                f"snapshot ==="
+            )
+            if not snapshots:
+                print("  (snapshot okunamadi)")
+                return 0
+            print(
+                f"  {'date':<12}  {'+warn':>6}  {'-warn':>6}  "
+                f"{'d-quality':>10}"
+            )
+            for s in snapshots:
+                d = s["delta"]
+                print(
+                    f"  {s['date']:<12}  "
+                    f"{len(d['warnings_added']):>6}  "
+                    f"{len(d['warnings_removed']):>6}  "
+                    f"{len(d['quality_deltas']):>10}"
+                )
+        return 0
 
     # SPEC 086: --diff-history N → N. snapshot (1-based, en yeni=1) ile
     # mevcut arası delta. Mevcut --diff/--auto-baseline ile MUTEX.
@@ -5770,6 +5862,12 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 086: N. tarihçe snapshot (1-based, en yeni=1) "
                             "ile mevcut arası delta. --diff/--auto-baseline "
                             "ile MUTEX.")
+    p_doc.add_argument("--diff-history-all", action="store_true",
+                       help="SPEC 091: tüm tarihçe snapshot'ları ile mevcut "
+                            "arası toplu diff tablosu (--json ile snapshots "
+                            "listesi). --diff/--auto-baseline/--diff-history/"
+                            "--save-baseline/--serve/--schema/--format "
+                            "prometheus ile MUTEX.")
     p_doc.add_argument("--ping", action="store_true",
                        help="Anthropic'e minimum request at, latency+cost raporla — SPEC 021.2")
     p_doc.add_argument("--strict", action="store_true",
