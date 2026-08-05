@@ -3117,18 +3117,26 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
 
 
 def _cmd_vault_restore(args: argparse.Namespace) -> int:
-    """SPEC 041: `atlas vault restore <path> [--apply]` — yedeği geri aç.
+    """SPEC 041 + 066: `atlas vault restore <path> [--apply] [--decrypt]`.
 
     Dry-run varsayılan (yıkıcı: mevcut vault üstüne yazma).
     `--apply` gerekli.
+
+    SPEC 066: `--decrypt [PASSPHRASE]` verilirse:
+      - `<path>` `.tar.gz.gpg` beklenir; GPG decrypt → temp `.tar.gz` →
+        restore_vault. Temp dosya restore sonrası silinir.
+      - Passphrase bayraktan veya env `ATLAS_BACKUP_PASSPHRASE`.
+      - Auto-detect: bayrak yoksa path `.gpg` ile bitiyorsa uyarı.
+
     Exit kodları:
       - 0: başarılı / dry-run
-      - 2: SPEC HATASI (yedek yok, vault_root arg hatası)
+      - 2: SPEC HATASI (yedek yok, boş passphrase, vault_root arg)
       - 3: çakışma (hedef zaten var + boş değil)
-      - 6: extract hatası (path traversal, I/O, vs.)
+      - 6: extract / GPG decrypt hatası
     """
     from atlas_core.memory.vault_backup import (
         VaultBackupError,
+        decrypt_backup,
         restore_vault,
     )
     tar_path = Path(args.tar)
@@ -3140,18 +3148,59 @@ def _cmd_vault_restore(args: argparse.Namespace) -> int:
         return 2
     target_root = Path(args.vault_root) if args.vault_root else _vault_root()
 
+    decrypt_pass = getattr(args, "decrypt", None)
+    # Auto-detect nazikliği: `.gpg` uzantısı + --decrypt yok → UYARI
+    if decrypt_pass is None and str(tar_path).endswith(".gpg"):
+        print(
+            "UYARI: dosya .gpg uzantılı ama --decrypt verilmedi — "
+            "restore extract muhtemelen başarısız olacak. "
+            "Explicit: --decrypt [PASSPHRASE] veya env "
+            "ATLAS_BACKUP_PASSPHRASE.",
+            file=sys.stderr,
+        )
+
     if not args.apply:
         print("[dry-run] vault geri yükleme planı:")
         print(f"  yedek: {tar_path}")
         print(f"  hedef: {target_root}")
+        if decrypt_pass is not None:
+            print("  mod: GPG decrypt → restore (SPEC 066)")
         if target_root.exists() and any(target_root.iterdir()):
             print("  UYARI: hedef mevcut ve boş değil — --apply exit 3")
         print(f"Uygulamak için: atlas vault restore {tar_path} --apply")
         return 0
 
     audit = AuditLog(_audit_path())
+
+    # SPEC 066: --decrypt → önce decrypt, sonra restore
+    plain_path = tar_path
+    tmp_plain: Path | None = None
+    if decrypt_pass is not None:
+        if not decrypt_pass:
+            print(
+                "SPEC HATASI: --decrypt passphrase boş olamaz "
+                "(env: ATLAS_BACKUP_PASSPHRASE veya bayraktan ver)",
+                file=sys.stderr,
+            )
+            return 2
+        # Temp plain dosya — restore sonrası silinir
+        tmp_plain = target_root.parent / f".vault-restore-decrypt-{os.getpid()}.tar.gz"
+        try:
+            decrypt_backup(tar_path, tmp_plain, decrypt_pass)
+        except VaultBackupError as exc:
+            audit.record("atlas-vault", "decrypt-error", str(exc)[:180])
+            print(f"DECRYPT HATASI: {exc}", file=sys.stderr)
+            if tmp_plain.exists():
+                try:
+                    tmp_plain.unlink()
+                except OSError:
+                    pass
+            return 6
+        audit.record("atlas-vault", "decrypt", str(tmp_plain))
+        plain_path = tmp_plain
+
     try:
-        result = restore_vault(tar_path, target_root)
+        result = restore_vault(plain_path, target_root)
     except VaultBackupError as exc:
         msg = str(exc)
         audit.record("atlas-vault", "restore-error", msg[:180])
@@ -3160,6 +3209,13 @@ def _cmd_vault_restore(args: argparse.Namespace) -> int:
         if "zaten var" in msg:
             return 3
         return 6
+    finally:
+        # SPEC 066: temp plain dosyayı sil (başarı VEYA hata sonrası)
+        if tmp_plain is not None and tmp_plain.exists():
+            try:
+                tmp_plain.unlink()
+            except OSError:
+                pass
 
     audit.record("atlas-vault", "restore", str(result))
     print(f"vault geri yüklendi: {result}")
@@ -4382,11 +4438,18 @@ def main(argv: list[str] | None = None) -> int:
                            "--out ile birlikte YOK sayılır.")
     p_vb.set_defaults(func=_cmd_vault_backup)
     p_vr = vault_sub.add_parser("restore", help=".tar.gz'i vault'a geri aç")
-    p_vr.add_argument("tar", help="Yedek dosyası yolu")
+    p_vr.add_argument("tar", help="Yedek dosyası yolu (.tar.gz veya "
+                                  ".tar.gz.gpg + --decrypt)")
     p_vr.add_argument("--apply", action="store_true",
                       help="Dry-run yerine gerçek extract çalıştır (yıkıcı)")
     p_vr.add_argument("--vault-root", default=None,
                       help="Hedef vault kökü (env: ATLAS_VAULT; varsayılan vault)")
+    p_vr.add_argument("--decrypt", nargs="?",
+                      const=os.environ.get("ATLAS_BACKUP_PASSPHRASE", ""),
+                      default=None, metavar="PASSPHRASE",
+                      help="SPEC 066: .tar.gz.gpg → GPG decrypt → restore "
+                           "zinciri. PASSPHRASE bayraktan veya env "
+                           "ATLAS_BACKUP_PASSPHRASE. Env: ATLAS_GPG_BIN.")
     p_vr.set_defaults(func=_cmd_vault_restore)
     # SPEC 042: vault verify (graf sağlığı)
     p_vv = vault_sub.add_parser(

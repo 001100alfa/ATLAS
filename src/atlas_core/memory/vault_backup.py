@@ -175,6 +175,65 @@ def prune_backups(archive_root: Path, keep: int) -> list[Path]:
     return deleted
 
 
+def decrypt_backup(
+    encrypted_path: Path,
+    out_path: Path,
+    passphrase: str,
+    *,
+    gpg_bin: str | None = None,
+) -> Path:
+    """SPEC 066: `.tar.gz.gpg` dosyasını GPG symmetric ile decrypt et.
+
+    - `gpg --batch --yes --decrypt --passphrase-fd 0 --output <out>
+      <encrypted>`
+    - Passphrase stdin ile geçirilir.
+    - `out_path.parent` yoksa oluşturulur.
+    - Başarı → `out_path` döner; hata → `VaultBackupError`.
+
+    `gpg_bin=None` → `_find_gpg_bin()` otomatik bulur.
+    """
+    if not encrypted_path.is_file():
+        raise VaultBackupError(f"kaynak yok: {encrypted_path}")
+    if not passphrase:
+        raise VaultBackupError("passphrase boş olamaz")
+    gpg = gpg_bin or _find_gpg_bin()
+    if gpg is None:
+        raise VaultBackupError(
+            "gpg bulunamadı — ATLAS_GPG_BIN ver veya sisteme kur"
+        )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    args = [
+        gpg, "--batch", "--yes",
+        "--decrypt",
+        "--passphrase-fd", "0",
+        "--output", str(out_path),
+        str(encrypted_path),
+    ]
+    try:
+        proc = subprocess.run(  # noqa: S603 - argv sabit + gpg yolu filtrelendi
+            args,
+            input=passphrase,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise VaultBackupError(f"gpg çalıştırılamadı: {exc}") from exc
+    if proc.returncode != 0:
+        raise VaultBackupError(
+            f"gpg decrypt hatası (exit {proc.returncode}): "
+            f"{(proc.stderr or '').strip()[:200]}"
+        )
+    if not out_path.is_file():
+        raise VaultBackupError(
+            f"gpg başarılı ama çıktı yok: {out_path}"
+        )
+    return out_path
+
+
 def prune_encrypted_backups(
     archive_root: Path, keep: int,
 ) -> list[Path]:
