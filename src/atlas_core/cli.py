@@ -3878,22 +3878,39 @@ def _cmd_vault_restore(args: argparse.Namespace) -> int:
 
 
 def _cmd_vault_verify(args: argparse.Namespace) -> int:
-    """SPEC 042: `atlas vault verify [--json] [--strict]` — graf sağlığı.
+    """SPEC 042 + 087: `atlas vault verify [--json] [--strict]
+    [--format {human,json,json-pretty,json-lines}]` — graf sağlığı.
 
     Vault (Obsidian-uyumlu) üzerinde salt-okunur analiz:
       - kırık `[[wikilink]]` (hedef notu vault'ta yok)
       - orfan not (ne link veren ne link alan — bakım sinyali)
       - orfan tag (yalnız bir notta geçen `#tag`)
 
+    SPEC 087: `--format json-lines` → NDJSON, bulgu başına 1 satır +
+    son satır özet (streaming, büyük vault dostu). `--format` +
+    `--json`/`--pretty` MUTEX (exit 2).
+
     Exit kodları:
       - 0: başarılı (bulgu olsa da; `--strict` yoksa uyarı)
-      - 2: SPEC HATASI (vault dizini yok)
+      - 2: SPEC HATASI (vault dizini yok / --format + --json mutex)
       - 4: `--strict` verildi ve rapor temiz değil
     """
     import json as _json
 
     from atlas_core.memory.vault import Vault
     from atlas_core.memory.vault_verify import format_report_markdown, verify_graph
+
+    # SPEC 087: --format ile --json/--pretty MUTEX
+    fmt = getattr(args, "format", None)
+    if fmt is not None and (
+        getattr(args, "json", False) or getattr(args, "pretty", False)
+    ):
+        print(
+            "SPEC HATASI: --format ile --json/--pretty birlikte "
+            "kullanılamaz (MUTEX)",
+            file=sys.stderr,
+        )
+        return 2
 
     vault_root = Path(args.vault_root) if args.vault_root else _vault_root()
     if not vault_root.is_dir():
@@ -3925,7 +3942,36 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
         except OSError:
             pass  # rapor yazımı best-effort — verify çıktı sözleşmesi bozulmaz
 
-    if getattr(args, "json", False):
+    # SPEC 087: --format json-lines / json / json-pretty
+    if fmt == "json-lines":
+        for b in report.broken_links:
+            print(_json.dumps(
+                {"type": "broken_link", "from": b.frm, "to": b.to},
+                ensure_ascii=False,
+            ))
+        for n in report.orphan_notes:
+            print(_json.dumps(
+                {"type": "orphan_note", "note": n}, ensure_ascii=False,
+            ))
+        for t in report.orphan_tags:
+            print(_json.dumps(
+                {"type": "orphan_tag", "tag": t}, ensure_ascii=False,
+            ))
+        print(_json.dumps({
+            "type": "summary",
+            "notes_total": report.notes_total,
+            "links_total": report.links_total,
+            "tags_total": report.tags_total,
+            "broken_links": len(report.broken_links),
+            "orphan_notes": len(report.orphan_notes),
+            "orphan_tags": len(report.orphan_tags),
+            "clean": report.is_clean,
+        }, ensure_ascii=False))
+    elif fmt == "json":
+        print(_json.dumps(report.to_dict(), ensure_ascii=False))
+    elif fmt == "json-pretty":
+        print(_json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+    elif getattr(args, "json", False):
         indent = 2 if getattr(args, "pretty", False) else None
         print(_json.dumps(report.to_dict(), ensure_ascii=False, indent=indent))
     else:
@@ -5260,6 +5306,12 @@ def main(argv: list[str] | None = None) -> int:
                       help="--json ile birlikte girintili çıktı (indent=2)")
     p_vv.add_argument("--strict", action="store_true",
                       help="Bulgu varsa exit 4 (CI/pre-commit uyumlu)")
+    p_vv.add_argument(
+        "--format", default=None,
+        choices=["human", "json", "json-pretty", "json-lines"],
+        help="SPEC 087: çıktı formatı seçimi (--json/--pretty ile MUTEX). "
+             "json-lines = NDJSON streaming (büyük vault dostu).",
+    )
     p_vv.add_argument("--dump-report", default=None, metavar="PATH",
                       help="SPEC 052: rapor markdown olarak PATH'e yazılır "
                            "(dizin yoksa oluşturulur). Yazma hatası sessiz "
