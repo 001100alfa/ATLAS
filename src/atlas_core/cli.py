@@ -2674,13 +2674,8 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             )
             return 2
         # `--schema` zaten kısa devre (SPEC 040) — MUTEX gereksiz.
-        if getattr(args, "format", None) == "prometheus":
-            print(
-                "SPEC HATASI: --diff-history-all ile --format prometheus "
-                "birlikte kullanılamaz",
-                file=sys.stderr,
-            )
-            return 2
+        # SPEC 104: --format prometheus MUTEX KALDIRILDI (per-snapshot
+        # metric ailesi; SPEC 090 rollback kalıbı ile simetrik).
         history = _list_doctor_history()
         if not history:
             print(
@@ -2712,6 +2707,55 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
                 "path": entry["path"],
                 "delta": delta,
             })
+        # SPEC 104: --format prometheus → per-snapshot metric ailesi
+        if getattr(args, "format", None) == "prometheus":
+            def _lbl(k: str) -> str:
+                return (
+                    k.replace("\\", "\\\\").replace('"', '\\"')
+                    .replace("\n", "\\n")
+                )
+            hist_lines: list[str] = []
+            hist_specs = [
+                ("warnings_added", "counter",
+                 "Warnings added between snapshot and current per snapshot"),
+                ("warnings_removed", "counter",
+                 "Warnings removed between snapshot and current per snapshot"),
+                ("quality_deltas", "counter",
+                 "Quality field deltas between snapshot and current per snapshot"),
+                ("has_regression", "gauge",
+                 "1 if snapshot vs current has regression, else 0"),
+                ("has_improvement", "gauge",
+                 "1 if snapshot vs current has improvement, else 0"),
+            ]
+            for field, mtype, desc in hist_specs:
+                metric_name = f"atlas_doctor_history_{field}"
+                hist_lines.append(f"# HELP {metric_name} {desc}")
+                hist_lines.append(f"# TYPE {metric_name} {mtype}")
+                for s in snapshots:
+                    d = s["delta"]
+                    if field in ("warnings_added", "warnings_removed",
+                                 "quality_deltas"):
+                        val_str = str(len(d.get(field, [])))
+                    else:
+                        val_str = "1" if d.get(field) else "0"
+                    hist_lines.append(
+                        f'{metric_name}{{snapshot_date='
+                        f'"{_lbl(str(s["date"]))}"}} {val_str}'
+                    )
+            print("\n".join(hist_lines))
+            # SPEC 097 strict kontrolü yine devreye girer
+            if getattr(args, "strict", False):
+                regressions = [s for s in snapshots
+                               if s["delta"].get("has_regression")]
+                if regressions:
+                    dates = ", ".join(s["date"] for s in regressions)
+                    print(
+                        f"REGRESYON: --strict verildi, {len(regressions)} "
+                        f"snapshot'ta regresyon ({dates})",
+                        file=sys.stderr,
+                    )
+                    return 9
+            return 0
         if getattr(args, "json", False):
             pretty = getattr(args, "pretty", False)
             indent = 2 if pretty else None

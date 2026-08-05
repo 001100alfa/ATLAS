@@ -152,14 +152,18 @@ def test_091_diff_history_all_schema_bit_uyumlu(
     assert data["schema_version"] == "1"
 
 
-def test_091_diff_history_all_prometheus_mutex(
+def test_091_104_diff_history_all_prometheus_no_longer_mutex(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """SPEC 104: --diff-history-all + --format prometheus MUTEX kaldırıldı,
+    artık per-snapshot metric ailesi yayımlanır."""
     _env(monkeypatch, tmp_path)
     _seed_history(tmp_path, ["2026-08-05"])
     rc = main(["doctor", "--diff-history-all", "--format", "prometheus"])
-    assert rc == 2
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "atlas_doctor_history_warnings_added" in out
 
 
 def test_091_diff_history_all_yoksa_bit_uyumlu(
