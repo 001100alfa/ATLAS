@@ -4010,6 +4010,16 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # SPEC 092: --out yalnız --format json-lines ile anlamlı
+    out_path_arg = getattr(args, "out", None)
+    if out_path_arg is not None and fmt != "json-lines":
+        print(
+            "SPEC HATASI: --out yalnız --format json-lines ile birlikte "
+            "kullanılır",
+            file=sys.stderr,
+        )
+        return 2
+
     vault_root = Path(args.vault_root) if args.vault_root else _vault_root()
     if not vault_root.is_dir():
         print(
@@ -4042,29 +4052,47 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
 
     # SPEC 087: --format json-lines / json / json-pretty
     if fmt == "json-lines":
-        for b in report.broken_links:
-            print(_json.dumps(
-                {"type": "broken_link", "from": b.frm, "to": b.to},
-                ensure_ascii=False,
-            ))
-        for n in report.orphan_notes:
-            print(_json.dumps(
-                {"type": "orphan_note", "note": n}, ensure_ascii=False,
-            ))
-        for t in report.orphan_tags:
-            print(_json.dumps(
-                {"type": "orphan_tag", "tag": t}, ensure_ascii=False,
-            ))
-        print(_json.dumps({
-            "type": "summary",
-            "notes_total": report.notes_total,
-            "links_total": report.links_total,
-            "tags_total": report.tags_total,
-            "broken_links": len(report.broken_links),
-            "orphan_notes": len(report.orphan_notes),
-            "orphan_tags": len(report.orphan_tags),
-            "clean": report.is_clean,
-        }, ensure_ascii=False))
+        # SPEC 092: --out PATH → stdout yerine dosyaya stream
+        out_fh = None
+        if out_path_arg is not None:
+            try:
+                op = Path(out_path_arg)
+                op.parent.mkdir(parents=True, exist_ok=True)
+                out_fh = op.open("w", encoding="utf-8")
+            except OSError as exc:
+                print(
+                    f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                    file=sys.stderr,
+                )
+                return 2
+
+        def _emit(obj: dict[str, Any]) -> None:
+            line = _json.dumps(obj, ensure_ascii=False)
+            if out_fh is not None:
+                out_fh.write(line + "\n")
+            else:
+                print(line)
+
+        try:
+            for b in report.broken_links:
+                _emit({"type": "broken_link", "from": b.frm, "to": b.to})
+            for n in report.orphan_notes:
+                _emit({"type": "orphan_note", "note": n})
+            for t in report.orphan_tags:
+                _emit({"type": "orphan_tag", "tag": t})
+            _emit({
+                "type": "summary",
+                "notes_total": report.notes_total,
+                "links_total": report.links_total,
+                "tags_total": report.tags_total,
+                "broken_links": len(report.broken_links),
+                "orphan_notes": len(report.orphan_notes),
+                "orphan_tags": len(report.orphan_tags),
+                "clean": report.is_clean,
+            })
+        finally:
+            if out_fh is not None:
+                out_fh.close()
     elif fmt == "json":
         print(_json.dumps(report.to_dict(), ensure_ascii=False))
     elif fmt == "json-pretty":
@@ -5410,6 +5438,10 @@ def main(argv: list[str] | None = None) -> int:
         help="SPEC 087: çıktı formatı seçimi (--json/--pretty ile MUTEX). "
              "json-lines = NDJSON streaming (büyük vault dostu).",
     )
+    p_vv.add_argument("--out", default=None, metavar="PATH",
+                      help="SPEC 092: --format json-lines ile birlikte "
+                           "stdout yerine PATH'e stream (büyük vault için "
+                           "dosyaya doğrudan yaz).")
     p_vv.add_argument("--dump-report", default=None, metavar="PATH",
                       help="SPEC 052: rapor markdown olarak PATH'e yazılır "
                            "(dizin yoksa oluşturulur). Yazma hatası sessiz "
