@@ -155,3 +155,70 @@ def test_056_verify_step_continue_on_error() -> None:
     assert verify_step.get("continue-on-error") is True
     # rc'yi $GITHUB_OUTPUT'a yazsın
     assert "$GITHUB_OUTPUT" in verify_step.get("run", "")
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 070: atlas-doctor.yml
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_070_atlas_doctor_yaml_valid() -> None:
+    data = _load("atlas-doctor.yml")
+    assert isinstance(data, dict)
+    assert data.get("name") == "atlas-doctor"
+
+
+def test_070_atlas_doctor_tetikleyiciler() -> None:
+    data = _load("atlas-doctor.yml")
+    on = data.get("on") or data.get(True)
+    assert isinstance(on, dict)
+    assert on["push"]["branches"] == ["main"]
+    assert "pull_request" in on
+    for trig in ("push", "pull_request"):
+        paths = on[trig].get("paths", [])
+        assert any("src/" in p for p in paths), f"{trig}: src/ eksik"
+
+
+def test_070_atlas_doctor_permissions_concurrency() -> None:
+    data = _load("atlas-doctor.yml")
+    assert data["permissions"]["pull-requests"] == "write"
+    assert data["permissions"]["contents"] == "read"
+    assert data["concurrency"]["cancel-in-progress"] is True
+
+
+def test_070_atlas_doctor_job_zinciri() -> None:
+    """Job doctor: checkout + uv + install + atlas doctor + artifact +
+    fail step."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    uses = [s.get("uses") for s in steps if s.get("uses")]
+    assert any("actions/checkout" in u for u in uses)
+    assert any("astral-sh/setup-uv" in u for u in uses)
+    assert any("actions/upload-artifact" in u for u in uses)
+    assert any("peter-evans/create-or-update-comment" in u for u in uses)
+    # ATLAS komut zinciri
+    run_blocks = "\n".join(s.get("run", "") for s in steps if s.get("run"))
+    assert "atlas doctor --strict --scan-src" in run_blocks
+    # SPEC 062: --auto-baseline dallanma
+    assert "atlas doctor --strict --auto-baseline" in run_blocks
+    assert ".atlas/doctor-baseline.json" in run_blocks
+
+
+def test_070_doctor_step_continue_on_error() -> None:
+    """`doctor` step continue-on-error: true — sonraki step'ler koşsun."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    doctor_step = next(s for s in steps if s.get("id") == "doctor")
+    assert doctor_step.get("continue-on-error") is True
+    assert "$GITHUB_OUTPUT" in doctor_step.get("run", "")
+
+
+def test_070_doctor_fail_step_iki_kaynak() -> None:
+    """Fail step: rc_strict OR rc_diff ≠ '0' → exit 1."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    last = steps[-1]
+    cond = last.get("if", "")
+    assert "rc_strict != '0'" in cond
+    assert "rc_diff != '0'" in cond
+    assert "exit 1" in last.get("run", "")

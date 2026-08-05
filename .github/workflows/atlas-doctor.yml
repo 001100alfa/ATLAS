@@ -1,0 +1,99 @@
+name: atlas-doctor
+# SPEC 070: PR + push'da ATLAS doctor sağlık kapısı.
+# SPEC 062 --auto-baseline ile snapshot varsa delta karşılaştırması;
+# yoksa fresh doctor --strict --scan-src ile mutlak sağlık.
+# SPEC 056 (vault-health) kardeşi — aynı kalıp, farklı gate.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "DECISIONS.md"
+      - ".atlas/doctor-baseline.json"
+      - ".github/workflows/atlas-doctor.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "DECISIONS.md"
+      - ".github/workflows/atlas-doctor.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: atlas-doctor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  doctor:
+    name: atlas doctor --strict --scan-src
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install ATLAS
+        run: uv sync --frozen --extra dev
+
+      - name: Run atlas doctor --strict --scan-src
+        id: doctor
+        continue-on-error: true
+        env:
+          # SPEC 062: baseline varsa auto-diff; yoksa fresh strict.
+          # Repo `.atlas/doctor-baseline.json` commit'liyse otomatik
+          # kullanılır (CI regresyon gate).
+          ATLAS_STRICT_DRIFT_DAYS: "30"
+          ATLAS_MIN_DECISIONS_ENTRIES: "1"
+        run: |
+          set +e
+          # 1) Fresh strict + scan_src (SPEC 032/032.2)
+          uv run atlas doctor --strict --scan-src --json > doctor-report.json
+          rc_strict=$?
+          # 2) Baseline varsa auto-diff regresyon (SPEC 062)
+          if [ -f .atlas/doctor-baseline.json ]; then
+              uv run atlas doctor --strict --auto-baseline > doctor-diff.txt 2>&1
+              rc_diff=$?
+              echo "rc_diff=$rc_diff" >> "$GITHUB_OUTPUT"
+          else
+              rc_diff=0
+              echo "rc_diff=0" >> "$GITHUB_OUTPUT"
+              echo "(baseline yok — --save-baseline ile CI regresyon açılır)" > doctor-diff.txt
+          fi
+          echo "rc_strict=$rc_strict" >> "$GITHUB_OUTPUT"
+
+      - name: Upload doctor artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-doctor-report
+          path: |
+            doctor-report.json
+            doctor-diff.txt
+          retention-days: 30
+
+      - name: Comment PR on failure
+        if: >-
+          github.event_name == 'pull_request'
+          && (steps.doctor.outputs.rc_strict != '0' || steps.doctor.outputs.rc_diff != '0')
+          && hashFiles('doctor-diff.txt') != ''
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: doctor-diff.txt
+
+      - name: Fail the workflow on quality issues
+        if: >-
+          steps.doctor.outputs.rc_strict != '0'
+          || steps.doctor.outputs.rc_diff != '0'
+        run: |
+          echo "::error::atlas doctor gate başarısız (strict=${{ steps.doctor.outputs.rc_strict }}, diff=${{ steps.doctor.outputs.rc_diff }})"
+          echo "Detay: doctor-diff.txt / doctor-report.json artifact."
+          exit 1
