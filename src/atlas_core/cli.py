@@ -141,18 +141,70 @@ def _compute_context(goal: Goal) -> tuple[str | None, str]:
     return ctx, f"{n} not enjekte edildi"
 
 
+def _read_metrics_avg_tokens(
+    limit: int = 20,
+) -> tuple[int | None, int]:
+    """SPEC 072: `.atlas/metrics.jsonl` son N kaydının ortalama toplam
+    token'ı (in+out+cache_c+cache_r).
+
+    Return: `(avg_tokens_per_call, sample_count)`. Metrik yoksa veya
+    < 3 kayıt → `(None, sample_count)` (adaptif hesap için yeterli
+    numune yok — çağıran static fallback'e döner).
+    """
+    import json as _json
+
+    from atlas_core.orchestrator.planner import _metrics_path
+
+    path = _metrics_path()
+    if not path.is_file():
+        return None, 0
+    records: list[dict[str, Any]] = []
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            s = raw.strip()
+            if not s:
+                continue
+            try:
+                obj = _json.loads(s)
+            except _json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                records.append(obj)
+    except OSError:
+        return None, 0
+    tail = records[-limit:]
+    n = len(tail)
+    if n < 3:
+        return None, n
+    total = 0
+    for r in tail:
+        total += (
+            int(r.get("in", 0) or 0)
+            + int(r.get("out", 0) or 0)
+            + int(r.get("cache_c", 0) or 0)
+            + int(r.get("cache_r", 0) or 0)
+        )
+    return total // n, n
+
+
 def _estimate_run_cost(
     goal_obj: Any, backend: str, tokens_per_call: int,
     price_in: float, price_out: float,
+    *,
+    source: str = "static",
+    sample_count: int = 0,
 ) -> dict[str, Any]:
-    """SPEC 069: Run başlamadan önden tahmini planlanan çağrı+token+cost.
+    """SPEC 069 + 072: Run başlamadan önden tahmini planlanan çağrı+token+cost.
 
-    Heuristik: her adım 1 planner çağrısı → `tokens_per_call` token
-    (varsayılan 500). Toplam token = `max_steps * tokens_per_call`
+    Heuristik (SPEC 069): her adım 1 planner çağrısı → `tokens_per_call`
+    token (varsayılan 500). Toplam token = `max_steps * tokens_per_call`
     (input+output birleşik). Cost = tokens × (price_in+price_out) / 1M.
 
     Backend `stub` ise cost 0 (LLM çağrılmaz). `anthropic`/`acp` için
     env fiyatları kullanılır; fiyat 0 ise cost 0 raporlanır.
+
+    SPEC 072: `source` alanı raporda görünür ("static" veya "adaptive-avg");
+    adaptive için `sample_count` numune sayısı.
     """
     max_steps = int(goal_obj.max_steps)
     total_tokens = max_steps * tokens_per_call
@@ -173,6 +225,8 @@ def _estimate_run_cost(
         "estimated_cost_usd": round(cost, 6),
         "price_in_per_1m": price_in,
         "price_out_per_1m": price_out,
+        "source": source,
+        "sample_count": sample_count,
     }
 
 
@@ -201,15 +255,38 @@ def _cmd_run_goal(args: argparse.Namespace) -> int:
     if getattr(args, "estimate", False):
         import json as _json
         backend = os.environ.get("ATLAS_LLM", "stub")
-        try:
-            tokens_per_call = int(
-                os.environ.get("ATLAS_ESTIMATE_TOKENS_PER_CALL", "500")
-            )
-        except ValueError:
-            tokens_per_call = 500
+        # SPEC 072: --adaptive → metrics.jsonl son N call ortalaması.
+        # Bulgu yoksa static fallback + UYARI (source raporda).
+        adaptive = getattr(args, "adaptive", False)
+        adaptive_n = int(getattr(args, "adaptive_n", 20))
+        source = "static"
+        sample_count = 0
+        tokens_per_call: int
+        if adaptive:
+            avg, sample_count = _read_metrics_avg_tokens(adaptive_n)
+            if avg is not None and avg > 0:
+                tokens_per_call = avg
+                source = "adaptive-avg"
+            else:
+                # Fallback: static (env veya 500)
+                try:
+                    tokens_per_call = int(
+                        os.environ.get("ATLAS_ESTIMATE_TOKENS_PER_CALL", "500")
+                    )
+                except ValueError:
+                    tokens_per_call = 500
+                source = "adaptive-fallback-static"
+        else:
+            try:
+                tokens_per_call = int(
+                    os.environ.get("ATLAS_ESTIMATE_TOKENS_PER_CALL", "500")
+                )
+            except ValueError:
+                tokens_per_call = 500
         price_in, price_out = _read_llm_prices()
         summary = _estimate_run_cost(
             goal, backend, tokens_per_call, price_in, price_out,
+            source=source, sample_count=sample_count,
         )
         if getattr(args, "json", False):
             print(_json.dumps(summary, ensure_ascii=False))
@@ -219,11 +296,16 @@ def _cmd_run_goal(args: argparse.Namespace) -> int:
             print(f"  backend:         {summary['backend']}")
             print(f"  max_steps:       {summary['max_steps']}")
             print(f"  budget:          {summary['budget']}")
-            print(f"  tokens/call:     {summary['tokens_per_call']}")
+            print(f"  tokens/call:     {summary['tokens_per_call']}  "
+                  f"(source: {summary['source']}"
+                  f"{f', n={sample_count}' if sample_count else ''})")
             print(f"  tahmini token:   {summary['estimated_total_tokens']}")
             print(f"  tahmini cost:    ${summary['estimated_cost_usd']:.6f}")
             if summary["price_in_per_1m"] == 0.0 and summary["price_out_per_1m"] == 0.0:
                 print("  UYARI: fiyat env yok (ATLAS_LLM_PRICE_IN_PER_1M / _OUT_)")
+            if source == "adaptive-fallback-static":
+                print(f"  UYARI: metrics.jsonl < 3 kayit ({sample_count}); "
+                      "static fallback kullanildi")
         return 0
 
     run_id = args.run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -646,6 +728,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 run_id=args.run_id,
                 dry_run=getattr(args, "dry_run", False),
                 estimate=getattr(args, "estimate", False),
+                adaptive=getattr(args, "adaptive", False),
+                adaptive_n=getattr(args, "adaptive_n", 20),
                 json=getattr(args, "json", False),
             )
             return _cmd_run_goal(single_args)
@@ -4644,6 +4728,12 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 069: LLM çağırmadan planlanan çağrı+token+cost "
                             "tahmini bas (audit yok). Env "
                             "ATLAS_ESTIMATE_TOKENS_PER_CALL (default 500).")
+    p_run.add_argument("--adaptive", action="store_true",
+                       help="SPEC 072: --estimate ile birlikte, metrics.jsonl "
+                            "son N call ortalamasını kullan (heuristik yerine). "
+                            "< 3 kayıt → static fallback + UYARI.")
+    p_run.add_argument("--adaptive-n", type=int, default=20,
+                       help="SPEC 072: --adaptive için son N (default 20)")
     p_run.add_argument("--json", action="store_true",
                        help="SPEC 069: --estimate ile birlikte JSON çıktı")
     p_run.add_argument("--continue-on-error", action="store_true",
