@@ -1,6 +1,70 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-05 (30. tur — 082 + 079 + 083 + 078 + 080 + 081)
+
+Kullanıcı "devam et ve hepsini sıra ile uygula" → 29. tur adayları
+(078-083) tümü zincirleme, küçükten büyüğe:
+`082 → 079 → 083 → 078 → 080 → 081`.
+
+- [KARAR] 082 ci-status: statik script `tools/scripts/gen_ci_badges.py`
+  + drift gate workflow. Kullanıcı yeni workflow eklediğinde script
+  çalıştırıp README güncellemeli (CI hatırlatır). Script Türkçe mesajı
+  ASCII-only (SPEC 057 cp1254 kalıbı).
+- [KARAR] 082 marker kalıbı: `<!-- ci-status:start -->` /
+  `<!-- ci-status:end -->` — README'de yer bilinmiyorsa sona eklenir.
+  Sonraki güncellemeler markörler arası salt-değişim (README'nin diğer
+  içeriği korunur).
+- [KARAR] 082 script `--repo OWNER/REPO` + env `GITHUB_REPOSITORY`
+  override — CI'de otomatik, yerel kullanıcı bilinçli override.
+- [KARAR] 079 `--sort-by` `argparse.choices` ile kısıtlı (name/size/
+  date/members); geçersiz → argparse SystemExit(2) (semantik hata
+  yerine tip hata). Default `name` SPEC 075 alfabetik bit-uyumlu.
+- [KARAR] 079 `date` boşsa (atipik format arşiv) mtime fallback —
+  ilk sıralama testi kırmadan sadece "sıralanabilir" olur.
+- [KARAR] 083 `_run_npm_uninstall(bin, package)` — SPEC 060
+  `_run_npm_install` kardeşi. Tek fark argv (`install` → `uninstall`).
+  DRY için `_run_npm(bin, action, package)` yapılabilirdi ama YAGNI:
+  iki fonksiyon net.
+- [KARAR] 078 asimetrik `decrypt_backup_recipient` — passphrase YOK.
+  `gpg-agent` unlock yapılmışsa çalışır; aksi hâlde gpg exit ≠0 →
+  DECRYPT HATASI exit 6. Kullanıcı önce `gpg --list-secret-keys` ile
+  keyring kilit açar.
+- [KARAR] 078 `--decrypt` + `--decrypt-recipient` MUTEX exit 2 (iki
+  farklı GPG modu, aynı çağrıda mantıksız). SPEC 073 `--encrypt` +
+  `--recipient` mutex kalıbı.
+- [HATA] 078 mesaj değişikliği: `"GPG decrypt → restore (SPEC 066)"`
+  → `"GPG symmetric decrypt → restore (SPEC 066)"` (SPEC 078 asimetrik
+  ayrımı için). Mevcut SPEC 066 test'leri 2 assertion güncellendi —
+  bit-uyumluluk regex tolerans (`or` ile eski ve yeni metin).
+  Kalıp: yeni SPEC mevcut mesajı değiştirirse mevcut test regex'ini
+  gevşet (yeni_or_eski).
+- [KARAR] 080 `--save-baseline` default path yan etkisi: tarihçe
+  snapshot `.atlas/doctor-history/baseline-<today>.json`. Custom path
+  → yan etki YOK (kullanıcı bilinçli). Bit-uyumluluk: default path
+  içerik aynı, sadece ek dosya.
+- [KARAR] 080 `--history-list` KISA DEVRE (SPEC 040 `--schema`
+  kalıbı) — sağlık kontrolü YAPMA, sadece listele. Doctor'un idempotent
+  bilgi modu.
+- [KARAR] 080 `_prune_doctor_history` name (date lex) sıra: `baseline-
+  YYYY-MM-DD.json` alfabetik = kronolojik (ISO 8601 avantajı).
+  `mtime` yerine `name` — birden fazla update aynı gün gelirse aynı
+  file üstüne yazılır (idempotent).
+- [KARAR] 081 `--group-by hour|day` mevcut özet YERİNE gruplar
+  tablosu. `_group_records_by(records, unit)` — `ts` bozuk → `"unknown"`
+  grup (sona).
+- [KARAR] 081 semantik mutex: `--group-by + --format prometheus`
+  (Prometheus tekil metrik, grup histogram olmalıydı — YAGNI) +
+  `--group-by + --alert` (alert single hit_ratio, group aggregation).
+  Her ikisi exit 2.
+- [KARAR] 081 grup dict `cost` YOK — fiyat env dependency + group başına
+  cost hesap YAGNI. Kullanıcı ham token'larla dış hesap yapar.
+  Gelecek SPEC 084 aday: `--group-by ... --with-cost`.
+- [KARAR] Test toplamı: 1163 (29. tur sonu) → 1171 (082) → 1179 (079)
+  → 1186 (083) → 1195 (078) → 1209 (080) → **1221** (081). +58 test.
+- [KARAR] 30. tur boyunca hiç yıkıcı git operasyonu yok; 6 lineer feat
+  + 1 docs commit; tek push tur sonunda.
+
 ## 2026-08-05 (29. tur — 077 + 074 + 076 + 075 + 072 + 073)
 
 Kullanıcı "hepsini sıra ile uygula" → 28. tur adayları (072-077)
