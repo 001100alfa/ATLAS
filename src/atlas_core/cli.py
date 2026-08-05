@@ -5048,34 +5048,57 @@ def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
         })
 
     # SPEC 088: --outdated filtresi
-    if getattr(args, "outdated", False):
+    outdated_mode = bool(getattr(args, "outdated", False))
+    strict_mode = bool(getattr(args, "strict", False))
+    # SPEC 094: --strict yalnız --outdated ile birlikte
+    if strict_mode and not outdated_mode:
+        print(
+            "SPEC HATASI: --strict yalnız --outdated ile birlikte "
+            "kullanılır",
+            file=sys.stderr,
+        )
+        return 2
+
+    if outdated_mode:
         packages = [
             p for p in packages
             if p["installed"] is None
             or _strip_semver_prefix(str(p["expected"])) != p["installed"]
         ]
 
+    # SPEC 094: --outdated --strict + boş değil → exit 4 (bilgi çıktısı
+    # yine basılır; sadece exit code değişir).
+    exit_rc = 0
+    if outdated_mode and strict_mode and packages:
+        exit_rc = 4
+
     if getattr(args, "json", False):
         print(_json.dumps(
             {"path": str(_AI_CLI_DIR), "packages": packages},
             ensure_ascii=False,
         ))
-        return 0
+        return exit_rc
 
-    header_suffix = " — outdated" if getattr(args, "outdated", False) else ""
+    header_suffix = " — outdated" if outdated_mode else ""
     print(f"=== ATLAS ai-cli — kurulu paketler ({_AI_CLI_DIR}){header_suffix} ===")
     if not packages:
-        if getattr(args, "outdated", False):
+        if outdated_mode:
             print("  (guncelleme yok)")
         else:
             print("  (paket yok)")
-        return 0
+        return exit_rc
     # Sütun genişliği: ad max(20, en uzun paket)
     name_w = max(20, *(len(p["name"]) for p in packages))
     for p in packages:
         ins = p["installed"] if p["installed"] is not None else "(kurulu değil)"
         print(f"  {p['name']:<{name_w}}  beklenen: {p['expected']:<10}  kurulu: {ins}")
-    return 0
+    if exit_rc == 4:
+        print(
+            f"SAĞLIK BAŞARISIZ: --strict verildi, "
+            f"{len(packages)} paket outdated",
+            file=sys.stderr,
+        )
+    return exit_rc
 
 
 def _cmd_ai_cli_install(args: argparse.Namespace) -> int:
@@ -5637,6 +5660,9 @@ def main(argv: list[str] | None = None) -> int:
     p_ai_ls.add_argument("--outdated", action="store_true",
                          help="SPEC 088: yalnız beklenen != kurulu "
                               "(veya kurulu değil) satırlar")
+    p_ai_ls.add_argument("--strict", action="store_true",
+                         help="SPEC 094: --outdated ile birlikte; "
+                              "boş değilse exit 4 (CI/pre-commit uyumlu)")
     p_ai_ls.set_defaults(func=_cmd_ai_cli_list)
     p_ai_ex = ai_sub.add_parser(
         "exec",
