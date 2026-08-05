@@ -2754,6 +2754,41 @@ def _build_metrics_prometheus_text(limit: int) -> str:
     return "\n".join(lines)
 
 
+def _filter_records_by_window(
+    records: list[dict[str, Any]], window_minutes: float | None,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """SPEC 076: `records` içinde `ts` alanı `now - window_minutes` sonrası
+    olanları döner.
+
+    - `window_minutes is None` → filtre YOK, orijinal liste (bit-uyumlu).
+    - `ts` alanı yok / parse edilemez kayıt → filtre içi (nazik; SPEC 023
+      metrik kayıtlarında `ts` her zaman vardır ama defensive).
+    - `now` opsiyonel — test için `datetime.now()` override.
+
+    Return: filtrelenmiş yeni liste (orijinal dokunulmaz).
+    """
+    from datetime import datetime, timedelta
+    if window_minutes is None:
+        return records
+    ref = now if now is not None else datetime.now()
+    threshold = ref - timedelta(minutes=window_minutes)
+    out: list[dict[str, Any]] = []
+    for r in records:
+        ts_raw = r.get("ts")
+        if not isinstance(ts_raw, str):
+            out.append(r)  # ts yok → nazik dahil
+            continue
+        try:
+            ts_dt = datetime.fromisoformat(ts_raw)
+        except ValueError:
+            out.append(r)  # parse edilemez → nazik dahil
+            continue
+        if ts_dt >= threshold:
+            out.append(r)
+    return out
+
+
 def _cmd_metrics(args: argparse.Namespace) -> int:
     """SPEC 023 + 029: `.atlas/metrics.jsonl` son N kaydı özetler.
 
@@ -2790,6 +2825,17 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                     records.append(obj)
         except OSError:
             pass
+    # SPEC 076: --window MINUTES filtresi (limit ile ORTOGONAL — önce
+    # window, sonra son N limit slice).
+    window_min = getattr(args, "window", None)
+    if window_min is not None:
+        if window_min <= 0:
+            print(
+                f"SPEC HATASI: --window > 0 olmalı: {window_min}",
+                file=sys.stderr,
+            )
+            return 2
+        records = _filter_records_by_window(records, window_min)
     tail = records[-limit:]
 
     total_in = sum(int(r.get("in", 0) or 0) for r in tail)
@@ -4691,9 +4737,12 @@ def main(argv: list[str] | None = None) -> int:
     p_rep.set_defaults(func=_cmd_replay)
 
     p_met = sub.add_parser("metrics",
-                           help="LLM çağrı metrikleri özeti (SPEC 023/029)")
+                           help="LLM çağrı metrikleri özeti (SPEC 023/029/076)")
     p_met.add_argument("--limit", type=int, default=20,
                        help="son N kaydı özetle (varsayılan 20)")
+    p_met.add_argument("--window", type=float, default=None, metavar="MINUTES",
+                       help="SPEC 076: sadece son N dakikadaki kayıtlar. "
+                            "--limit ile ORTOGONAL (önce window sonra limit).")
     p_met_out = p_met.add_mutually_exclusive_group()
     p_met_out.add_argument("--json", action="store_true",
                            help="JSON liste çıktısı (ham kayıtlar)")
