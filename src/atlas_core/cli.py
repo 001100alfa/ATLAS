@@ -2502,6 +2502,18 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         ))
         return 0
 
+    # SPEC 110: --out yalnız --diff-history-all + --format prometheus ile
+    if getattr(args, "out", None) is not None and (
+        not getattr(args, "diff_history_all", False)
+        or getattr(args, "format", None) != "prometheus"
+    ):
+        print(
+            "SPEC HATASI: --out yalnız --diff-history-all + --format "
+            "prometheus ile birlikte kullanılır",
+            file=sys.stderr,
+        )
+        return 2
+
     # SPEC 080: --history-list kısa devre — sağlık kontrolü YAPMA,
     # yalnız .atlas/doctor-history/*.json listele (bilgi komutu).
     if getattr(args, "history_list", False):
@@ -2759,7 +2771,22 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
                         f'{metric_name}{{snapshot_date='
                         f'"{_lbl(str(s["date"]))}"}} {val_str}'
                     )
-            print("\n".join(hist_lines))
+            # SPEC 110: --out PATH → stdout yerine dosyaya yaz
+            out_path_arg = getattr(args, "out", None)
+            if out_path_arg is not None:
+                try:
+                    op = Path(out_path_arg)
+                    op.parent.mkdir(parents=True, exist_ok=True)
+                    op.write_text("\n".join(hist_lines) + "\n",
+                                  encoding="utf-8")
+                except OSError as exc:
+                    print(
+                        f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            else:
+                print("\n".join(hist_lines))
             # SPEC 097 strict kontrolü yine devreye girer
             if getattr(args, "strict", False):
                 regressions = [s for s in snapshots
@@ -6241,11 +6268,13 @@ def main(argv: list[str] | None = None) -> int:
                             "ile mevcut arası delta. --diff/--auto-baseline "
                             "ile MUTEX.")
     p_doc.add_argument("--diff-history-all", action="store_true",
-                       help="SPEC 091: tüm tarihçe snapshot'ları ile mevcut "
-                            "arası toplu diff tablosu (--json ile snapshots "
-                            "listesi). --diff/--auto-baseline/--diff-history/"
-                            "--save-baseline/--serve/--schema/--format "
-                            "prometheus ile MUTEX.")
+                       help="SPEC 091 + 104: tüm tarihçe snapshot'ları ile "
+                            "mevcut arası toplu diff (--json snapshots, "
+                            "--format prometheus grup histogramı).")
+    p_doc.add_argument("--out", default=None, metavar="PATH",
+                       help="SPEC 110: --diff-history-all + --format "
+                            "prometheus ile birlikte; stdout yerine PATH'e "
+                            "yaz.")
     p_doc.add_argument("--ping", action="store_true",
                        help="Anthropic'e minimum request at, latency+cost raporla — SPEC 021.2")
     p_doc.add_argument("--strict", action="store_true",
