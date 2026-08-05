@@ -236,6 +236,63 @@ def encrypt_backup_recipient(
     return out_path
 
 
+def decrypt_backup_recipient(
+    encrypted_path: Path,
+    out_path: Path,
+    *,
+    gpg_bin: str | None = None,
+) -> Path:
+    """SPEC 078: `.tar.gz.gpg` asimetrik (public-key) decrypt.
+
+    - `gpg --batch --yes --decrypt --output <out> <encrypted>`
+    - Passphrase YOK — private key gpg-agent üzerinden çözülür.
+      Terminal etkileşimi olamayacağı için `--batch --yes` +
+      gpg-agent'in kilit açması gerekir (kullanıcı önceden `gpg-agent
+      --daemon` veya keyring unlock yapmış olmalı).
+    - `out_path.parent` yoksa oluşturulur.
+    - Başarı → `out_path`; hata → `VaultBackupError`.
+
+    Not: symmetric decrypt için SPEC 066 `decrypt_backup` — o
+    `--passphrase-fd 0` kullanır. Asimetrik için passphrase YOK.
+    """
+    if not encrypted_path.is_file():
+        raise VaultBackupError(f"kaynak yok: {encrypted_path}")
+    gpg = gpg_bin or _find_gpg_bin()
+    if gpg is None:
+        raise VaultBackupError(
+            "gpg bulunamadı — ATLAS_GPG_BIN ver veya sisteme kur"
+        )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    args = [
+        gpg, "--batch", "--yes",
+        "--decrypt",
+        "--output", str(out_path),
+        str(encrypted_path),
+    ]
+    try:
+        proc = subprocess.run(  # noqa: S603 - argv sabit + gpg yolu filtrelendi
+            args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise VaultBackupError(f"gpg çalıştırılamadı: {exc}") from exc
+    if proc.returncode != 0:
+        raise VaultBackupError(
+            f"gpg decrypt hatası (exit {proc.returncode}): "
+            f"{(proc.stderr or '').strip()[:200]}"
+        )
+    if not out_path.is_file():
+        raise VaultBackupError(
+            f"gpg başarılı ama çıktı yok: {out_path}"
+        )
+    return out_path
+
+
 def decrypt_backup(
     encrypted_path: Path,
     out_path: Path,

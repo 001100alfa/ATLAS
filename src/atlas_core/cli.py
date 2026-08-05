@@ -3540,6 +3540,7 @@ def _cmd_vault_restore(args: argparse.Namespace) -> int:
     from atlas_core.memory.vault_backup import (
         VaultBackupError,
         decrypt_backup,
+        decrypt_backup_recipient,
         restore_vault,
     )
     tar_path = Path(args.tar)
@@ -3552,13 +3553,23 @@ def _cmd_vault_restore(args: argparse.Namespace) -> int:
     target_root = Path(args.vault_root) if args.vault_root else _vault_root()
 
     decrypt_pass = getattr(args, "decrypt", None)
-    # Auto-detect nazikliği: `.gpg` uzantısı + --decrypt yok → UYARI
-    if decrypt_pass is None and str(tar_path).endswith(".gpg"):
+    decrypt_recipient = getattr(args, "decrypt_recipient", False)
+
+    # SPEC 078: --decrypt + --decrypt-recipient MUTEX
+    if decrypt_pass is not None and decrypt_recipient:
         print(
-            "UYARI: dosya .gpg uzantılı ama --decrypt verilmedi — "
-            "restore extract muhtemelen başarısız olacak. "
-            "Explicit: --decrypt [PASSPHRASE] veya env "
-            "ATLAS_BACKUP_PASSPHRASE.",
+            "SPEC HATASI: --decrypt ve --decrypt-recipient birlikte "
+            "kullanılamaz (symmetric vs asimetrik)",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Auto-detect nazikliği: `.gpg` uzantısı + iki decrypt de yok → UYARI
+    if (decrypt_pass is None and not decrypt_recipient
+            and str(tar_path).endswith(".gpg")):
+        print(
+            "UYARI: dosya .gpg uzantılı ama --decrypt/--decrypt-recipient "
+            "verilmedi — restore extract muhtemelen başarısız olacak.",
             file=sys.stderr,
         )
 
@@ -3567,7 +3578,9 @@ def _cmd_vault_restore(args: argparse.Namespace) -> int:
         print(f"  yedek: {tar_path}")
         print(f"  hedef: {target_root}")
         if decrypt_pass is not None:
-            print("  mod: GPG decrypt → restore (SPEC 066)")
+            print("  mod: GPG symmetric decrypt → restore (SPEC 066)")
+        elif decrypt_recipient:
+            print("  mod: GPG asimetrik decrypt (private key) → restore (SPEC 078)")
         if target_root.exists() and any(target_root.iterdir()):
             print("  UYARI: hedef mevcut ve boş değil — --apply exit 3")
         print(f"Uygulamak için: atlas vault restore {tar_path} --apply")
@@ -3575,7 +3588,7 @@ def _cmd_vault_restore(args: argparse.Namespace) -> int:
 
     audit = AuditLog(_audit_path())
 
-    # SPEC 066: --decrypt → önce decrypt, sonra restore
+    # SPEC 066/078: --decrypt/--decrypt-recipient → önce decrypt, sonra restore
     plain_path = tar_path
     tmp_plain: Path | None = None
     if decrypt_pass is not None:
@@ -3600,6 +3613,22 @@ def _cmd_vault_restore(args: argparse.Namespace) -> int:
                     pass
             return 6
         audit.record("atlas-vault", "decrypt", str(tmp_plain))
+        plain_path = tmp_plain
+    elif decrypt_recipient:
+        # SPEC 078: asimetrik decrypt (private key + gpg-agent)
+        tmp_plain = target_root.parent / f".vault-restore-decrypt-{os.getpid()}.tar.gz"
+        try:
+            decrypt_backup_recipient(tar_path, tmp_plain)
+        except VaultBackupError as exc:
+            audit.record("atlas-vault", "decrypt-recipient-error", str(exc)[:180])
+            print(f"DECRYPT HATASI: {exc}", file=sys.stderr)
+            if tmp_plain.exists():
+                try:
+                    tmp_plain.unlink()
+                except OSError:
+                    pass
+            return 6
+        audit.record("atlas-vault", "decrypt-recipient", str(tmp_plain))
         plain_path = tmp_plain
 
     try:
@@ -4957,9 +4986,14 @@ def main(argv: list[str] | None = None) -> int:
     p_vr.add_argument("--decrypt", nargs="?",
                       const=os.environ.get("ATLAS_BACKUP_PASSPHRASE", ""),
                       default=None, metavar="PASSPHRASE",
-                      help="SPEC 066: .tar.gz.gpg → GPG decrypt → restore "
-                           "zinciri. PASSPHRASE bayraktan veya env "
+                      help="SPEC 066: .tar.gz.gpg → GPG symmetric decrypt → "
+                           "restore. PASSPHRASE bayraktan veya env "
                            "ATLAS_BACKUP_PASSPHRASE. Env: ATLAS_GPG_BIN.")
+    p_vr.add_argument("--decrypt-recipient", action="store_true",
+                      help="SPEC 078: .tar.gz.gpg → GPG asimetrik decrypt "
+                           "(private key + gpg-agent) → restore. Passphrase "
+                           "YOK; kullanıcı keyring/gpg-agent unlock yapmış "
+                           "olmalı. --decrypt ile MUTEX.")
     p_vr.set_defaults(func=_cmd_vault_restore)
     # SPEC 042: vault verify (graf sağlığı)
     p_vv = vault_sub.add_parser(

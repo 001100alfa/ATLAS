@@ -1,4 +1,4 @@
-"""SPEC 066 — atlas vault restore --decrypt (GPG symmetric)."""
+"""SPEC 078 — vault restore --decrypt-recipient asimetrik decrypt."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from atlas_core.memory import vault_backup as vb_mod
 from atlas_core.memory.vault_backup import (
     VaultBackupError,
     backup_vault,
-    decrypt_backup,
+    decrypt_backup_recipient,
 )
 
 
@@ -28,73 +28,60 @@ def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 # ═════════════════════════════════════════════════════════════════════
-# decrypt_backup (birim, subprocess mock)
+# decrypt_backup_recipient (birim, subprocess mock)
 # ═════════════════════════════════════════════════════════════════════
 
 
-def test_066_decrypt_kaynak_yok_hata(tmp_path: Path) -> None:
+def test_078_decrypt_recipient_kaynak_yok(tmp_path: Path) -> None:
     with pytest.raises(VaultBackupError, match="kaynak yok"):
-        decrypt_backup(
+        decrypt_backup_recipient(
             tmp_path / "yok.gpg",
             tmp_path / "out.tar.gz",
-            passphrase="s",
             gpg_bin="/fake/gpg",
         )
 
 
-def test_066_decrypt_bos_passphrase(tmp_path: Path) -> None:
-    enc = tmp_path / "e.tar.gz.gpg"
-    enc.write_bytes(b"ENC")
-    with pytest.raises(VaultBackupError, match="passphrase bo"):
-        decrypt_backup(enc, tmp_path / "out.tar.gz",
-                       passphrase="", gpg_bin="/fake/gpg")
-
-
-def test_066_decrypt_gpg_yok(
+def test_078_decrypt_recipient_gpg_yok(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     enc = tmp_path / "e.tar.gz.gpg"
     enc.write_bytes(b"ENC")
     monkeypatch.setattr(vb_mod, "_find_gpg_bin", lambda: None)
     with pytest.raises(VaultBackupError, match="gpg bulunamadı"):
-        decrypt_backup(enc, tmp_path / "out.tar.gz", passphrase="s")
+        decrypt_backup_recipient(enc, tmp_path / "out.tar.gz")
 
 
-def test_066_decrypt_argv_ve_stdin(
+def test_078_decrypt_recipient_argv_passphrase_yok(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    """gpg --decrypt --passphrase-fd 0 --output <out> <enc>; stdin passphrase."""
+    """gpg --decrypt --output <out> <enc>; passphrase YOK (asimetrik)."""
     enc = tmp_path / "e.tar.gz.gpg"
     enc.write_bytes(b"ENC")
     out = tmp_path / "out.tar.gz"
     captured: dict = {}
 
-    class _R:
-        returncode = 0
-        stdout = ""
-        stderr = ""
-
     def fake_run(argv, **kw):
         captured["argv"] = list(argv)
-        captured["input"] = kw.get("input")
-        out.write_bytes(b"PLAIN-TAR")
+        captured["input"] = kw.get("input")  # None olmalı
+        Path(argv[argv.index("--output") + 1]).write_bytes(b"PLAIN")
+        class _R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
         return _R()
 
     monkeypatch.setattr(vb_mod.subprocess, "run", fake_run)
-    result = decrypt_backup(enc, out, passphrase="secret", gpg_bin="/fake/gpg")
+    result = decrypt_backup_recipient(enc, out, gpg_bin="/fake/gpg")
     assert result == out
-    assert captured["input"] == "secret"
     argv = captured["argv"]
     assert argv[0] == "/fake/gpg"
     assert "--decrypt" in argv
-    idx_p = argv.index("--passphrase-fd")
-    assert argv[idx_p + 1] == "0"
-    idx_o = argv.index("--output")
-    assert argv[idx_o + 1] == str(out)
-    assert argv[-1] == str(enc)
+    # Passphrase argv'de VE stdin'de YOK
+    assert "--passphrase-fd" not in argv
+    assert captured["input"] is None
 
 
-def test_066_decrypt_gpg_exit_kod_hata(
+def test_078_decrypt_recipient_exit_kod_hata(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     enc = tmp_path / "e.tar.gz.gpg"
@@ -103,34 +90,32 @@ def test_066_decrypt_gpg_exit_kod_hata(
     class _R:
         returncode = 2
         stdout = ""
-        stderr = "gpg: bad passphrase\n"
+        stderr = "gpg: no secret key\n"
 
     monkeypatch.setattr(vb_mod.subprocess, "run", lambda *a, **kw: _R())
     with pytest.raises(VaultBackupError, match="gpg decrypt hatası"):
-        decrypt_backup(enc, tmp_path / "out.tar.gz",
-                       passphrase="s", gpg_bin="/fake/gpg")
+        decrypt_backup_recipient(enc, tmp_path / "out.tar.gz",
+                                 gpg_bin="/fake/gpg")
 
 
 # ═════════════════════════════════════════════════════════════════════
-# CLI: vault restore --decrypt
+# CLI: vault restore --decrypt-recipient
 # ═════════════════════════════════════════════════════════════════════
 
 
-def _make_real_backup_then_encrypt(tmp_path: Path) -> Path:
-    """Gerçek plain backup üret; sonra fake gpg ile "encrypt" (kopyala)."""
+def _make_backup_then_fake_encrypt(tmp_path: Path) -> Path:
     v = tmp_path / "src-vault"
-    _make_vault(v, {"a.md": "orjinal-icerik", "daily/x.md": "gunluk"})
+    _make_vault(v, {"a.md": "orjinal-icerik"})
     plain = tmp_path / "b.tar.gz"
     backup_vault(v, plain)
-    # Fake encrypt: sadece kopyala (test amaçlı; gerçek gpg olmadan)
     enc = tmp_path / "b.tar.gz.gpg"
-    enc.write_bytes(plain.read_bytes())  # sözde encrypted
-    plain.unlink()  # plain yok
+    enc.write_bytes(plain.read_bytes())
+    plain.unlink()
     return enc
 
 
-def _fake_gpg_decrypt(argv, **kw):
-    """Fake decrypt: input dosyayı output'a kopyala (identity)."""
+def _fake_gpg_decrypt_identity(argv, **kw):
+    """gpg mock: input dosyayı output'a kopyala (identity decrypt)."""
     inp = argv[-1]
     out = argv[argv.index("--output") + 1]
     Path(out).write_bytes(Path(inp).read_bytes())
@@ -141,91 +126,81 @@ def _fake_gpg_decrypt(argv, **kw):
     return _R()
 
 
-def test_066_cli_restore_decrypt_basari(
+def test_078_cli_restore_decrypt_recipient_basari(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """--decrypt PASSPHRASE + .tar.gz.gpg + --apply → restore başarılı."""
+    """--decrypt-recipient + .tar.gz.gpg + --apply → asimetrik restore."""
     _env(monkeypatch, tmp_path)
-    enc = _make_real_backup_then_encrypt(tmp_path)
-    monkeypatch.setattr(vb_mod.subprocess, "run", _fake_gpg_decrypt)
+    enc = _make_backup_then_fake_encrypt(tmp_path)
+    monkeypatch.setattr(vb_mod.subprocess, "run", _fake_gpg_decrypt_identity)
     monkeypatch.setattr(vb_mod, "_find_gpg_bin", lambda: "/fake/gpg")
 
     target = tmp_path / "restored-vault"
     rc = main([
         "vault", "restore", str(enc),
-        "--apply",
-        "--decrypt", "secret",
+        "--apply", "--decrypt-recipient",
         "--vault-root", str(target),
     ])
     assert rc == 0
-    # Restore doğrulama
     assert (target / "a.md").read_text(encoding="utf-8") == "orjinal-icerik"
-    assert (target / "daily" / "x.md").read_text(encoding="utf-8") == "gunluk"
-    # Audit: decrypt + restore
     audit_txt = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
-    assert "decrypt" in audit_txt
+    assert "decrypt-recipient" in audit_txt
     assert "restore" in audit_txt
-    # Temp plain dosya silinmiş
-    tmp_files = list(target.parent.glob(".vault-restore-decrypt-*.tar.gz"))
-    assert tmp_files == []
+    # Temp plain silindi
+    assert list(target.parent.glob(".vault-restore-decrypt-*.tar.gz")) == []
 
 
-def test_066_cli_restore_decrypt_dry_run(
+def test_078_cli_restore_decrypt_recipient_dry_run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Dry-run + --decrypt → 'GPG decrypt → restore (SPEC 066)' mesajı."""
+    """Dry-run → 'asimetrik decrypt (private key) → restore' mesajı."""
     _env(monkeypatch, tmp_path)
-    enc = _make_real_backup_then_encrypt(tmp_path)
+    enc = _make_backup_then_fake_encrypt(tmp_path)
     rc = main([
-        "vault", "restore", str(enc),
-        "--decrypt", "s",
+        "vault", "restore", str(enc), "--decrypt-recipient",
         "--vault-root", str(tmp_path / "yeni"),
     ])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "dry-run" in out
-    # SPEC 066: mesaj SPEC 078 ile birlikte 'symmetric decrypt' oldu
-    assert "GPG symmetric decrypt" in out or "GPG decrypt" in out
+    assert "asimetrik" in out
+    assert "SPEC 078" in out
 
 
-def test_066_cli_restore_decrypt_bos_passphrase_exit_2(
+def test_078_cli_restore_decrypt_ve_recipient_mutex_exit_2(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _env(monkeypatch, tmp_path)
-    enc = _make_real_backup_then_encrypt(tmp_path)
+    enc = _make_backup_then_fake_encrypt(tmp_path)
     rc = main([
-        "vault", "restore", str(enc),
-        "--apply",
-        "--decrypt", "",  # explicit boş
+        "vault", "restore", str(enc), "--apply",
+        "--decrypt", "s", "--decrypt-recipient",
         "--vault-root", str(tmp_path / "yeni"),
     ])
     assert rc == 2
     err = capsys.readouterr().err
-    assert "passphrase boş" in err
+    assert "--decrypt ve --decrypt-recipient" in err
 
 
-def test_066_cli_restore_decrypt_gpg_hata_exit_6(
+def test_078_cli_restore_decrypt_recipient_gpg_hata_exit_6(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _env(monkeypatch, tmp_path)
-    enc = _make_real_backup_then_encrypt(tmp_path)
+    enc = _make_backup_then_fake_encrypt(tmp_path)
 
     class _R:
         returncode = 2
         stdout = ""
-        stderr = "gpg: passphrase yanlis"
+        stderr = "gpg: no secret key"
 
     monkeypatch.setattr(vb_mod.subprocess, "run", lambda *a, **kw: _R())
     monkeypatch.setattr(vb_mod, "_find_gpg_bin", lambda: "/fake/gpg")
 
     rc = main([
-        "vault", "restore", str(enc),
-        "--apply",
-        "--decrypt", "s",
+        "vault", "restore", str(enc), "--apply", "--decrypt-recipient",
         "--vault-root", str(tmp_path / "yeni"),
     ])
     assert rc == 6
@@ -233,39 +208,18 @@ def test_066_cli_restore_decrypt_gpg_hata_exit_6(
     assert "DECRYPT HATASI" in err
 
 
-def test_066_cli_restore_gpg_uzanti_uyari(
+def test_078_cli_restore_gpg_uzanti_uyari_iki_moda_isaret(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """.gpg uzantısı + --decrypt YOK → UYARI (nazik auto-detect)."""
+    """.gpg uzantı + iki decrypt de yok → UYARI iki moda işaret."""
     _env(monkeypatch, tmp_path)
-    enc = _make_real_backup_then_encrypt(tmp_path)
+    enc = _make_backup_then_fake_encrypt(tmp_path)
     rc = main([
         "vault", "restore", str(enc),
         "--vault-root", str(tmp_path / "yeni"),
     ])
-    assert rc == 0  # dry-run, hata yok
+    assert rc == 0
     err = capsys.readouterr().err
     assert "UYARI" in err
-    # SPEC 066: mesaj SPEC 078 ile birlikte '--decrypt/--decrypt-recipient'
-    assert (".gpg uzantılı ama --decrypt verilmedi" in err
-            or ".gpg uzantılı ama --decrypt/--decrypt-recipient" in err)
-
-
-def test_066_cli_restore_bit_uyumlu_decrypt_yoksa(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """--decrypt yoksa + plain .tar.gz → SPEC 041 default (bit-uyumlu)."""
-    _env(monkeypatch, tmp_path)
-    v = tmp_path / "src-vault"
-    _make_vault(v, {"a.md": "ok"})
-    plain = tmp_path / "b.tar.gz"
-    backup_vault(v, plain)
-    target = tmp_path / "restored"
-    rc = main([
-        "vault", "restore", str(plain), "--apply",
-        "--vault-root", str(target),
-    ])
-    assert rc == 0
-    assert (target / "a.md").read_text(encoding="utf-8") == "ok"
+    assert "--decrypt/--decrypt-recipient" in err
