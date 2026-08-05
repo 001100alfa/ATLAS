@@ -1235,6 +1235,10 @@ def _run_anthropic_ping(warnings: list[str]) -> dict[str, Any] | None:
 # ─────────────────────────────────────────────────────────────────────
 
 _DECISIONS_MD_DEFAULT = Path("DECISIONS.md")
+
+# SPEC 062: `atlas doctor --diff --auto-baseline` için varsayılan snapshot
+# konumu. `.atlas/` git-ignored → commit döngüsü yok.
+_DEFAULT_DOCTOR_BASELINE = Path(".atlas/doctor-baseline.json")
 _DECISIONS_DATE_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})")
 
 # SPEC 032.4: `atlas doctor` çıktısı şema versiyonu (JSON tüketicileri
@@ -1987,8 +1991,66 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         if ping_info is not None:
             report["ping"] = ping_info
 
+    # SPEC 062: --save-baseline [PATH] → mevcut raporu diske yaz + exit 0
+    # (kalibrasyon amaçlı; diğer output mode'larıyla mutex).
+    save_baseline = getattr(args, "save_baseline", None)
+    auto_baseline = getattr(args, "auto_baseline", False)
+    diff_baseline_arg = getattr(args, "diff", None)
+
+    if save_baseline is not None:
+        import json as _json_sb
+        if diff_baseline_arg or auto_baseline:
+            print(
+                "SPEC HATASI: --save-baseline ile --diff/--auto-baseline "
+                "birlikte kullanılamaz",
+                file=sys.stderr,
+            )
+            return 2
+        if getattr(args, "serve", None):
+            print(
+                "SPEC HATASI: --save-baseline ile --serve birlikte kullanılamaz",
+                file=sys.stderr,
+            )
+            return 2
+        if getattr(args, "format", None) == "prometheus":
+            print(
+                "SPEC HATASI: --save-baseline ile --format prometheus "
+                "birlikte kullanılamaz",
+                file=sys.stderr,
+            )
+            return 2
+        target = Path(save_baseline)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            _json_sb.dumps(report, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(f"[doctor] baseline yazıldı: {target}")
+        return 0
+
+    # SPEC 062: --auto-baseline → --diff için .atlas/doctor-baseline.json
+    # otomatik kullan.
+    if auto_baseline:
+        if diff_baseline_arg:
+            print(
+                "SPEC HATASI: --auto-baseline ile --diff birlikte "
+                "kullanılamaz (kaynak belirsiz)",
+                file=sys.stderr,
+            )
+            return 2
+        default_baseline = _DEFAULT_DOCTOR_BASELINE
+        if not default_baseline.is_file():
+            print(
+                f"[--auto-baseline] baseline yok: {default_baseline}"
+            )
+            print(
+                "İlk kalibrasyon için: atlas doctor --save-baseline"
+            )
+            return 0
+        diff_baseline_arg = str(default_baseline)
+
     # SPEC 057: --diff BASELINE_JSON → mevcut raporla delta üret.
-    diff_baseline = getattr(args, "diff", None)
+    diff_baseline = diff_baseline_arg
     if diff_baseline:
         import json as _json
         # Semantik mutex: --diff + --serve/--schema/--format anlamsız
@@ -4206,6 +4268,18 @@ def main(argv: list[str] | None = None) -> int:
                             "quality.http_check alanına status + latency "
                             "raporla. 2xx dışı veya bağlantı hatası → "
                             "warning; --strict altında exit 9.")
+    # SPEC 062: --auto-baseline + --save-baseline (--diff snapshot yönetimi)
+    p_doc.add_argument("--auto-baseline", action="store_true",
+                       help="SPEC 062: --diff için .atlas/doctor-baseline.json "
+                            "otomatik kullan. Baseline yoksa nazik uyarı + "
+                            "exit 0 (--save-baseline ile oluşturulur).")
+    p_doc.add_argument("--save-baseline", nargs="?",
+                       const=str(_DEFAULT_DOCTOR_BASELINE), default=None,
+                       metavar="PATH",
+                       help="SPEC 062: Mevcut raporu baseline olarak diske "
+                            "yaz (default: .atlas/doctor-baseline.json). "
+                            "--diff/--auto-baseline/--serve/--format prometheus "
+                            "ile mutex.")
     p_doc.add_argument("--ping", action="store_true",
                        help="Anthropic'e minimum request at, latency+cost raporla — SPEC 021.2")
     p_doc.add_argument("--strict", action="store_true",
