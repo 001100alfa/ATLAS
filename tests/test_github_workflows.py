@@ -424,3 +424,69 @@ def test_089_atlas_ci_status_readme_badge_row() -> None:
     readme = (_REPO / "README.md").read_text(encoding="utf-8")
     assert "atlas-ci-status.yml" in readme
     assert "| atlas-ci-status |" in readme
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 095 — atlas-metrics.yml --with-cost entegrasyonu
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_095_atlas_metrics_cost_step_exists() -> None:
+    """`Generate cost by day` step'i var + --with-cost + --group-by day."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    cost_step = next(
+        (s for s in steps if "cost by day" in s.get("name", "").lower()),
+        None,
+    )
+    assert cost_step is not None
+    run = cost_step.get("run", "")
+    assert "--group-by day" in run
+    assert "--with-cost" in run
+    assert "metrics-cost-by-day.json" in run
+
+
+def test_095_atlas_metrics_cost_conditional_has_data() -> None:
+    """Cost step yalnız has_data=true iken çalışır (env fiyat yok
+    fail-safe)."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    cost_step = next(
+        (s for s in steps if "cost by day" in s.get("name", "").lower()),
+        None,
+    )
+    assert cost_step is not None
+    cond = cost_step.get("if", "")
+    assert "has_data" in cond
+    assert "true" in cond
+
+
+def test_095_atlas_metrics_cost_artifact_uploaded() -> None:
+    """Upload artifact listesinde `metrics-cost-by-day.json` var."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    path_str = str(upload_step.get("with", {}).get("path", ""))
+    assert "metrics-cost-by-day.json" in path_str
+
+
+def test_095_atlas_metrics_mevcut_3_artifact_dokunulmadi() -> None:
+    """SPEC 074 mevcut 3 artifact (`metrics-human.txt`, `metrics.json`,
+    `metrics.prom`) upload listesinde AYNI (BİT-UYUMLU)."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    path_str = str(upload_step.get("with", {}).get("path", ""))
+    assert "metrics-human.txt" in path_str
+    assert "metrics.json" in path_str
+    assert "metrics.prom" in path_str

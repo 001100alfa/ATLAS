@@ -55,6 +55,14 @@ jobs:
               echo "has_data=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Generate cost by day (SPEC 084/095)
+        if: steps.metrics.outputs.has_data == 'true'
+        run: |
+          # Env fiyat yoksa cost 0.0 + UYARI stderr — workflow durmaz.
+          uv run atlas metrics --limit 100 \
+            --group-by day --with-cost --json \
+            > metrics-cost-by-day.json || echo '{"unit":"day","groups":[]}' > metrics-cost-by-day.json
+
       - name: Upload metrics artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -64,6 +72,7 @@ jobs:
             metrics-human.txt
             metrics.json
             metrics.prom
+            metrics-cost-by-day.json
           retention-days: 30
 
       - name: Comment PR with human summary
