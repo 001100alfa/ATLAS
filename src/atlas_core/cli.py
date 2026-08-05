@@ -1116,6 +1116,24 @@ def _cmd_archive_list(args: argparse.Namespace) -> int:
             )
             return 2
         entries = entries[:limit]
+    # SPEC 098: --json-lines NDJSON stream + son satır summary
+    jsonl_mode = bool(getattr(args, "json_lines", False))
+    if jsonl_mode and getattr(args, "json", False):
+        print(
+            "SPEC HATASI: --json ile --json-lines birlikte kullanılamaz "
+            "(MUTEX)",
+            file=sys.stderr,
+        )
+        return 2
+    if jsonl_mode:
+        for e in entries:
+            print(_json.dumps(e, ensure_ascii=False))
+        print(_json.dumps({
+            "type": "summary",
+            "archive_root": str(archive_root),
+            "count": len(entries),
+        }, ensure_ascii=False))
+        return 0
     if getattr(args, "json", False):
         print(_json.dumps(entries, ensure_ascii=False))
         return 0
@@ -5711,6 +5729,10 @@ def main(argv: list[str] | None = None) -> int:
     p_arc.add_argument("--json", action="store_true",
                        help="SPEC 065/075: --search veya --list ile birlikte "
                             "JSON çıktı")
+    p_arc.add_argument("--json-lines", action="store_true",
+                       help="SPEC 098: --list ile birlikte NDJSON stream "
+                            "(arşiv başına 1 satır + son satır summary). "
+                            "--json ile MUTEX.")
     p_arc.add_argument("--summary", default=None,
                        help="vault notunun gövdesi (yoksa 09-ship.md okunur)")
     p_arc.add_argument("--tasks-root", default="pipeline/tasks",
