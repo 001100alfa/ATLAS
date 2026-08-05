@@ -1134,6 +1134,14 @@ def _cmd_archive_list(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    # SPEC 108: --gzip yalnız --out ile anlamlı
+    use_gzip = bool(getattr(args, "gzip", False))
+    if use_gzip and out_path_arg is None:
+        print(
+            "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+            file=sys.stderr,
+        )
+        return 2
     if jsonl_mode:
         summary = {
             "type": "summary",
@@ -1143,11 +1151,20 @@ def _cmd_archive_list(args: argparse.Namespace) -> int:
         if out_path_arg is not None:
             try:
                 op = Path(out_path_arg)
+                if use_gzip and op.suffix != ".gz":
+                    op = op.with_suffix(op.suffix + ".gz")
                 op.parent.mkdir(parents=True, exist_ok=True)
-                with op.open("w", encoding="utf-8") as fh:
-                    for e in entries:
-                        fh.write(_json.dumps(e, ensure_ascii=False) + "\n")
-                    fh.write(_json.dumps(summary, ensure_ascii=False) + "\n")
+                if use_gzip:
+                    import gzip as _gzip
+                    with _gzip.open(op, "wt", encoding="utf-8") as fh:
+                        for e in entries:
+                            fh.write(_json.dumps(e, ensure_ascii=False) + "\n")
+                        fh.write(_json.dumps(summary, ensure_ascii=False) + "\n")
+                else:
+                    with op.open("w", encoding="utf-8") as fh:
+                        for e in entries:
+                            fh.write(_json.dumps(e, ensure_ascii=False) + "\n")
+                        fh.write(_json.dumps(summary, ensure_ascii=False) + "\n")
             except OSError as exc:
                 print(
                     f"SPEC HATASI: --out PATH yazılamadı: {exc}",
@@ -5967,6 +5984,9 @@ def main(argv: list[str] | None = None) -> int:
     p_arc.add_argument("--out", default=None, metavar="PATH",
                        help="SPEC 105: --json-lines ile birlikte; stdout "
                             "yerine PATH'e stream.")
+    p_arc.add_argument("--gzip", action="store_true",
+                       help="SPEC 108: --out ile birlikte; gzip sıkıştırma "
+                            "(PATH sonuna .gz eklenir eğer yoksa).")
     p_arc.add_argument("--summary", default=None,
                        help="vault notunun gövdesi (yoksa 09-ship.md okunur)")
     p_arc.add_argument("--tasks-root", default="pipeline/tasks",
