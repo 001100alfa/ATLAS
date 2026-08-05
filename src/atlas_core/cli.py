@@ -3080,6 +3080,39 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
             pass
         audit.record("atlas-vault", "encrypt", str(enc_out))
         print(f"vault yedeği şifrelendi: {enc_out}")
+
+    # SPEC 067: --keep-encrypted N → .tar.gz.gpg retention.
+    # `--out` verilmişse retention YOK sayılır (SPEC 041.1 kalıbı — yalnız
+    # archive_root'daki glob'a mantıklı).
+    keep_enc = getattr(args, "keep_encrypted", None)
+    if keep_enc is not None:
+        if keep_enc < 1:
+            print(
+                f"SPEC HATASI: --keep-encrypted >= 1 olmalı: {keep_enc}",
+                file=sys.stderr,
+            )
+            return 2
+        if out_arg:
+            print(
+                "UYARI: --out ile birlikte --keep-encrypted YOK sayıldı "
+                "(retention yalnızca archive_root'da çalışır)",
+                file=sys.stderr,
+            )
+        else:
+            from atlas_core.memory.vault_backup import prune_encrypted_backups
+            try:
+                deleted_enc = prune_encrypted_backups(archive_root, keep_enc)
+            except VaultBackupError as exc:
+                audit.record("atlas-vault", "prune-enc-error", str(exc)[:180])
+                print(f"PRUNE HATASI: {exc}", file=sys.stderr)
+                return 6
+            for p in deleted_enc:
+                audit.record("atlas-vault", "prune-encrypted", str(p))
+            if deleted_enc:
+                print(
+                    f"prune-encrypted: {len(deleted_enc)} eski .gpg silindi "
+                    f"(keep-encrypted={keep_enc})"
+                )
     return 0
 
 
@@ -4341,6 +4374,12 @@ def main(argv: list[str] | None = None) -> int:
                            "PASSPHRASE bayraktan veya env "
                            "ATLAS_BACKUP_PASSPHRASE. Env: ATLAS_GPG_BIN "
                            "gpg yolu override.")
+    p_vb.add_argument("--keep-encrypted", type=int, default=None, metavar="N",
+                      help="SPEC 067: backup sonrası archive_root'daki "
+                           "vault-*.tar.gz.gpg yedekleri N tut, gerisini "
+                           "sil (N>=1). SPEC 041.1 --keep'in kardeşi; "
+                           "ayrı glob (plain .tar.gz'e dokunmaz). "
+                           "--out ile birlikte YOK sayılır.")
     p_vb.set_defaults(func=_cmd_vault_backup)
     p_vr = vault_sub.add_parser("restore", help=".tar.gz'i vault'a geri aç")
     p_vr.add_argument("tar", help="Yedek dosyası yolu")

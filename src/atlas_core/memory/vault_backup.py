@@ -175,6 +175,39 @@ def prune_backups(archive_root: Path, keep: int) -> list[Path]:
     return deleted
 
 
+def prune_encrypted_backups(
+    archive_root: Path, keep: int,
+) -> list[Path]:
+    """SPEC 067: `<archive_root>/vault-*.tar.gz.gpg` retention.
+
+    SPEC 041.1 `prune_backups` kardeşi — glob `vault-*.tar.gz.gpg`.
+    Semantik aynı: mtime desc + ilk `keep` tutar; gerisini siler.
+    Plain `.tar.gz` dosyalarına DOKUNMAZ (SPEC 041.1 ayrı çalışır).
+
+    - `keep < 1` → `VaultBackupError`.
+    - `archive_root` yok → boş liste (cron nazikliği).
+    - Silme hatası → `VaultBackupError`.
+    """
+    if keep < 1:
+        raise VaultBackupError(f"keep >= 1 olmalı: {keep}")
+    if not archive_root.is_dir():
+        return []
+    candidates = sorted(
+        archive_root.glob("vault-*.tar.gz.gpg"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    to_delete = candidates[keep:]
+    deleted: list[Path] = []
+    for p in to_delete:
+        try:
+            p.unlink()
+        except OSError as exc:
+            raise VaultBackupError(f"prune başarısız: {p}: {exc}") from exc
+        deleted.append(p)
+    return deleted
+
+
 def restore_vault(tar_path: Path, target_root: Path) -> Path:
     """SPEC 041: `.tar.gz`'i `target_root`'a aç.
 
