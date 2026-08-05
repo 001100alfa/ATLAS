@@ -5333,6 +5333,14 @@ def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    # SPEC 106: --out yalnız --json-lines ile
+    if getattr(args, "out", None) is not None and not jsonl_mode:
+        print(
+            "SPEC HATASI: --out yalnız --json-lines ile birlikte "
+            "kullanılır",
+            file=sys.stderr,
+        )
+        return 2
 
     total_deps = len(packages)
     if outdated_mode:
@@ -5348,20 +5356,42 @@ def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
     if outdated_mode and strict_mode and packages:
         exit_rc = 4
 
-    # SPEC 099: --json-lines NDJSON stream + son satır summary
+    # SPEC 099 + 106: --json-lines NDJSON stream + son satır summary;
+    # --out PATH ile dosyaya yaz (SPEC 092/096/105 kalıbı).
     if jsonl_mode:
-        for p in packages:
-            print(_json.dumps({
-                "name": p["name"],
-                "expected": p["expected"],
-                "installed": p["installed"],
-            }, ensure_ascii=False))
-        print(_json.dumps({
+        out_path_arg = getattr(args, "out", None)
+        summary = {
             "type": "summary",
             "path": str(_AI_CLI_DIR),
             "outdated": len(packages),
             "total_deps": total_deps,
-        }, ensure_ascii=False))
+        }
+        if out_path_arg is not None:
+            try:
+                op = Path(out_path_arg)
+                op.parent.mkdir(parents=True, exist_ok=True)
+                with op.open("w", encoding="utf-8") as fh:
+                    for p in packages:
+                        fh.write(_json.dumps({
+                            "name": p["name"],
+                            "expected": p["expected"],
+                            "installed": p["installed"],
+                        }, ensure_ascii=False) + "\n")
+                    fh.write(_json.dumps(summary, ensure_ascii=False) + "\n")
+            except OSError as exc:
+                print(
+                    f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                    file=sys.stderr,
+                )
+                return 2
+        else:
+            for p in packages:
+                print(_json.dumps({
+                    "name": p["name"],
+                    "expected": p["expected"],
+                    "installed": p["installed"],
+                }, ensure_ascii=False))
+            print(_json.dumps(summary, ensure_ascii=False))
         return exit_rc
 
     if getattr(args, "json", False):
@@ -5976,6 +6006,9 @@ def main(argv: list[str] | None = None) -> int:
                          help="SPEC 099: --outdated ile birlikte; NDJSON "
                               "stream (paket başına satır + son satır "
                               "summary). --json ile MUTEX.")
+    p_ai_ls.add_argument("--out", default=None, metavar="PATH",
+                         help="SPEC 106: --json-lines ile birlikte; stdout "
+                              "yerine PATH'e stream.")
     p_ai_ls.set_defaults(func=_cmd_ai_cli_list)
     p_ai_ex = ai_sub.add_parser(
         "exec",
