@@ -1,6 +1,69 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-05 (28. tur — 068 + 070 + 067 + 066 + 071 + 069)
+
+Kullanıcı "hepsini sıra ile uygula" → 27. tur adayları (066-071)
+tümü zincirleme. Sıra `068 → 070 → 067 → 066 → 071 → 069` (küçükten büyüğe).
+
+- [KARAR] 068 `--alert-slack URL`: SPEC 064 `_post_alert_webhook`
+  yeniden kullanıldı; farklı payload format `{text: markdown}` —
+  Slack incoming webhook `text` field bekler. Slack, Discord, Teams
+  hepsi `{text}` kabul eder ama Slack default görüntüleme mesajı
+  bu field'e göre yapar.
+- [KARAR] 068 üçlü ortogonal: `--alert-email` + `--alert-webhook` +
+  `--alert-slack` aynı çağrıda üçü de çalışır. Exit 8 KORUR
+  (SMTP+webhook+slack yan etkilerden bağımsız).
+- [KARAR] 070 GHA workflow SPEC 056 (vault-health) kalıbıyla:
+  `continue-on-error` doctor step + rc→GITHUB_OUTPUT; sonra artifact+
+  comment+fail-step. Bonus: 2 rc (rc_strict OR rc_diff) — SPEC 062
+  auto-baseline delta da bağımsız gate.
+- [KARAR] 070 test defensive: PyYAML `on:` boolean parse'ına karşı
+  `data.get("on") or data.get(True)` (SPEC 056 kalıbı).
+- [KARAR] 067 encrypted retention ayrı fonksiyon `prune_encrypted_backups`
+  (glob `vault-*.tar.gz.gpg`). SPEC 041.1 `prune_backups`'a bir parametre
+  eklemek daha DRY olurdu ama iki havuz semantiği farklı — ayrı fonksiyon
+  daha net (test edilebilir, bağımsız).
+- [KARAR] 067 sıralama: backup → --keep (plain) → encrypt (plain silinir)
+  → --keep-encrypted. Yani plain retention encrypt öncesi çalışır; yeni
+  encrypted dosya --keep-encrypted N ile korunur.
+- [KARAR] 066 `decrypt_backup` `encrypt_backup` kardeşi — argv sadece
+  `--decrypt` (ve `--cipher-algo` yok, çünkü decrypt cipher'ı tar
+  içinden okur). Yapı simetrik.
+- [KARAR] 066 temp plain dosya kalıbı: `<target.parent>/.vault-restore-
+  decrypt-<pid>.tar.gz` (gizli prefix + PID; çakışma yok). Restore
+  **finally** ile silinir — başarı, çakışma, extract hatası hepsinde.
+  Secret disk'te bırakılmaz.
+- [KARAR] 066 auto-detect uyarısı: `.gpg` uzantı + `--decrypt` YOK →
+  stderr UYARI. Kullanıcı yanlışlıkla plain restore denemesin. Hard-fail
+  DEĞİL çünkü kullanıcı gpg-öncesi handle etmiş olabilir.
+- [KARAR] 071 dispatcher sırası: `--restore is not None` truthy →
+  restore branch. `--restore` nargs="?" const="" default=None →
+  `--restore` bayraksız + `--search P` = SPEC 071. `--restore <id>` =
+  SPEC 033. Sadece `--search P` = SPEC 065 list-only.
+- [KARAR] 071 task_id çıkarma: arşiv adı `<task_id>-YYYY-MM-DD.tar.gz`
+  formatı; son 11 char (`-YYYY-MM-DD`) kaldırılır. Farklı format →
+  stem fallback (nazik). Belirsizlik (2+ eşleşme) → exit 2 + stderr
+  listesi (kullanıcı daraltmalı).
+- [KARAR] 069 `--estimate` SPEC 020 `--dry-run`'dan **farklı** semantik:
+  - `--dry-run`: planner ÇALIŞIR (LLM cost var), action stub.
+  - `--estimate`: planner HİÇ ÇAĞRILMAZ (LLM cost YOK), sadece
+    heuristik tahmin.
+  Ayrı bayrak — bit-uyumluluk garantili.
+- [KARAR] 069 heuristik `tokens_per_call` default 500; env
+  `ATLAS_ESTIMATE_TOKENS_PER_CALL` override. Gerçek adaptif hesap
+  (SPEC 023 son N call ortalaması) YAGNI — gelecek SPEC 072?
+- [KARAR] 069 stub backend + fiyat 0 → cost 0 (bilgi doğru; LLM yok).
+- [HATA] 069 test — `_make_goal_yaml` helper başta `actions:/success:`
+  kullandım ama `Goal` şeması `plan_kind:` + `plan_steps:` +
+  `action_allowlist:` + `judge_kind:` + `judge_arg:` bekliyor. Kalıp:
+  yeni goal YAML testleri yazarken önce `tests/goals/hello.yaml`
+  şablonuna bak.
+- [KARAR] Test toplamı: 1061 (27. tur sonu) → 1066 (068) → 1072 (070)
+  → 1081 (067) → 1092 (066) → 1099 (071) → **1110** (069). +49 test.
+- [KARAR] 28. tur boyunca hiç yıkıcı git operasyonu yok; 6 lineer
+  feat + 1 docs commit; tek push tur sonunda.
+
 ## 2026-08-05 (27. tur — 061 + 062 + 060 + 064 + 065 + 063)
 
 Kullanıcı 27. turu yeni oturumda "Continue from where you left off"

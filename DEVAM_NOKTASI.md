@@ -13,11 +13,11 @@
 > 5. Zorunlu Döngü'ye (`CLAUDE.md` §Zorunlu Döngü) gir; ilk iş
 >    `DECISIONS.md`'nin son 2026-08-05 girişlerini kaba tarama.
 
-**Son çalışma:** 2026-08-05 (27. tur — 061 + 062 + 060 + 064 + 065 + 063)
+**Son çalışma:** 2026-08-05 (28. tur — 068 + 070 + 067 + 066 + 071 + 069)
 **Branch:** `main` (6 feat + docs, PUSH edilecek)
 **Working tree:** temiz
-**Durum:** 27. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
-**1061/1061 test yeşil** (+12 skip), cov ~%91.5+, mypy strict + ruff +
+**Durum:** 28. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
+**1110/1110 test yeşil** (+12 skip), cov ~%91.5+, mypy strict + ruff +
 scan temiz.
 
 ---
@@ -28,184 +28,152 @@ Yeni oturumda tek cümle yeter: **"devam et"**
 
 ---
 
-## Bu turda yapılan (2026-08-05 — 27. tur)
+## Bu turda yapılan (2026-08-05 — 28. tur)
 
-Kullanıcı "Continue from where you left off" + SessionStart hook →
-27. tur seçimi "HEPSI (küçükten büyüğe)" onay verildi. 6 görev
-zincirleme, sıra `061 → 062 → 060 → 064 → 065 → 063`.
+Kullanıcı "hepsini sıra ile uygula" → 27. tur adayları (066-071) tümü
+zincirleme. Sıra `068 → 070 → 067 → 066 → 071 → 069` (küçükten büyüğe).
 
-1. **Görev 061** — `docs/api/vault-verify-schema.json` (`d29b0cd`)
-   - SPEC 042 `VerifyReport` Draft-07 JSON Schema.
-   - 7 zorunlu alan; `additionalProperties: false` (major bump gate).
-   - Test: minimal Draft-07 doğrulayıcı test içinde (dış bağımlılık
-     `jsonschema` YOK — YAGNI).
-   - +12 test.
+1. **Görev 068** — `metrics --alert-slack URL` (`7e27b4f`)
+   - Slack incoming webhook `{text}` provider format.
+   - SPEC 064 `_post_alert_webhook` yeniden kullanıldı (SSRF savunma
+     + timeout aynı).
+   - Üçlü ortogonal: email + webhook + slack birlikte çalışır.
+   - +5 test.
 
-2. **Görev 062** — `doctor --save-baseline` + `--auto-baseline` (`450f9b7`)
-   - `_DEFAULT_DOCTOR_BASELINE = .atlas/doctor-baseline.json` sabit.
-   - `--save-baseline [PATH]` nargs="?" const=default; 4 mutex
-     (diff/auto/serve/prometheus).
-   - `--auto-baseline` — `--diff` yerine geç; dosya yoksa nazik
-     uyarı + exit 0 (ilk çalıştırma).
+2. **Görev 070** — `.github/workflows/atlas-doctor.yml` (`9a1c909`)
+   - SPEC 056 vault-health.yml kardeşi.
+   - Fresh `doctor --strict --scan-src` + koşullu `--auto-baseline`
+     delta (2 gate).
+   - Fail step: `rc_strict OR rc_diff ≠ '0'` → exit 1.
+   - +6 test.
+
+3. **Görev 067** — `vault backup --keep-encrypted N` (`636b692`)
+   - `prune_encrypted_backups` (glob `vault-*.tar.gz.gpg`).
+   - SPEC 041.1 `--keep` (plain) ile ORTOGONAL — iki ayrı havuz.
+   - +9 test.
+
+4. **Görev 066** — `vault restore --decrypt [PASSPHRASE]` (`05a12fa`)
+   - `decrypt_backup` (SPEC 063 kardeşi; `gpg --decrypt`).
+   - Temp plain `<target.parent>/.vault-restore-decrypt-<pid>.tar.gz`;
+     restore sonrası **finally** silinir.
+   - `.gpg` uzantı + `--decrypt` YOK → UYARI (auto-detect nazikliği).
    - +11 test.
 
-3. **Görev 060** — `atlas ai-cli install <name>` (`c74fe74`)
-   - `_run_npm_install(bin, package)`: `npm install <package> --save`.
-   - 4-yollu hata (dir yok / package.json bozuk / npm yok / subprocess
-     çöktü) → exit 2. npm exit yansır. Başarıda status/list ipucu.
+5. **Görev 071** — `archive --restore --search PATTERN` (`e2ed9e5`)
+   - SPEC 065 + SPEC 033 birleşim.
+   - `--restore` `nargs="?"` `const=""` sentinel (bayraksız + `--search`).
+   - Tek eşleşme → task_id çıkar; 0 → exit 6; 2+ → exit 2 belirsizlik.
    - +7 test.
 
-4. **Görev 064** — `metrics --alert-webhook URL` (`e85774a`)
-   - `_post_alert_webhook(url, payload, timeout=5.0)` stdlib urllib.
-   - SSRF savunma: scheme yalnız http/https.
-   - `--alert-email` ile ORTOGONAL (ikisi çalışır).
-   - Exit 8 KORUR (SMTP kalıbı, SPEC 059).
-   - +10 test.
+6. **Görev 069** — `run --estimate` LLM'siz cost tahmini (`6f776f4`)
+   - `_estimate_run_cost` heuristik: `max_steps * tokens_per_call`
+     (env override); stub veya fiyat 0 → cost 0.
+   - `--dry-run` (SPEC 020) FARKLI — planner çalışır. `--estimate`
+     planner ÇAĞIRMAZ.
+   - Audit kayıtsız (LLM yok).
+   - +11 test.
 
-5. **Görev 065** — `archive --search PATTERN [--json]` (`a7fb0aa`)
-   - `_search_archive_contents(root, pattern)`: `tarfile.getnames()`
-     metadata; tar AÇILMAZ. Bozuk tar skipped.
-   - `re.search` part-match; `(?i)` inline flag desteği.
-   - `--search` dispatcher'da en önde (read-only).
-   - +13 test.
-
-6. **Görev 063** — `vault backup --encrypt` GPG AES256 (`bce2487`)
-   - `_find_gpg_bin()`: env `ATLAS_GPG_BIN` → `tools/gpg/gpg[.exe]` →
-     `shutil.which("gpg")`.
-   - `encrypt_backup(plain, out, passphrase, *, gpg_bin, cipher)`:
-     stdin ile passphrase (history'de görünmez).
-   - `--encrypt [PASSPHRASE]` nargs="?" const=env
-     `ATLAS_BACKUP_PASSPHRASE`; boş passphrase → exit 2.
-   - Plain `.tar.gz` silinir (secret disk'te bırakılmaz).
-   - Restore tarafı DEĞİŞMEDİ (kullanıcı manuel `gpg --decrypt`).
-   - +13 test.
-
-7. **Kalite kapıları:**
-   - Her görev: branch → kod → test → tam pytest/mypy/ruff/scan →
-     main'e ff-merge.
-   - 6 lineer commit: `d29b0cd → 450f9b7 → c74fe74 → e85774a → a7fb0aa
-     → bce2487`.
+7. **Kalite kapıları:** her görev branch → kod → test → tam
+   pytest/mypy/ruff/scan → main'e ff-merge. 6 lineer commit.
 
 ---
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-27. tur adayları tamamlandı. Yeni 6 aday üretildi:
+28. tur adayları tamamlandı. Yeni 6 aday üretildi:
 
-- **Görev 066 — `atlas vault restore --decrypt`:** SPEC 063 kardeşi —
-  `.tar.gz.gpg` girdisi otomatik GPG decrypt + restore zinciri. Orta.
-- **Görev 067 — `atlas vault backup --keep-encrypted N`:** SPEC 041.1
-  retention'ını encrypted `.tar.gz.gpg` dosyaları için de yap
-  (ayrı glob). Küçük-orta.
-- **Görev 068 — `atlas metrics --alert-slack URL`:** SPEC 064 wrapper —
-  Slack incoming webhook için provider-özel format (`{text}`).
-  Küçük.
-- **Görev 069 — `atlas run --dry-run` özet:** planner LLM çağrı sayısı
-  + tahmini token/cost, çalıştırmadan. Orta.
-- **Görev 070 — `.github/workflows/atlas-doctor.yml`:** SPEC 056
-  kardeşi — PR'da `atlas doctor --strict --auto-baseline` gate.
-  Küçük.
-- **Görev 071 — `atlas archive --restore --search PATTERN`:** SPEC 065
-  arama sonucunu SPEC 033 restore ile birleştir — matching arşivi
-  otomatik geri aç. Orta.
-- Ya da başka öncelik varsa net söyle.
+- **Görev 072 — `--estimate` adaptif hesap:** SPEC 069 heuristiği
+  SPEC 023 metrics'ten alınan **son N call ortalaması** ile değiştir
+  (env kapatılabilir). Küçük-orta.
+- **Görev 073 — `atlas vault backup --encrypt --recipient KEY_ID`:**
+  SPEC 063 GPG symmetric yerine (veya buna ek) public-key encryption
+  (`gpg --encrypt -r <key>`). Orta.
+- **Görev 074 — `.github/workflows/atlas-metrics.yml`:** SPEC 023
+  metrics.jsonl artifact'ini PR'a comment olarak yapıştıran workflow
+  (SPEC 056/070 kardeşi). Küçük.
+- **Görev 075 — `atlas archive --list [--json]`:** SPEC 007/033'ün
+  kardeşi — `archive/` dizinindeki arşivleri listele (task_id, date,
+  size, member_count). Küçük-orta.
+- **Görev 076 — `atlas metrics --window MINUTES`:** SPEC 023 `--limit N`
+  yerine (veya ek) son X dakikadaki kayıtlar. Cron-friendly. Küçük-orta.
+- **Görev 077 — Docker YASAK gate:** `.github/workflows/no-docker.yml` +
+  pre-commit gate: `Dockerfile`, `docker-compose.yml`, `.dockerignore`
+  commit'e girerse HATA (proje sözleşmesi). Küçük.
 
 ---
 
 ## Hızlı Bağlam
 
-**Branch grafı:**
-```
-origin/main + 7 commit local (27. tur — push edilecek)
-```
-Lokal feature branch YOK (temiz).
+**Branch grafı:** `origin/main + 7 commit local (28. tur — push edilecek)`
+Lokal feature branch YOK.
 
-**main'e giren 6 feat + 1 docs commit (2026-08-05 27. tur):**
+**main'e giren 6 feat + 1 docs commit (2026-08-05 28. tur):**
 ```
-bce2487 feat(063): vault backup --encrypt GPG symmetric AES256
-a7fb0aa feat(065): atlas archive --search PATTERN [--json] regex arama
-e85774a feat(064): atlas metrics --alert-webhook URL POST JSON (SPEC 059 kardesi)
-c74fe74 feat(060): atlas ai-cli install <name> yeni paket ekleme
-450f9b7 feat(062): atlas doctor --save-baseline + --auto-baseline snapshot yonetimi
-d29b0cd feat(061): docs/api/vault-verify-schema.json — SPEC 042 JSON Schema
+6f776f4 feat(069): atlas run --estimate LLM'siz cost tahmini
+e2ed9e5 feat(071): atlas archive --restore --search PATTERN (SPEC 065+033 birlesim)
+05a12fa feat(066): atlas vault restore --decrypt GPG decrypt-restore zinciri
+636b692 feat(067): atlas vault backup --keep-encrypted N (.tar.gz.gpg retention)
+9a1c909 feat(070): .github/workflows/atlas-doctor.yml — doctor CI gate
+7e27b4f feat(068): atlas metrics --alert-slack URL Slack {text} provider format
 ```
 
-**Kalite kapıları (bu turun sonu):**
+**Kalite kapıları:**
 ```bash
 uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
-# 1061 passed, 12 skipped
+# 1110 passed, 12 skipped
 uv run mypy src                # temiz (31 kaynak dosya)
 uv run ruff check src tests    # temiz
 uv run atlas scan src          # sır bulunamadı
 ```
 
 **Yeni CLI davranışları (bu turda):**
-- `atlas ai-cli install <name>` (yeni alt-komut)
-- `atlas archive --search PATTERN [--json]` (yeni bayrak)
-- `atlas doctor --auto-baseline` + `--save-baseline [PATH]` (2 yeni bayrak)
-- `atlas metrics --alert-webhook URL` (yeni bayrak)
-- `atlas vault backup --encrypt [PASSPHRASE]` (yeni bayrak)
+- `atlas metrics --alert-slack URL` (Slack `{text}` format)
+- `atlas vault backup --keep-encrypted N` (.gpg retention)
+- `atlas vault restore --decrypt [PASSPHRASE]` (GPG decrypt-restore)
+- `atlas archive --restore --search PATTERN` (arama-tabanlı restore)
+- `atlas run --estimate` (LLM'siz cost tahmini) + `--json`
 
-**Yeni doküman:** `docs/api/vault-verify-schema.json` (Draft-07).
+**Yeni workflow:** `.github/workflows/atlas-doctor.yml` (SPEC 056 kardeşi).
 
 **Yeni env sözleşmesi:**
-- `ATLAS_BACKUP_PASSPHRASE` — SPEC 063 GPG passphrase default.
-- `ATLAS_GPG_BIN` — SPEC 063 gpg binary override.
+- `ATLAS_ESTIMATE_TOKENS_PER_CALL` — SPEC 069 heuristik override
+  (default 500).
 
 **Yeni yardımcılar:**
-- `_run_npm_install` (cli.py, SPEC 060)
-- `_post_alert_webhook` (cli.py, SPEC 064)
-- `_search_archive_contents`, `_cmd_archive_search` (cli.py, SPEC 065)
-- `_find_gpg_bin`, `encrypt_backup` (vault_backup.py, SPEC 063)
-- `_diff_doctor_reports` yeniden kullanıldı (SPEC 057), `--auto-baseline`
-  kaynak: default path (SPEC 062).
+- `_estimate_run_cost` (cli.py, SPEC 069)
+- `decrypt_backup` (vault_backup.py, SPEC 066)
+- `prune_encrypted_backups` (vault_backup.py, SPEC 067)
 
 **Exit kodları:** DEĞİŞMEDİ.
-- SPEC 063 GPG hata → **6** (SPEC 041 hata sınıfı).
-- SPEC 064 webhook başarısız → **8 KORUR** (alert semantiği).
-- SPEC 065 regex geçersiz / arc yok → **2** SPEC HATASI.
 
 **Kritik sözleşme değişmezlikleri:**
-- SPEC 041/041.1/042/046/048/052/056/057/058 hepsi BİT-UYUMLU.
-- SPEC 037 ailesi (diff-summary, update, list, exec, status) BİT-UYUMLU.
-- SPEC 043/047 Prometheus text formatı BİT-UYUMLU.
-- SPEC 059 SMTP email BİT-UYUMLU (webhook ORTOGONAL).
-- SPEC 033 archive restore BİT-UYUMLU.
+- SPEC 002/020/023/030/031 run BİT-UYUMLU.
+- SPEC 007/012/017/033/065 archive BİT-UYUMLU.
+- SPEC 041/041.1/042/046/052/056/057/058/059/063/064 BİT-UYUMLU.
 
-**Bilinen flaky:** yok (nadiren 1 test yarış — re-run yeşil).
+**Bilinen flaky:** yok.
 
 **Docker YASAK:** hâlâ yürürlükte.
 
 **Görev-öncesi zorunlu okuma sırası:**
-1. `DECISIONS.md` — 2026-08-05 üstteki blok (27. tur ~18 giriş);
-   2026-08-04 (25+26. tur ~47 giriş); 2026-07-31 (23+24. tur 28
-   giriş); daha eski.
-2. Bu dosya (DEVAM_NOKTASI.md)
-3. Hedef görevin `pipeline/tasks/<XXX>/{00-need,09-ship}.md`
-4. Değişecek modülün üstündeki docstring
+1. `DECISIONS.md` — 2026-08-05 üstteki 3 blok (28/27/26. tur).
+2. Bu dosya (DEVAM_NOKTASI.md).
+3. Hedef görevin `pipeline/tasks/<XXX>/{00-need,09-ship}.md`.
+4. Değişecek modülün üstündeki docstring.
 
 ---
 
 ## Kapanış Notları
 
-- **1061 test yeşil** (995 → 1061; bu tur +66; oturum başı 319'dan +742)
-- 6 lineer feat + 1 docs commit; origin senkron
-- Yeni env: `ATLAS_BACKUP_PASSPHRASE`, `ATLAS_GPG_BIN`
-- Yeni CLI: `ai-cli install`, `archive --search`, `doctor --auto-baseline`,
-  `doctor --save-baseline`, `metrics --alert-webhook`,
-  `vault backup --encrypt`
-- Yeni doküman: `docs/api/vault-verify-schema.json` (Draft-07 public API)
-- Yeni test dosyaları: `test_verify_schema_doc.py`,
-  `test_cli_doctor_auto_baseline.py`, `test_cli_ai_cli_install.py`,
-  `test_cli_metrics_alert_webhook.py`, `test_cli_archive_search.py`,
-  `test_cli_vault_backup_encrypt.py` (6 dosya, +66 test)
+- **1110 test yeşil** (1061 → 1110; bu tur +49; oturum başı 319'dan +791)
+- 6 lineer feat + 1 docs commit
+- Yeni env: `ATLAS_ESTIMATE_TOKENS_PER_CALL`
+- Yeni CLI: 5 yeni bayrak/alt-komut varyasyonu
+- Yeni workflow: `atlas-doctor.yml`
+- Yeni test dosyaları: `test_cli_metrics_alert_slack.py`,
+  `test_cli_vault_backup_keep_encrypted.py`,
+  `test_cli_vault_restore_decrypt.py`,
+  `test_cli_archive_restore_search.py`, `test_cli_run_estimate.py`
+  (+ `test_github_workflows.py` genişletildi) — 5 yeni dosya + 6 test SPEC.
 - Docker YASAK yürürlükte
-- Portable bundle son sürüm: `D:\ATLAS.rar` (28 Temmuz, 1.9 GB — 27 tur
-  sonrası **güncel değil**; kullanıcı istiyorsa `PAKETLE.cmd`)
-- DECISIONS.md 2026-08-05 altında ~18 giriş; 2026-08-04 altında ~47
-  giriş; toplam 140+.
-- Platform sözleşmesi: Prometheus scrape kalıbı (`--serve HOST:PORT`),
-  alert kanalları (SMTP/webhook ortogonal), backup zinciri (backup →
-  optional encrypt → optional prune), doctor snapshot (save/auto-baseline
-  + diff).
-- Sıradaki tur için 6 aday hazır (066–071).
+- Sıradaki tur için 6 aday (072–077).
