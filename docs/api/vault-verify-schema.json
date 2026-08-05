@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://atlas.local/schemas/vault-verify-report.json",
+  "title": "ATLAS vault verify report (SPEC 042)",
+  "description": "atlas vault verify --json / --dump-report çıktısının deterministik şeması. SPEC 042 VerifyReport dataclass'ının to_dict() çıktısını tanımlar.",
+  "type": "object",
+  "required": [
+    "broken_links",
+    "orphan_notes",
+    "orphan_tags",
+    "notes_total",
+    "links_total",
+    "tags_total",
+    "is_clean"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "broken_links": {
+      "type": "array",
+      "description": "Kırık [[wikilink]]'ler — hedef notu vault'ta olmayanlar. (from, to) sözlük sırasında.",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Link'i içeren notun stem'i (dosya adı, uzantısız)."
+          },
+          "to": {
+            "type": "string",
+            "description": "Referans verilen hedef not adı (vault'ta yok)."
+          }
+        }
+      }
+    },
+    "orphan_notes": {
+      "type": "array",
+      "description": "Ne link veren ne link alan notlar (Graph.orphans() çıktısı, sözlük sıralı).",
+      "items": {"type": "string"}
+    },
+    "orphan_tags": {
+      "type": "array",
+      "description": "Yalnızca bir notta geçen #tag'lar (sözlük sıralı).",
+      "items": {"type": "string"}
+    },
+    "notes_total": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Vault'taki toplam .md not sayısı."
+    },
+    "links_total": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Not başına tekilleştirilmiş link toplamı (dict.fromkeys ile per-note dedup)."
+    },
+    "tags_total": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Tüm notlarda tag geçiş toplamı (per-note dedup; farklı notlar tekrar sayılır)."
+    },
+    "is_clean": {
+      "type": "boolean",
+      "description": "broken_links + orphan_notes + orphan_tags hepsi boşsa true. --strict + false → exit 4."
+    }
+  }
+}
