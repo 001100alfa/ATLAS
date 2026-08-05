@@ -1,0 +1,59 @@
+name: atlas-vault
+# SPEC 107: vault backup scheduled + split artifact.
+# Her gün 03:00 UTC (Istanbul 06:00) çalışır; parçalı yedek + retention.
+# SPEC 041/101/102 üzerine üretim uzantısı.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-vault-daily
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: vault backup --auto --split 50 --keep 7
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install ATLAS
+        run: uv sync --frozen --extra dev
+
+      - name: Check vault exists
+        id: vault_check
+        run: |
+          if [ -d vault ]; then
+            echo "has_vault=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_vault=false" >> "$GITHUB_OUTPUT"
+            echo "(vault/ dizini yok — backup atlaniyor)"
+          fi
+
+      - name: Run atlas vault backup --auto --split 50 --keep 7
+        if: steps.vault_check.outputs.has_vault == 'true'
+        run: |
+          # SPEC 041/101: --auto scheduled explicit; --split 50 MB parça;
+          # --keep 7 retention (7 gün eski yedek).
+          uv run atlas vault backup --auto --split 50 --keep 7
+
+      - name: Upload split parts artifact
+        if: steps.vault_check.outputs.has_vault == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vault-backup-parts
+          path: |
+            archive/vault-*.tar.gz.*
+          retention-days: 30

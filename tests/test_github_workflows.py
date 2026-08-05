@@ -556,3 +556,82 @@ def test_100_atlas_doctor_mevcut_2_artifact_dokunulmadi() -> None:
     path_str = str(upload_step.get("with", {}).get("path", ""))
     assert "doctor-report.json" in path_str
     assert "doctor-diff.txt" in path_str
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 107 — atlas-vault.yml scheduled backup + split
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_107_atlas_vault_yaml_valid() -> None:
+    data = _load("atlas-vault.yml")
+    assert isinstance(data, dict)
+    assert data.get("name") == "atlas-vault"
+
+
+def test_107_atlas_vault_schedule_daily() -> None:
+    """cron: her gün 03:00 UTC."""
+    data = _load("atlas-vault.yml")
+    on = data.get("on") or data.get(True)
+    assert isinstance(on, dict)
+    assert "schedule" in on
+    crons = on["schedule"]
+    assert isinstance(crons, list) and len(crons) >= 1
+    assert any(c.get("cron") == "0 3 * * *" for c in crons)
+
+
+def test_107_atlas_vault_workflow_dispatch() -> None:
+    data = _load("atlas-vault.yml")
+    on = data.get("on") or data.get(True)
+    assert "workflow_dispatch" in on
+
+
+def test_107_atlas_vault_permissions() -> None:
+    data = _load("atlas-vault.yml")
+    perms = data.get("permissions", {})
+    assert perms.get("contents") == "read"
+
+
+def test_107_atlas_vault_backup_command() -> None:
+    """Job `atlas vault backup --auto --split 50 --keep 7` çalıştırır."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    run_blocks = "\n".join(s.get("run", "") for s in steps if s.get("run"))
+    assert "atlas vault backup" in run_blocks
+    assert "--auto" in run_blocks
+    assert "--split 50" in run_blocks
+    assert "--keep 7" in run_blocks
+
+
+def test_107_atlas_vault_check_exists() -> None:
+    """`vault/` yoksa skip → workflow durmaz."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    check_step = next(
+        (s for s in steps if "check vault" in s.get("name", "").lower()),
+        None,
+    )
+    assert check_step is not None
+    assert "has_vault" in check_step.get("run", "")
+
+
+def test_107_atlas_vault_upload_artifact_conditional() -> None:
+    """Upload artifact yalnız has_vault=true iken."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    assert "has_vault" in upload_step.get("if", "")
+    path_str = str(upload_step.get("with", {}).get("path", ""))
+    assert "vault-*.tar.gz." in path_str
+
+
+def test_107_atlas_vault_readme_badge_row() -> None:
+    """README ci-status bloğunda `atlas-vault` satırı var."""
+    readme = (_REPO / "README.md").read_text(encoding="utf-8")
+    assert "atlas-vault.yml" in readme
+    assert "| atlas-vault |" in readme

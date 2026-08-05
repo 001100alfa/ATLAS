@@ -185,6 +185,7 @@ AGPL-3.0 (ayrı uygulama, [`docs/JUGGLER.md`](docs/JUGGLER.md)); taşınabilir
 | atlas-ci-status | [![atlas-ci-status](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-ci-status.yml/badge.svg)](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-ci-status.yml) |
 | atlas-doctor | [![atlas-doctor](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-doctor.yml/badge.svg)](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-doctor.yml) |
 | atlas-metrics | [![atlas-metrics](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-metrics.yml/badge.svg)](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-metrics.yml) |
+| atlas-vault | [![atlas-vault](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-vault.yml/badge.svg)](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-vault.yml) |
 | ci-status | [![ci-status](https://github.com/001100alfa/ATLAS/actions/workflows/ci-status.yml/badge.svg)](https://github.com/001100alfa/ATLAS/actions/workflows/ci-status.yml) |
 | CI | [![CI](https://github.com/001100alfa/ATLAS/actions/workflows/ci.yml/badge.svg)](https://github.com/001100alfa/ATLAS/actions/workflows/ci.yml) |
 | no-docker | [![no-docker](https://github.com/001100alfa/ATLAS/actions/workflows/no-docker.yml/badge.svg)](https://github.com/001100alfa/ATLAS/actions/workflows/no-docker.yml) |
