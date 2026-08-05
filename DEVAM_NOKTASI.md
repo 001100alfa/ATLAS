@@ -13,11 +13,11 @@
 > 5. Zorunlu Döngü'ye (`CLAUDE.md` §Zorunlu Döngü) gir; ilk iş
 >    `DECISIONS.md`'nin son 2026-08-05 girişlerini kaba tarama.
 
-**Son çalışma:** 2026-08-05 (28. tur — 068 + 070 + 067 + 066 + 071 + 069)
+**Son çalışma:** 2026-08-05 (29. tur — 077 + 074 + 076 + 075 + 072 + 073)
 **Branch:** `main` (6 feat + docs, PUSH edilecek)
 **Working tree:** temiz
-**Durum:** 28. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
-**1110/1110 test yeşil** (+12 skip), cov ~%91.5+, mypy strict + ruff +
+**Durum:** 29. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
+**1163/1163 test yeşil** (+12 skip), cov ~%91.5+, mypy strict + ruff +
 scan temiz.
 
 ---
@@ -28,50 +28,48 @@ Yeni oturumda tek cümle yeter: **"devam et"**
 
 ---
 
-## Bu turda yapılan (2026-08-05 — 28. tur)
+## Bu turda yapılan (2026-08-05 — 29. tur)
 
-Kullanıcı "hepsini sıra ile uygula" → 27. tur adayları (066-071) tümü
-zincirleme. Sıra `068 → 070 → 067 → 066 → 071 → 069` (küçükten büyüğe).
+Kullanıcı "hepsini sıra ile uygula" → 28. tur adayları (072-077) tümü
+zincirleme, küçükten büyüğe.
 
-1. **Görev 068** — `metrics --alert-slack URL` (`7e27b4f`)
-   - Slack incoming webhook `{text}` provider format.
-   - SPEC 064 `_post_alert_webhook` yeniden kullanıldı (SSRF savunma
-     + timeout aynı).
-   - Üçlü ortogonal: email + webhook + slack birlikte çalışır.
-   - +5 test.
+1. **Görev 077** — Docker YASAK gate (`51f9d61`)
+   - `.github/workflows/no-docker.yml`: push+PR `git ls-files` pattern
+     arama.
+   - Pre-commit hook v4 → v5: Kapı 3 Docker YASAK (regex `git diff
+     --cached`).
+   - +10 test (5 hook + 5 workflow).
 
-2. **Görev 070** — `.github/workflows/atlas-doctor.yml` (`9a1c909`)
-   - SPEC 056 vault-health.yml kardeşi.
-   - Fresh `doctor --strict --scan-src` + koşullu `--auto-baseline`
-     delta (2 gate).
-   - Fail step: `rc_strict OR rc_diff ≠ '0'` → exit 1.
-   - +6 test.
+2. **Görev 074** — atlas-metrics.yml PR gate (`cb7dcfa`)
+   - SPEC 056/070 kardeşi bilgi/artifact gate.
+   - `.atlas/metrics.jsonl` path filtresi; 3 format (human/json/prometheus)
+     artifact; PR comment (has_data).
+   - +6 workflow testi.
 
-3. **Görev 067** — `vault backup --keep-encrypted N` (`636b692`)
-   - `prune_encrypted_backups` (glob `vault-*.tar.gz.gpg`).
-   - SPEC 041.1 `--keep` (plain) ile ORTOGONAL — iki ayrı havuz.
+3. **Görev 076** — metrics --window MINUTES (`220abde`)
+   - `_filter_records_by_window(records, minutes, now=None)`.
+   - `--limit` ile ORTOGONAL: önce window, sonra son N.
+   - `--window <= 0` → exit 2.
+   - +10 test.
+
+4. **Görev 075** — archive --list [--json] (`32d24eb`)
+   - `_list_archive_entries`: 7-alanlı dict per arşiv.
+   - Dispatcher: `--list` en önde (read-only).
+   - Bozuk tar → `member_count=-1`.
+   - +11 test.
+
+5. **Görev 072** — --estimate --adaptive metrics avg (`ebad7eb`)
+   - `_read_metrics_avg_tokens(limit=20)`.
+   - `--adaptive` + `--adaptive-n N` bayrakları.
+   - < 3 kayıt → static fallback + UYARI.
+   - JSON şema `source` + `sample_count` alanları.
+   - +10 test.
+
+6. **Görev 073** — vault backup --recipient GPG public-key (`d2a432c`)
+   - `encrypt_backup_recipient` (asimetrik, passphrase YOK).
+   - `--encrypt` + `--recipient` MUTEX exit 2.
+   - Audit action `encrypt-recipient`.
    - +9 test.
-
-4. **Görev 066** — `vault restore --decrypt [PASSPHRASE]` (`05a12fa`)
-   - `decrypt_backup` (SPEC 063 kardeşi; `gpg --decrypt`).
-   - Temp plain `<target.parent>/.vault-restore-decrypt-<pid>.tar.gz`;
-     restore sonrası **finally** silinir.
-   - `.gpg` uzantı + `--decrypt` YOK → UYARI (auto-detect nazikliği).
-   - +11 test.
-
-5. **Görev 071** — `archive --restore --search PATTERN` (`e2ed9e5`)
-   - SPEC 065 + SPEC 033 birleşim.
-   - `--restore` `nargs="?"` `const=""` sentinel (bayraksız + `--search`).
-   - Tek eşleşme → task_id çıkar; 0 → exit 6; 2+ → exit 2 belirsizlik.
-   - +7 test.
-
-6. **Görev 069** — `run --estimate` LLM'siz cost tahmini (`6f776f4`)
-   - `_estimate_run_cost` heuristik: `max_steps * tokens_per_call`
-     (env override); stub veya fiyat 0 → cost 0.
-   - `--dry-run` (SPEC 020) FARKLI — planner çalışır. `--estimate`
-     planner ÇAĞIRMAZ.
-   - Audit kayıtsız (LLM yok).
-   - +11 test.
 
 7. **Kalite kapıları:** her görev branch → kod → test → tam
    pytest/mypy/ruff/scan → main'e ff-merge. 6 lineer commit.
@@ -80,83 +78,86 @@ zincirleme. Sıra `068 → 070 → 067 → 066 → 071 → 069` (küçükten bü
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-28. tur adayları tamamlandı. Yeni 6 aday üretildi:
+29. tur adayları tamamlandı. Yeni 6 aday üretildi:
 
-- **Görev 072 — `--estimate` adaptif hesap:** SPEC 069 heuristiği
-  SPEC 023 metrics'ten alınan **son N call ortalaması** ile değiştir
-  (env kapatılabilir). Küçük-orta.
-- **Görev 073 — `atlas vault backup --encrypt --recipient KEY_ID`:**
-  SPEC 063 GPG symmetric yerine (veya buna ek) public-key encryption
-  (`gpg --encrypt -r <key>`). Orta.
-- **Görev 074 — `.github/workflows/atlas-metrics.yml`:** SPEC 023
-  metrics.jsonl artifact'ini PR'a comment olarak yapıştıran workflow
-  (SPEC 056/070 kardeşi). Küçük.
-- **Görev 075 — `atlas archive --list [--json]`:** SPEC 007/033'ün
-  kardeşi — `archive/` dizinindeki arşivleri listele (task_id, date,
-  size, member_count). Küçük-orta.
-- **Görev 076 — `atlas metrics --window MINUTES`:** SPEC 023 `--limit N`
-  yerine (veya ek) son X dakikadaki kayıtlar. Cron-friendly. Küçük-orta.
-- **Görev 077 — Docker YASAK gate:** `.github/workflows/no-docker.yml` +
-  pre-commit gate: `Dockerfile`, `docker-compose.yml`, `.dockerignore`
-  commit'e girerse HATA (proje sözleşmesi). Küçük.
+- **Görev 078 — `atlas vault restore --decrypt-recipient`:** SPEC 066
+  symmetric decrypt tamamlanan asimetrik decrypt kardeşi
+  (`gpg --decrypt` private key + gpg-agent). Orta.
+- **Görev 079 — `atlas archive --list --sort-by size|date`:** SPEC 075
+  metadata listesine sıralama bayrağı (default alfabetik). Küçük.
+- **Görev 080 — `atlas doctor --history N`:** SPEC 057/062 diff kalıbıyla
+  `.atlas/doctor-baseline.json` tarihçesi rotasyonu (`baseline-YYYY-MM-DD.json`).
+  Küçük-orta.
+- **Görev 081 — `atlas metrics --group-by hour|day`:** SPEC 076 window +
+  aggregation; her saat/gün için toplam token+cost. Orta.
+- **Görev 082 — `.github/workflows/ci-status.yml`:** tüm mevcut workflow'ları
+  bir README badge tablosuna dönüştüren workflow. Küçük.
+- **Görev 083 — `atlas ai-cli uninstall <name>`:** SPEC 037 ailesine
+  tamamlayıcı (`npm uninstall` wrap + package.json güncelleme).
+  Küçük-orta.
 
 ---
 
 ## Hızlı Bağlam
 
-**Branch grafı:** `origin/main + 7 commit local (28. tur — push edilecek)`
-Lokal feature branch YOK.
+**Branch grafı:** `origin/main + 7 commit local (29. tur — push edilecek)`
 
-**main'e giren 6 feat + 1 docs commit (2026-08-05 28. tur):**
+**main'e giren 6 feat + 1 docs commit (2026-08-05 29. tur):**
 ```
-6f776f4 feat(069): atlas run --estimate LLM'siz cost tahmini
-e2ed9e5 feat(071): atlas archive --restore --search PATTERN (SPEC 065+033 birlesim)
-05a12fa feat(066): atlas vault restore --decrypt GPG decrypt-restore zinciri
-636b692 feat(067): atlas vault backup --keep-encrypted N (.tar.gz.gpg retention)
-9a1c909 feat(070): .github/workflows/atlas-doctor.yml — doctor CI gate
-7e27b4f feat(068): atlas metrics --alert-slack URL Slack {text} provider format
+d2a432c feat(073): vault backup --recipient KEY_ID GPG public-key encryption
+ebad7eb feat(072): atlas run --estimate --adaptive metrics ortalamasi
+32d24eb feat(075): atlas archive --list [--json] metadata listesi
+220abde feat(076): atlas metrics --window MINUTES time-based filtre
+cb7dcfa feat(074): .github/workflows/atlas-metrics.yml metrics PR gate
+51f9d61 feat(077): Docker YASAK gate (CI + pre-commit hook v5)
 ```
 
 **Kalite kapıları:**
 ```bash
 uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
-# 1110 passed, 12 skipped
+# 1163 passed, 12 skipped
 uv run mypy src                # temiz (31 kaynak dosya)
 uv run ruff check src tests    # temiz
 uv run atlas scan src          # sır bulunamadı
 ```
 
 **Yeni CLI davranışları (bu turda):**
-- `atlas metrics --alert-slack URL` (Slack `{text}` format)
-- `atlas vault backup --keep-encrypted N` (.gpg retention)
-- `atlas vault restore --decrypt [PASSPHRASE]` (GPG decrypt-restore)
-- `atlas archive --restore --search PATTERN` (arama-tabanlı restore)
-- `atlas run --estimate` (LLM'siz cost tahmini) + `--json`
+- `atlas archive --list [--json]` (yeni bayrak)
+- `atlas metrics --window MINUTES` (yeni bayrak)
+- `atlas run --estimate --adaptive [--adaptive-n N]` (yeni 2 bayrak)
+- `atlas vault backup --recipient KEY_ID` (yeni bayrak, --encrypt mutex)
 
-**Yeni workflow:** `.github/workflows/atlas-doctor.yml` (SPEC 056 kardeşi).
+**Yeni workflows:**
+- `.github/workflows/no-docker.yml`
+- `.github/workflows/atlas-metrics.yml`
 
-**Yeni env sözleşmesi:**
-- `ATLAS_ESTIMATE_TOKENS_PER_CALL` — SPEC 069 heuristik override
-  (default 500).
+**Yeni env sözleşmesi:** DEĞİŞMEDİ (72 mevcut env kullanır).
 
 **Yeni yardımcılar:**
-- `_estimate_run_cost` (cli.py, SPEC 069)
-- `decrypt_backup` (vault_backup.py, SPEC 066)
-- `prune_encrypted_backups` (vault_backup.py, SPEC 067)
+- `_filter_records_by_window` (cli.py, SPEC 076)
+- `_list_archive_entries`, `_cmd_archive_list` (cli.py, SPEC 075)
+- `_read_metrics_avg_tokens` (cli.py, SPEC 072)
+- `encrypt_backup_recipient` (vault_backup.py, SPEC 073)
+
+**Hook v4 → v5**: Docker YASAK Kapı 3 eklendi. Mevcut kullanıcılar
+`atlas hooks install --force` şart.
 
 **Exit kodları:** DEĞİŞMEDİ.
 
 **Kritik sözleşme değişmezlikleri:**
-- SPEC 002/020/023/030/031 run BİT-UYUMLU.
-- SPEC 007/012/017/033/065 archive BİT-UYUMLU.
-- SPEC 041/041.1/042/046/052/056/057/058/059/063/064 BİT-UYUMLU.
+- SPEC 023/029/043/051/059/064/068 metrics zinciri BİT-UYUMLU.
+- SPEC 007/012/017/033/065/071 archive zinciri BİT-UYUMLU.
+- SPEC 041/041.1/063/066/067 vault backup zinciri BİT-UYUMLU.
+- SPEC 002/020/030/031/069 run zinciri BİT-UYUMLU.
+- SPEC 034/045/052 hook zinciri BİT-UYUMLU (Kapı 3 ek).
+- SPEC 056/070 GHA gate kalıbı BİT-UYUMLU (074 aynı kalıp).
 
 **Bilinen flaky:** yok.
 
-**Docker YASAK:** hâlâ yürürlükte.
+**Docker YASAK:** hâlâ yürürlükte + otomatik gate (SPEC 077).
 
 **Görev-öncesi zorunlu okuma sırası:**
-1. `DECISIONS.md` — 2026-08-05 üstteki 3 blok (28/27/26. tur).
+1. `DECISIONS.md` — 2026-08-05 üstteki 4 blok (29/28/27/26. tur).
 2. Bu dosya (DEVAM_NOKTASI.md).
 3. Hedef görevin `pipeline/tasks/<XXX>/{00-need,09-ship}.md`.
 4. Değişecek modülün üstündeki docstring.
@@ -165,15 +166,12 @@ uv run atlas scan src          # sır bulunamadı
 
 ## Kapanış Notları
 
-- **1110 test yeşil** (1061 → 1110; bu tur +49; oturum başı 319'dan +791)
+- **1163 test yeşil** (1110 → 1163; bu tur +53; oturum başı 319'dan +844)
 - 6 lineer feat + 1 docs commit
-- Yeni env: `ATLAS_ESTIMATE_TOKENS_PER_CALL`
-- Yeni CLI: 5 yeni bayrak/alt-komut varyasyonu
-- Yeni workflow: `atlas-doctor.yml`
-- Yeni test dosyaları: `test_cli_metrics_alert_slack.py`,
-  `test_cli_vault_backup_keep_encrypted.py`,
-  `test_cli_vault_restore_decrypt.py`,
-  `test_cli_archive_restore_search.py`, `test_cli_run_estimate.py`
-  (+ `test_github_workflows.py` genişletildi) — 5 yeni dosya + 6 test SPEC.
-- Docker YASAK yürürlükte
-- Sıradaki tur için 6 aday (072–077).
+- Yeni workflow: `no-docker.yml`, `atlas-metrics.yml`
+- Yeni CLI bayrakları: 4 yeni (`archive --list`, `metrics --window`,
+  `run --adaptive/--adaptive-n`, `vault backup --recipient`)
+- Yeni yardımcı fonksiyonlar: 4 (cli.py + vault_backup.py)
+- Hook: v4 → v5 (Docker Kapı 3)
+- Docker YASAK ARTIK OTOMATIK GATE (CI + hook).
+- Sıradaki tur için 6 aday (078–083).

@@ -1,6 +1,67 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-05 (29. tur — 077 + 074 + 076 + 075 + 072 + 073)
+
+Kullanıcı "hepsini sıra ile uygula" → 28. tur adayları (072-077)
+tümü zincirleme, küçükten büyüğe: `077 → 074 → 076 → 075 → 072 → 073`.
+
+- [KARAR] 077 Docker YASAK gate iki katlı: CI workflow (`no-docker.yml`
+  `git ls-files` ile tracked artefakt tespit) + pre-commit hook v4→v5
+  Kapı 3 (`git diff --cached` regex). CI shallow clone dostu.
+- [KARAR] 077 test kalıbı: mevcut `runtime/`, `tools/ai-cli/node_modules/`
+  Go/npm stdlib Dockerfile'lar var → filesystem rglob YERINE `git ls-files`
+  ile tracked semantik (CI ile eşdeğer).
+- [KARAR] 077 hook v5 Docker gate sırası: Kapı 1 (doctor) → Kapı 2
+  (vault verify) → Kapı 3 (Docker). Yıkıcı hata sonlarda; Docker gate
+  read-only regex-only (hızlı).
+- [KARAR] 074 GHA metrics workflow SPEC 056/070 kalıbıyla: `--limit 100`
+  + 3 format (human/json/prometheus) artifact + PR comment koşullu
+  (has_data=true). Fail step YOK — bilgi/artifact gate.
+- [KARAR] 076 `--window MINUTES` `datetime.fromisoformat` ile parse.
+  Planner `isoformat(timespec="seconds")` timezone-naive local yazıyor;
+  window da naive `datetime.now()` — tutarlı. `ts` yok/bozuk kayıt
+  filtre içi (defensive) — sınır durumlarında veri kaybı yok.
+- [KARAR] 076 `--window` + `--limit` ORTOGONAL: önce window (zaman
+  filtresi), sonra `[-limit:]` slice (sayı sınırı). Mantıklı ordering:
+  önce hangileri "yakın" onları al, sonra son N'ini seç.
+- [KARAR] 076 Prometheus text (`_build_metrics_prometheus_text`) window
+  UYGULAMADI — canlı scrape için limit yeterli; window client-side
+  Grafana range query'de yapılır.
+- [KARAR] 075 `_list_archive_entries`: 7-alanlı dict (archive/task_id/
+  date/size_bytes/size_human/member_count/mtime). Bozuk tar → -1
+  member_count (skip'lemez, göster) — kullanıcı bozuk arşivi görsün.
+- [KARAR] 075 dispatcher: `--list` `--restore`/`--search`/`--all`'dan
+  ÖNCE (read-only, hızlı). SPEC 065 kalıbıyla aynı: read-only her
+  zaman önce.
+- [KARAR] 072 adaptif hesap `--adaptive`: `.atlas/metrics.jsonl` son N
+  call `in+out+cache_c+cache_r` toplamı ortalaması. **< 3 kayıt →
+  static fallback** (küçük numune ortalama yanıltıcı). Fallback source
+  `adaptive-fallback-static` — kullanıcı UYARI görür.
+- [KARAR] 072 `_estimate_run_cost` JSON şema genişleme: `source` +
+  `sample_count` alanları eklendi. Bit-uyumluluk garantili (mevcut
+  alanlar aynı; sadece ek).
+- [KARAR] 072 adaptif limit `--adaptive-n` default 20 (metrics
+  `--limit` ile paralel). Kullanıcı `--adaptive-n 5` derse son 5 kayıt
+  (yakın geçmiş).
+- [KARAR] 073 `--recipient` GPG asimetrik: `--trust-model always` +
+  passphrase YOK (recipient keyring'te). CI/automation dostu.
+- [KARAR] 073 `--encrypt` (symmetric) ve `--recipient` (asimetrik)
+  MUTEX exit 2 — iki farklı GPG modu, aynı çağrıda mantıksız.
+- [KARAR] 073 audit action `encrypt-recipient` (SPEC 063 `encrypt`
+  ayrımı). Kullanıcı hangi mode kullanıldığını audit log'dan görebilir.
+- [KARAR] 073 SPEC 067 `--keep-encrypted` .gpg glob'u iki mod için de
+  aynı (uzantı `.tar.gz.gpg` her ikisi). Retention yatırımı iki modu
+  paralel kapsar.
+- [HATA] 073 hook v4 → v5 upgrade: Docker gate (Kapı 3) eklendi ama
+  mevcut 34 hook testi v4 imzalı → 2 test failure. Kalıp uygulandı:
+  `test_045_hook_signature_sabit_v4` → `_v5`; şablon 2. satır asserttion
+  aynı upgrade.
+- [KARAR] Test toplamı: 1110 (28. tur sonu) → 1117 (077) → 1123 (074)
+  → 1133 (076) → 1144 (075) → 1154 (072) → **1163** (073). +53 test.
+- [KARAR] 29. tur boyunca hiç yıkıcı git operasyonu yok; 6 lineer
+  feat + 1 docs commit; tek push tur sonunda.
+
 ## 2026-08-05 (28. tur — 068 + 070 + 067 + 066 + 071 + 069)
 
 Kullanıcı "hepsini sıra ile uygula" → 27. tur adayları (066-071)
