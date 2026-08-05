@@ -1054,9 +1054,13 @@ def _list_archive_entries(archive_root: Path) -> list[dict[str, Any]]:
 
 
 def _cmd_archive_list(args: argparse.Namespace) -> int:
-    """SPEC 075: `atlas archive --list [--json]`.
+    """SPEC 075 + 079: `atlas archive --list [--json] [--sort-by KEY]
+    [--desc]`.
 
     Arşiv kökündeki tar.gz dosyalarının metadata listesi. Yıkıcı iş yok.
+
+    SPEC 079: `--sort-by {name,size,date,members}` (default `name`;
+    SPEC 075 alfabetik davranış). `--desc` ters sıra.
 
     Exit:
       - 0: başarı (bilgi komutu)
@@ -1071,6 +1075,23 @@ def _cmd_archive_list(args: argparse.Namespace) -> int:
         )
         return 2
     entries = _list_archive_entries(archive_root)
+    # SPEC 079: sıralama
+    sort_by = getattr(args, "sort_by", "name") or "name"
+    desc = bool(getattr(args, "desc", False))
+    key_map = {
+        "name": lambda e: e["archive"].lower(),
+        "size": lambda e: e["size_bytes"],
+        "date": lambda e: e["date"] or e["mtime"],  # date boşsa mtime
+        "members": lambda e: max(e["member_count"], 0),  # -1 → 0
+    }
+    if sort_by not in key_map:
+        print(
+            f"SPEC HATASI: --sort-by geçersiz: '{sort_by}' "
+            f"(kabul: {', '.join(sorted(key_map))})",
+            file=sys.stderr,
+        )
+        return 2
+    entries = sorted(entries, key=key_map[sort_by], reverse=desc)
     if getattr(args, "json", False):
         print(_json.dumps(entries, ensure_ascii=False))
         return 0
@@ -4923,6 +4944,12 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 075: archive/*.tar.gz metadata listele "
                             "(task_id/date/size/member_count/mtime). "
                             "--json ile JSON çıktı.")
+    p_arc.add_argument("--sort-by", default="name",
+                       choices=["name", "size", "date", "members"],
+                       help="SPEC 079: --list için sıralama anahtarı "
+                            "(default 'name' — SPEC 075 bit-uyumlu).")
+    p_arc.add_argument("--desc", action="store_true",
+                       help="SPEC 079: --sort-by için azalan sıra")
     p_arc.add_argument("--json", action="store_true",
                        help="SPEC 065/075: --search veya --list ile birlikte "
                             "JSON çıktı")
