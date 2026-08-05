@@ -2513,10 +2513,14 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
     if save_baseline is not None:
         import json as _json_sb
-        if diff_baseline_arg or auto_baseline:
+        if (
+            diff_baseline_arg
+            or auto_baseline
+            or getattr(args, "diff_history", None) is not None
+        ):
             print(
-                "SPEC HATASI: --save-baseline ile --diff/--auto-baseline "
-                "birlikte kullanılamaz",
+                "SPEC HATASI: --save-baseline ile --diff/--auto-baseline/"
+                "--diff-history birlikte kullanılamaz",
                 file=sys.stderr,
             )
             return 2
@@ -2586,6 +2590,50 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             )
             return 0
         diff_baseline_arg = str(default_baseline)
+
+    # SPEC 086: --diff-history N → N. snapshot (1-based, en yeni=1) ile
+    # mevcut arası delta. Mevcut --diff/--auto-baseline ile MUTEX.
+    diff_history_n = getattr(args, "diff_history", None)
+    if diff_history_n is not None:
+        if diff_baseline_arg:
+            print(
+                "SPEC HATASI: --diff-history ile --diff/--auto-baseline "
+                "birlikte kullanılamaz (kaynak belirsiz)",
+                file=sys.stderr,
+            )
+            return 2
+        if diff_history_n < 1:
+            print(
+                f"SPEC HATASI: --diff-history >= 1 olmalı: {diff_history_n}",
+                file=sys.stderr,
+            )
+            return 2
+        history = _list_doctor_history()
+        if not history:
+            print(
+                "SPEC HATASI: doctor tarihçesi bos "
+                f"({_DEFAULT_DOCTOR_HISTORY_DIR})",
+                file=sys.stderr,
+            )
+            print(
+                "İlk kalibrasyon için: atlas doctor --save-baseline",
+                file=sys.stderr,
+            )
+            return 2
+        if diff_history_n > len(history):
+            print(
+                f"SPEC HATASI: --diff-history {diff_history_n} > "
+                f"tarihçe uzunluğu {len(history)}",
+                file=sys.stderr,
+            )
+            return 2
+        # 1-based; date desc → N=1 en yeni
+        chosen = history[diff_history_n - 1]
+        diff_baseline_arg = chosen["path"]
+        print(
+            f"[--diff-history {diff_history_n}] snapshot: "
+            f"{chosen['date']} ({chosen['path']})"
+        )
 
     # SPEC 057: --diff BASELINE_JSON → mevcut raporla delta üret.
     diff_baseline = diff_baseline_arg
@@ -5642,6 +5690,10 @@ def main(argv: list[str] | None = None) -> int:
     p_doc.add_argument("--history-list", action="store_true",
                        help="SPEC 080: .atlas/doctor-history/*.json snapshot "
                             "listele (sağlık kontrolü yapma; --json ile JSON).")
+    p_doc.add_argument("--diff-history", type=int, default=None, metavar="N",
+                       help="SPEC 086: N. tarihçe snapshot (1-based, en yeni=1) "
+                            "ile mevcut arası delta. --diff/--auto-baseline "
+                            "ile MUTEX.")
     p_doc.add_argument("--ping", action="store_true",
                        help="Anthropic'e minimum request at, latency+cost raporla — SPEC 021.2")
     p_doc.add_argument("--strict", action="store_true",
