@@ -1,0 +1,75 @@
+name: ci-status
+# SPEC 082: README CI badge tablosu drift gate.
+# tools/scripts/gen_ci_badges.py çalıştırır — README değiştiyse fail.
+# Kullanıcı yeni workflow ekleyince `python tools/scripts/gen_ci_badges.py`
+# ile README güncellemeli + commit etmeli.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**.yml"
+      - "tools/scripts/gen_ci_badges.py"
+      - ".github/workflows/ci-status.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/**.yml"
+      - "tools/scripts/gen_ci_badges.py"
+      - ".github/workflows/ci-status.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ci-status-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift-check:
+    name: README ci-status drift kontrol
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run gen_ci_badges.py --check
+        id: check
+        continue-on-error: true
+        run: |
+          set +e
+          python tools/scripts/gen_ci_badges.py --check
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Generate updated block (for PR comment)
+        if: steps.check.outputs.rc != '0'
+        run: |
+          python tools/scripts/gen_ci_badges.py
+          echo '### README ci-status güncel değil' > drift-comment.md
+          echo '' >> drift-comment.md
+          echo 'Yeni workflow eklediniz mi? Yerelde çalıştırın:' >> drift-comment.md
+          echo '```sh' >> drift-comment.md
+          echo 'python tools/scripts/gen_ci_badges.py' >> drift-comment.md
+          echo 'git add README.md && git commit -m "docs: ci-status badge güncelleme"' >> drift-comment.md
+          echo '```' >> drift-comment.md
+
+      - name: Comment PR on drift
+        if: >-
+          github.event_name == 'pull_request'
+          && steps.check.outputs.rc != '0'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: drift-comment.md
+
+      - name: Fail on drift
+        if: steps.check.outputs.rc != '0'
+        run: |
+          echo "::error::README ci-status bloğu güncel değil."
+          exit 1
