@@ -141,19 +141,20 @@ def test_081_cli_group_by_gecersiz_argparse(
     assert excinfo.value.code == 2
 
 
-def test_081_cli_group_by_format_prometheus_mutex(
+def test_081_090_cli_group_by_prometheus_no_longer_mutex(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """argparse mutex grubu: --format ve --group-by farklı grup mu?"""
+    """SPEC 090: --group-by + --format prometheus MUTEX kaldırıldı,
+    artık grup histogram olarak yayımlanır (labels unit, key)."""
     metrics = _env(monkeypatch, tmp_path)
     _write_metrics(metrics, [{"ts": "2026-08-05T14:00:00", "in": 1}])
-    # --format prometheus + --group-by → semantik hata (kod içinde)
     rc = main(["metrics", "--group-by", "hour", "--format", "prometheus"])
-    assert rc == 2
-    err = capsys.readouterr().err
-    assert "--group-by" in err
-    assert "prometheus" in err
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "atlas_metrics_group_records" in out
+    assert 'unit="hour"' in out
+    assert 'key="2026-08-05T14"' in out
 
 
 def test_081_cli_group_by_alert_mutex(

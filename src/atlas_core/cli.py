@@ -3440,13 +3440,8 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
         )
         return 2
     if group_by is not None:
-        if getattr(args, "format", None) == "prometheus":
-            print(
-                "SPEC HATASI: --group-by ve --format prometheus birlikte "
-                "kullanılamaz",
-                file=sys.stderr,
-            )
-            return 2
+        # SPEC 090: --format prometheus artık grup histogramı olarak
+        # yayımlanır (SPEC 081 MUTEX geri alındı). --alert hala MUTEX.
         if getattr(args, "alert", None) is not None:
             print(
                 "SPEC HATASI: --group-by ve --alert birlikte kullanılamaz "
@@ -3462,6 +3457,42 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                 g["cost_usd"] = round(
                     _group_cost_usd(g, price_in, price_out), 6,
                 )
+        # SPEC 090: --format prometheus → grup histogram (labels unit,key)
+        if getattr(args, "format", None) == "prometheus":
+            def _lbl(k: str) -> str:
+                # Basit escape: `\` `"` newline (Prometheus text v0.0.4)
+                return (
+                    k.replace("\\", "\\\\").replace('"', '\\"')
+                    .replace("\n", "\\n")
+                )
+            group_lines: list[str] = []
+            metric_specs = [
+                ("records", "Number of LLM call records per group"),
+                ("tokens_in", "Prompt input token total per group"),
+                ("tokens_out", "Completion output token total per group"),
+                ("cache_creation", "Cache creation token total per group"),
+                ("cache_read", "Cache read token total per group"),
+            ]
+            if with_cost:
+                metric_specs.append(
+                    ("cost_usd", "Estimated aggregate cost in USD per group"),
+                )
+            for field, desc in metric_specs:
+                metric_name = f"atlas_metrics_group_{field}"
+                group_lines.append(f"# HELP {metric_name} {desc}")
+                group_lines.append(f"# TYPE {metric_name} counter")
+                for g in groups:
+                    val = g.get(field, 0)
+                    if field == "cost_usd":
+                        val_str = f"{float(val):.6f}"
+                    else:
+                        val_str = str(int(val))
+                    group_lines.append(
+                        f'{metric_name}{{unit="{group_by}",'
+                        f'key="{_lbl(str(g["key"]))}"}} {val_str}'
+                    )
+            print("\n".join(group_lines))
+            return 0
         if args.json:
             print(_json.dumps({
                 "unit": group_by, "groups": groups,
