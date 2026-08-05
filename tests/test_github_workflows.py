@@ -222,3 +222,67 @@ def test_070_doctor_fail_step_iki_kaynak() -> None:
     assert "rc_strict != '0'" in cond
     assert "rc_diff != '0'" in cond
     assert "exit 1" in last.get("run", "")
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 077: no-docker.yml
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_077_no_docker_yaml_valid() -> None:
+    data = _load("no-docker.yml")
+    assert isinstance(data, dict)
+    assert data.get("name") == "no-docker"
+
+
+def test_077_no_docker_tetikleyiciler() -> None:
+    """push[main] + pull_request tümü (path filtresi yok — her PR gate)."""
+    data = _load("no-docker.yml")
+    on = data.get("on") or data.get(True)
+    assert isinstance(on, dict)
+    assert on["push"]["branches"] == ["main"]
+    assert "pull_request" in on
+
+
+def test_077_no_docker_job_run_zinciri() -> None:
+    data = _load("no-docker.yml")
+    steps = data["jobs"]["scan"]["steps"]
+    uses = [s.get("uses") for s in steps if s.get("uses")]
+    assert any("actions/checkout" in u for u in uses)
+    # git ls-files pattern arama
+    run_blocks = "\n".join(s.get("run", "") for s in steps if s.get("run"))
+    assert "git ls-files" in run_blocks
+    assert "Dockerfile" in run_blocks
+    assert "docker-compose" in run_blocks
+    assert ".dockerignore" in run_blocks
+    assert "exit 1" in run_blocks
+
+
+def test_077_no_docker_hizli_timeout() -> None:
+    """Docker taraması hızlı olmalı — timeout ≤ 5dk."""
+    data = _load("no-docker.yml")
+    assert data["jobs"]["scan"]["timeout-minutes"] <= 5
+
+
+def test_077_no_docker_artefakt_repoda_yok() -> None:
+    """Şu an repo'da (git tracked) Docker artefaktı olmadığı sözleşme.
+
+    `git ls-files` git-ignored dizinleri (`runtime/`, `tools/ai-cli/
+    node_modules/`, ...) OTOMATİK atlar — CI ile eşdeğer semantik.
+    """
+    import subprocess as _sp
+    result = _sp.run(  # noqa: S603 - argv sabit
+        ["git", "ls-files",
+         "Dockerfile", "Dockerfile.*",
+         "docker-compose.yml", "docker-compose.yaml",
+         ".dockerignore",
+         "**/Dockerfile", "**/Dockerfile.*",
+         "**/docker-compose.yml", "**/docker-compose.yaml",
+         "**/.dockerignore"],
+        cwd=str(_REPO),
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    tracked = [ln for ln in result.stdout.splitlines() if ln.strip()]
+    assert tracked == [], (
+        f"Docker artefakti tracked (SPEC 077 ihlali): {tracked}"
+    )

@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
-# atlas-hook v4
-# SPEC 034 + 032.2 + 045 + 052: ATLAS pre-commit — quality gate + sır
-# taraması + vault graf sağlığı + auto-dump raporu TEK komut zincirinde.
+# atlas-hook v5
+# SPEC 034 + 032.2 + 045 + 052 + 077: ATLAS pre-commit —
+# quality gate + sır taraması + vault graf sağlığı + auto-dump raporu
+# + Docker YASAK sözleşmesi. TEK komut zincirinde.
 #
 # `atlas hooks install` bu şablonu `.git/hooks/pre-commit`'e kopyalar.
 # `atlas hooks uninstall` ikinci satırdaki `atlas-hook` imzasına bakıp
@@ -35,6 +36,25 @@ if [ -d vault ]; then
         echo "Renkli konsol: atlas vault verify (bayraksız)" >&2
         exit 1
     fi
+fi
+
+# Kapı 3 (SPEC 077): Docker YASAK sözleşmesi. Dockerfile / docker-compose /
+# .dockerignore commit'e girmez. Sözleşme değişirse CLAUDE.md güncelle +
+# .github/workflows/no-docker.yml + bu bloğu kaldır.
+STAGED_DOCKER=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null | \
+    grep -E '^(.*/)?(Dockerfile(\..*)?|docker-compose\.ya?ml|\.dockerignore)$' || true)
+if [ -n "$STAGED_DOCKER" ]; then
+    echo "" >&2
+    echo "[pre-commit] Docker YASAK sözleşmesi ihlali — commit engellendi." >&2
+    echo "Staged Docker artefaktları:" >&2
+    echo "$STAGED_DOCKER" | while IFS= read -r f; do
+        [ -z "$f" ] || echo "  - $f" >&2
+    done
+    echo "Çözüm:" >&2
+    echo "  - git rm --cached <path> && (dosyayı sil VEYA .gitignore'a ekle)." >&2
+    echo "  - Sözleşme değiştiyse: CLAUDE.md 'Docker YASAK'ı sil +" >&2
+    echo "    .github/workflows/no-docker.yml + bu hook bloğunu kaldır." >&2
+    exit 1
 fi
 
 exit 0

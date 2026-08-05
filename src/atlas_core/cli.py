@@ -3616,7 +3616,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
 # SPEC 034: pre-commit hook install/uninstall/status
 # ─────────────────────────────────────────────────────────────────────
 
-_HOOK_SIGNATURE = "# atlas-hook v4"
+_HOOK_SIGNATURE = "# atlas-hook v5"
 _HOOK_TEMPLATE_PATH = Path("tools/hooks/pre-commit")
 _HOOK_TARGET_REL = Path(".git/hooks/pre-commit")
 

@@ -1,0 +1,51 @@
+name: no-docker
+# SPEC 077: Docker YASAK sözleşmesi CI gate.
+# ATLAS platform sözleşmesi: Docker/Dockerfile/docker-compose/dockerignore
+# commit'e girmez. Bkz DECISIONS.md 2026-07-* "Docker YASAK yürürlükte".
+# Kullanıcı istisna için CLAUDE.md'yi güncelle + bu workflow'u kaldır.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: no-docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Docker artefakt taraması
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker YASAK gate
+        run: |
+          set -e
+          FOUND=""
+          # Kritik dosya adları
+          for pattern in Dockerfile Dockerfile.* docker-compose.yml docker-compose.yaml .dockerignore; do
+              matches=$(git ls-files "$pattern" "**/$pattern" 2>/dev/null || true)
+              if [ -n "$matches" ]; then
+                  FOUND="$FOUND$matches"$'\n'
+              fi
+          done
+          if [ -n "$FOUND" ]; then
+              echo "::error::Docker YASAK sozlesmesi ihlali — asagidaki dosyalar commit edilmis:"
+              echo "$FOUND" | while IFS= read -r f; do
+                  [ -z "$f" ] || echo "::error file=$f::YASAK Docker artefakti"
+              done
+              echo ""
+              echo "COZUM:"
+              echo "  1. Dosyayi kaldir: git rm <path> && git commit"
+              echo "  2. Sozlesme degistiyse: CLAUDE.md 'Docker YASAK'i sil +"
+              echo "     .github/workflows/no-docker.yml sil."
+              exit 1
+          fi
+          echo "OK: Docker artefakti yok."

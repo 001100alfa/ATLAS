@@ -383,17 +383,39 @@ def _real_hook_template() -> str:
     )
 
 
-def test_045_hook_signature_sabit_v4() -> None:
-    """`_HOOK_SIGNATURE` `# atlas-hook v4` (SPEC 052 yükseltmesi;
-    045 v3'ten devam)."""
-    assert _HOOK_SIGNATURE == "# atlas-hook v4"
+def test_045_hook_signature_sabit_v5() -> None:
+    """`_HOOK_SIGNATURE` `# atlas-hook v5` (SPEC 077 yükseltmesi;
+    v4'ten devam)."""
+    assert _HOOK_SIGNATURE == "# atlas-hook v5"
 
 
-def test_045_hook_sablonu_v4_imzali() -> None:
-    """Gerçek şablon ikinci satırda `# atlas-hook v4` imzasını taşır."""
+def test_045_hook_sablonu_v5_imzali() -> None:
+    """Gerçek şablon ikinci satırda `# atlas-hook v5` imzasını taşır."""
     text = _real_hook_template()
     lines = text.splitlines()
-    assert lines[1] == "# atlas-hook v4"
+    assert lines[1] == "# atlas-hook v5"
+
+
+def test_077_hook_sablonu_docker_yasak_gate_iceriyor() -> None:
+    """SPEC 077: hook Docker YASAK bloğu içerir."""
+    text = _real_hook_template()
+    assert "SPEC 077" in text
+    assert "Docker YASAK" in text
+    # Regex kalıbı: Dockerfile|docker-compose|.dockerignore
+    assert "Dockerfile" in text
+    assert "docker-compose" in text
+    assert ".dockerignore" in text
+    # `git diff --cached` staged dosyaları çek
+    assert "git diff --cached --name-only" in text
+
+
+def test_077_hook_sablonu_docker_bloku_diger_kapilardan_sonra() -> None:
+    """Docker gate son sırada — quality + vault verify önce."""
+    text = _real_hook_template()
+    doctor_idx = text.index("atlas doctor --strict")
+    verify_idx = text.index("atlas vault verify --strict")
+    docker_idx = text.index("SPEC 077")
+    assert doctor_idx < verify_idx < docker_idx
 
 
 def test_052_hook_sablonu_dump_report_bayragi_iceriyor() -> None:
