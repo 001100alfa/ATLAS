@@ -142,6 +142,52 @@ def default_backup_path(archive_root: Path) -> Path:
     return archive_root / f"vault-{ts}.tar.gz"
 
 
+def split_backup(src: Path, size_mb: int) -> list[Path]:
+    """SPEC 101: `src` dosyasını `size_mb * 1024 * 1024` byte parçalara böl.
+
+    Çıktı: `<src>.001`, `<src>.002`, ... (3 haneli 1-based). Orijinal
+    `src` silinir (space tasarrufu). Birleştirme:
+    `cat <src>.* > <src>` (POSIX) veya `copy /b <src>.001+<src>.002 <src>`
+    (Windows).
+
+    - `size_mb < 1` → `VaultBackupError`.
+    - Src yok → `VaultBackupError`.
+    - IO hatası → `VaultBackupError`.
+
+    Döner: yazılan parça dosya yolları listesi (sıralı).
+    """
+    if size_mb < 1:
+        raise VaultBackupError(f"split size_mb >= 1 olmalı: {size_mb}")
+    if not src.is_file():
+        raise VaultBackupError(f"split kaynak yok: {src}")
+    chunk_bytes = size_mb * 1024 * 1024
+    parts: list[Path] = []
+    try:
+        with src.open("rb") as fin:
+            idx = 1
+            while True:
+                buf = fin.read(chunk_bytes)
+                if not buf:
+                    break
+                part_path = src.with_suffix(src.suffix + f".{idx:03d}")
+                with part_path.open("wb") as fout:
+                    fout.write(buf)
+                parts.append(part_path)
+                idx += 1
+    except OSError as exc:
+        raise VaultBackupError(f"split IO hatası: {exc}") from exc
+    if not parts:
+        # Boş src (0 byte) — tek boş parça oluştur (birleştirme sözleşmesi)
+        part_path = src.with_suffix(src.suffix + ".001")
+        part_path.write_bytes(b"")
+        parts.append(part_path)
+    try:
+        src.unlink()
+    except OSError as exc:
+        raise VaultBackupError(f"split sonrası src silinemedi: {exc}") from exc
+    return parts
+
+
 def prune_backups(archive_root: Path, keep: int) -> list[Path]:
     """SPEC 041.1: `<archive_root>/vault-*.tar.gz` yedeklerinden retention.
 

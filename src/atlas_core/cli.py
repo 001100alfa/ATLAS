@@ -3895,6 +3895,25 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # SPEC 101: --split doğrulama + encrypt/recipient MUTEX
+    split_mb = getattr(args, "split", None)
+    if split_mb is not None:
+        if split_mb < 1:
+            print(
+                f"SPEC HATASI: --split SIZE_MB >= 1 olmalı: {split_mb}",
+                file=sys.stderr,
+            )
+            return 2
+        enc_p = getattr(args, "encrypt", None)
+        rcp = getattr(args, "recipient", None)
+        if enc_p is not None or rcp:
+            print(
+                "SPEC HATASI: --split ile --encrypt/--recipient birlikte "
+                "kullanılamaz (encrypted split ayrı SPEC — YAGNI)",
+                file=sys.stderr,
+            )
+            return 2
+
     archive_root = Path(args.archive_root)
     if out_arg:
         out_path = Path(out_arg)
@@ -3936,6 +3955,26 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
                     f"prune: {len(deleted)} eski yedek silindi "
                     f"(keep={keep})"
                 )
+
+    # SPEC 101: --split SIZE_MB → parçalı yedek (encrypt/recipient MUTEX
+    # yukarıda kontrol edildi). Retention'dan sonra, encrypt'ten önce.
+    if split_mb is not None:
+        from atlas_core.memory.vault_backup import split_backup
+        try:
+            parts = split_backup(result, split_mb)
+        except VaultBackupError as exc:
+            audit.record("atlas-vault", "split-error", str(exc)[:180])
+            print(f"SPLIT HATASI: {exc}", file=sys.stderr)
+            return 6
+        for p in parts:
+            audit.record("atlas-vault", "split-part", str(p))
+        print(
+            f"vault yedeği {len(parts)} parçaya bölündü "
+            f"(size={split_mb} MB): {parts[0].name} ... {parts[-1].name}"
+        )
+        # Split sonrası encrypt/recipient dalları geçilir (MUTEX zaten
+        # başta reddedildi). --keep-encrypted da anlamsız → kısa devre.
+        return 0
 
     # SPEC 063: --encrypt PASSPHRASE → GPG symmetric AES256 → .tar.gz.gpg
     # SPEC 073: --recipient KEY_ID → GPG public-key asimetrik → .tar.gz.gpg
@@ -5645,6 +5684,10 @@ def main(argv: list[str] | None = None) -> int:
                            "--encrypt ile MUTEX (symmetric vs public-key). "
                            "KEY_ID keyring'te olmalı (email/fingerprint). "
                            "--trust-model always (kullanıcı sözleşme kabulü).")
+    p_vb.add_argument("--split", type=int, default=None, metavar="SIZE_MB",
+                      help="SPEC 101: yedeği SIZE_MB parçalara böl "
+                           "(<name>.tar.gz.001, .002, ...). Orijinal silinir. "
+                           "--encrypt/--recipient ile MUTEX.")
     p_vb.add_argument("--keep-encrypted", type=int, default=None, metavar="N",
                       help="SPEC 067: backup sonrası archive_root'daki "
                            "vault-*.tar.gz.gpg yedekleri N tut, gerisini "
