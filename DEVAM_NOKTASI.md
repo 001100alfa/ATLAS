@@ -13,11 +13,11 @@
 > 5. Zorunlu Döngü'ye (`CLAUDE.md` §Zorunlu Döngü) gir; ilk iş
 >    `DECISIONS.md`'nin son 2026-08-05 girişlerini kaba tarama.
 
-**Son çalışma:** 2026-08-05 (30. tur — 082 + 079 + 083 + 078 + 080 + 081)
+**Son çalışma:** 2026-08-05 (31. tur — 085 + 088 + 089 + 087 + 084 + 086)
 **Branch:** `main` (6 feat + docs, PUSH edilecek)
 **Working tree:** temiz
-**Durum:** 30. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
-**1221/1221 test yeşil** (+12 skip), cov ~%91.5+, mypy strict + ruff +
+**Durum:** 31. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
+**1274/1274 test yeşil** (+12 skip), cov ~%91.43+, mypy strict + ruff +
 scan temiz.
 
 ---
@@ -28,47 +28,45 @@ Yeni oturumda tek cümle yeter: **"devam et"**
 
 ---
 
-## Bu turda yapılan (2026-08-05 — 30. tur)
+## Bu turda yapılan (2026-08-05 — 31. tur)
 
-Kullanıcı "devam et ve hepsini sıra ile uygula" → 29. tur adayları
-(078-083) tümü zincirleme, küçükten büyüğe.
+Kullanıcı "devam et → hepsini sıra ile uygula" → 30. tur adayları
+(084-089) tümü zincirleme, küçükten büyüğe.
 
-1. **Görev 082** — ci-status.yml + README badge tablosu (`26894fb`)
-   - `tools/scripts/gen_ci_badges.py`: workflow YAML → README badge
-     tablosu (marker'lar arası; drift gate).
-   - `.github/workflows/ci-status.yml`: `--check` drift → PR comment +
-     exit 1.
-   - README güncellendi (6 workflow badge).
+1. **Görev 085** — archive --list --limit N (`3ea8974`)
+   - `--limit N` sıralamadan SONRA `entries[:N]` (top-N).
+   - `N<=0` → SPEC HATASI exit 2; `N>len` → tüm liste.
+   - `--limit` YOKSA SPEC 075/079 BİT-UYUMLU.
    - +8 test.
 
-2. **Görev 079** — archive --list --sort-by KEY (`47e8df3`)
-   - SPEC 075 metadata sıralama: `{name,size,date,members}` + `--desc`.
-   - Default `name` bit-uyumlu.
-   - `date` boşsa mtime fallback.
+2. **Görev 088** — ai-cli list --outdated (`950e7fb`)
+   - `_strip_semver_prefix`: `^`, `~`, `>=`, `>`, `=`, `*`, boşluk.
+   - Filter: `installed is None` VEYA `stripped != installed`.
+   - Pretty başlık suffix `— outdated`, boş → `(guncelleme yok)`.
    - +8 test.
 
-3. **Görev 083** — ai-cli uninstall <name> (`503601d`)
-   - `_run_npm_uninstall(bin, package)` + `_cmd_ai_cli_uninstall`.
-   - 4-yollu hata (dir/deps/npm/subprocess) → exit 2.
+3. **Görev 089** — atlas-ci-status.yml scheduled daily (`9d30f57`)
+   - Yeni workflow: cron `0 6 * * *` + workflow_dispatch.
+   - Drift → `peter-evans/create-issue-from-file@v5` issue.
+   - README badge tablosu regen (SPEC 082 gate).
    - +7 test.
 
-4. **Görev 078** — vault restore --decrypt-recipient GPG asimetrik (`ed3d315`)
-   - `decrypt_backup_recipient`: passphrase YOK (private key + gpg-agent).
-   - `--decrypt` + `--decrypt-recipient` MUTEX exit 2.
-   - Mevcut SPEC 066 test'lerinde 2 mesaj metni tolerans regex.
-   - +9 test.
+4. **Görev 087** — vault verify --format json-lines (`6733c33`)
+   - `--format {human,json,json-pretty,json-lines}` yeni bayrak.
+   - `--format` + `--json`/`--pretty` MUTEX exit 2.
+   - NDJSON: bulgu başına 1 satır + son satır summary.
+   - +10 test.
 
-5. **Görev 080** — doctor --save-baseline history + retention (`75f12ee`)
-   - `.atlas/doctor-history/baseline-YYYY-MM-DD.json` auto-snapshot.
-   - `--history-keep N` retention + `--history-list` kısa devre.
-   - Default path yan etkisi (custom path → tarihçe YOK).
-   - +14 test.
+5. **Görev 084** — metrics --group-by --with-cost (`d2cc451`)
+   - `_group_cost_usd(g, Pin, Pout)` — SPEC 043 formülü AYNI (DRY).
+   - `--with-cost` yalnız `--group-by` ile; env yok → cost 0 + UYARI.
+   - +10 test.
 
-6. **Görev 081** — metrics --group-by hour|day aggregation (`3f8d8e4`)
-   - `_group_records_by(records, unit)`: hour/day; `ts` bozuk → `unknown`.
-   - Semantik mutex: `--format prometheus` + `--alert` → exit 2.
-   - `--window` ile ORTOGONAL.
-   - +12 test.
+6. **Görev 086** — doctor --diff-history N (`e8ba243`)
+   - `_list_doctor_history()` date desc → N=1 en yeni.
+   - `--diff/--auto-baseline/--save-baseline` MUTEX.
+   - SPEC 057 delta şeması BİT-UYUMLU.
+   - +10 test.
 
 7. **Kalite kapıları:** her görev branch → kod → test → tam
    pytest/mypy/ruff/scan → main'e ff-merge. 6 lineer commit.
@@ -77,86 +75,87 @@ Kullanıcı "devam et ve hepsini sıra ile uygula" → 29. tur adayları
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-30. tur adayları tamamlandı. Yeni 6 aday üretildi:
+31. tur adayları tamamlandı. Yeni 6 aday üretildi:
 
-- **Görev 084 — `atlas metrics --group-by --with-cost`:** SPEC 081
-  aggregation'a group başına $ cost hesabı (fiyat env ile). Küçük-orta.
-- **Görev 085 — `atlas archive --list --sort-by --limit N`:** SPEC 079
-  sort + top-N (en büyük 5 arşiv gibi). Küçük.
-- **Görev 086 — `atlas doctor --history --diff N`:** SPEC 080 tarihçesindeki
-  N. snapshot ile mevcut arasında delta. Orta.
-- **Görev 087 — `atlas vault verify --format json-lines`:** SPEC 042
-  büyük vault'lar için streaming JSON (bulguları newline-delimited).
-  Küçük-orta.
-- **Görev 088 — `atlas ai-cli list --outdated`:** SPEC 037.2 filtresi;
-  yalnız beklenen ≠ kurulu sürüm satırlar. Küçük.
-- **Görev 089 — `.github/workflows/atlas-ci-status.yml` badge freshness:**
-  SPEC 082 drift gate + workflow scheduled (daily) — badge SVG cache
-  invalidation için. Küçük.
+- **Görev 090 — `atlas metrics --group-by --with-cost --format prometheus`:**
+  Şu an SPEC 081 `--group-by + --format prometheus` MUTEX (exit 2).
+  SPEC 084 cost eklendikten sonra prometheus'a grup histogramı olarak
+  açılabilir (labels: `key`, `unit`). Orta.
+- **Görev 091 — `atlas doctor --diff-history --all`:** SPEC 086 tek
+  snapshot; `--all` tüm tarihçeyi mevcuta karşı toplu diff (tablo).
+  Orta.
+- **Görev 092 — `atlas vault verify --format json-lines --dump PATH`:**
+  SPEC 087 stream'i doğrudan dosyaya (stdout değil). Küçük.
+- **Görev 093 — `atlas archive --list --search PATTERN`:** SPEC 065
+  arama + SPEC 075 liste birleşimi (arşiv adı regex filtresi). Küçük-orta.
+- **Görev 094 — `atlas ai-cli list --outdated --strict`:** SPEC 088
+  filtre + boş değilse exit 4 (CI/pre-commit uyumlu). Küçük.
+- **Görev 095 — `.github/workflows/atlas-metrics.yml` --with-cost
+  entegrasyonu:** SPEC 074 metrics workflow'una `--with-cost` bayrağı
+  ekle + prometheus/json artifact. Küçük-orta.
 - Ya da başka öncelik varsa net söyle.
 
 ---
 
 ## Hızlı Bağlam
 
-**Branch grafı:** `origin/main + 6 commit local (30. tur — push edilecek)`
+**Branch grafı:** `origin/main + 6 commit local (31. tur — push edilecek)`
 
-**main'e giren 6 feat (2026-08-05 30. tur):**
+**main'e giren 6 feat (2026-08-05 31. tur):**
 ```
-3f8d8e4 feat(081): atlas metrics --group-by hour|day aggregation
-75f12ee feat(080): atlas doctor --save-baseline history + --history-keep + --history-list
-ed3d315 feat(078): vault restore --decrypt-recipient GPG asimetrik decrypt
-503601d feat(083): atlas ai-cli uninstall <name>
-47e8df3 feat(079): atlas archive --list --sort-by KEY [--desc]
-26894fb feat(082): ci-status.yml + README badge tablosu drift gate
+e8ba243 feat(086): atlas doctor --diff-history N (SPEC 080 tarihce delta)
+d2cc451 feat(084): atlas metrics --group-by --with-cost (SPEC 081 uzerine cost_usd)
+6733c33 feat(087): atlas vault verify --format json-lines (streaming NDJSON)
+9d30f57 feat(089): atlas-ci-status.yml scheduled daily drift scan
+950e7fb feat(088): atlas ai-cli list --outdated (SPEC 037.2 uzerine filtre)
+3ea8974 feat(085): atlas archive --list --limit N (SPEC 079 uzerine top-N)
 ```
 
 **Kalite kapıları:**
 ```bash
 uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
-# 1221 passed, 12 skipped
+# 1274 passed, 12 skipped; cov 91.43%
 uv run mypy src                # temiz (31 kaynak dosya)
 uv run ruff check src tests    # temiz
 uv run atlas scan src          # sır bulunamadı
 ```
 
 **Yeni CLI davranışları (bu turda):**
-- `atlas archive --list --sort-by {name,size,date,members} [--desc]`
-- `atlas ai-cli uninstall <name>`
-- `atlas vault restore --decrypt-recipient` (asimetrik decrypt)
-- `atlas doctor --save-baseline` (tarihçe yan etki) + `--history-keep N`
-  + `--history-list`
-- `atlas metrics --group-by {hour,day}`
+- `atlas archive --list --limit N` (SPEC 079 üstüne top-N)
+- `atlas ai-cli list --outdated`
+- `atlas vault verify --format {human,json,json-pretty,json-lines}`
+- `atlas metrics --group-by KEY --with-cost`
+- `atlas doctor --diff-history N`
 
-**Yeni workflow:** `.github/workflows/ci-status.yml` (drift gate).
-**Yeni script:** `tools/scripts/gen_ci_badges.py`.
+**Yeni workflow:** `.github/workflows/atlas-ci-status.yml` (scheduled daily).
 
 **Yeni env sözleşmesi:** DEĞİŞMEDİ.
 
 **Yeni yardımcılar:**
-- `_list_doctor_history`, `_prune_doctor_history` (cli.py, SPEC 080)
-- `_group_records_by` (cli.py, SPEC 081)
-- `_run_npm_uninstall` (cli.py, SPEC 083)
-- `decrypt_backup_recipient` (vault_backup.py, SPEC 078)
+- `_strip_semver_prefix` (cli.py, SPEC 088)
+- `_group_cost_usd` (cli.py, SPEC 084)
 
 **Exit kodları:** DEĞİŞMEDİ.
 
 **Kritik sözleşme değişmezlikleri:**
-- SPEC 023/029/043/051/059/064/068/076 metrics zinciri BİT-UYUMLU
-  (group-by ORTOGONAL, window ile birlikte çalışır).
-- SPEC 007/012/017/033/065/071/075 archive zinciri BİT-UYUMLU
-  (list default `name` alfabetik korunur).
-- SPEC 037 ailesi BİT-UYUMLU (uninstall yeni; install/update/list/exec/
-  status/diff-summary dokunulmadı).
-- SPEC 041/041.1/063/066/067/073 vault zinciri BİT-UYUMLU.
-- SPEC 062 `--save-baseline` default path içerik AYNI (tarihçe yan etki).
+- SPEC 075/079 archive `--list` default `name` + tam liste BİT-UYUMLU
+  (SPEC 085 `--limit` opsiyonel).
+- SPEC 037.2 ai-cli list tam liste BİT-UYUMLU (SPEC 088 `--outdated`
+  opsiyonel).
+- SPEC 042 vault verify mevcut `--json`/`--pretty` yolu BİT-UYUMLU
+  (SPEC 087 `--format` yeni yol, MUTEX).
+- SPEC 081 metrics `--group-by` grup dict alanları BİT-UYUMLU (SPEC 084
+  `--with-cost` yalnız cost_usd EKLER).
+- SPEC 057 doctor `--diff` delta şeması BİT-UYUMLU (SPEC 086 sadece
+  farklı kaynak).
+- SPEC 082 ci-status.yml push/PR gate DOKUNULMADI (SPEC 089 AYRI cron).
 
 **Bilinen flaky:** yok.
 
 **Docker YASAK:** hâlâ yürürlükte + otomatik gate (SPEC 077, CI + hook v5).
 
 **Görev-öncesi zorunlu okuma sırası:**
-1. `DECISIONS.md` — 2026-08-05 üstteki 5 blok (30/29/28/27/26. tur).
+1. `DECISIONS.md` — 2026-08-05 üstteki 2 blok (31/30. tur).
 2. Bu dosya (DEVAM_NOKTASI.md).
 3. Hedef görevin `pipeline/tasks/<XXX>/{00-need,09-ship}.md`.
 4. Değişecek modülün üstündeki docstring.
@@ -165,24 +164,25 @@ uv run atlas scan src          # sır bulunamadı
 
 ## Kapanış Notları
 
-- **1221 test yeşil** (1163 → 1221; bu tur +58; oturum başı 319'dan +902)
+- **1274 test yeşil** (1221 → 1274; bu tur +53; oturum başı 319'dan +955)
 - 6 lineer feat + docs commit
-- Yeni CLI bayrakları: 5 (archive --list --sort-by/--desc, ai-cli
-  uninstall, vault restore --decrypt-recipient, doctor --save-baseline
-  yan etki + --history-keep + --history-list, metrics --group-by)
-- Yeni workflow: `ci-status.yml`
-- Yeni script: `tools/scripts/gen_ci_badges.py` (drift gate)
-- Yeni yardımcı fonksiyonlar: 4 (cli.py) + 1 (vault_backup.py)
-- Yeni test dosyaları: `test_gen_ci_badges.py`,
-  `test_cli_archive_list_sort.py`, `test_cli_ai_cli_uninstall.py`,
-  `test_cli_vault_restore_decrypt_recipient.py`,
-  `test_cli_doctor_history.py`, `test_cli_metrics_group_by.py` (6 dosya, +58 test)
+- Yeni CLI bayrakları: 5 (archive --list --limit, ai-cli list
+  --outdated, vault verify --format, metrics --group-by --with-cost,
+  doctor --diff-history)
+- Yeni workflow: `atlas-ci-status.yml` (cron 06:00 UTC)
+- Yeni yardımcı fonksiyonlar: 2 (cli.py)
+- Yeni test dosyaları: `test_cli_archive_list_limit.py`,
+  `test_cli_ai_cli_list_outdated.py`,
+  `test_cli_vault_verify_jsonl.py`,
+  `test_cli_metrics_with_cost.py`,
+  `test_cli_doctor_diff_history.py`,
+  + `test_github_workflows.py` SPEC 089 bölümü (6 dosya, +53 test)
 - Docker YASAK yürürlükte + hook v5
-- Sıradaki tur için 6 aday (084–089).
+- Sıradaki tur için 6 aday (090–095).
 
 ---
 
-## 5 Turluk Toplu İstatistik (2026-08-05 tek gün)
+## 6 Turluk Toplu İstatistik (2026-08-05 tek gün)
 
 | Tur | Bitiş commit | Test toplam | Delta | Yeni bayrak/komut |
 |---|---|---:|---:|---|
@@ -190,11 +190,11 @@ uv run atlas scan src          # sır bulunamadı
 | 27 | c086a78 | 1061 | +66 | ai-cli install, doctor --auto-baseline, vault backup --encrypt, metrics --alert-webhook, archive --search, JSON Schema doc |
 | 28 | 32f6fdd | 1110 | +49 | metrics --alert-slack, vault backup --keep-encrypted, vault restore --decrypt, archive --restore --search, run --estimate, GHA atlas-doctor |
 | 29 | dcc7f08 | 1163 | +53 | Docker YASAK gate (v5), atlas-metrics.yml, metrics --window, archive --list, --estimate --adaptive, vault backup --recipient |
-| **30** | **e7 push** | **1221** | **+58** | ci-status.yml, archive --list --sort-by, ai-cli uninstall, vault restore --decrypt-recipient, doctor --history, metrics --group-by |
+| 30 | e2261f6 | 1221 | +58 | ci-status.yml, archive --list --sort-by, ai-cli uninstall, vault restore --decrypt-recipient, doctor --history, metrics --group-by |
+| **31** | **push** | **1274** | **+53** | archive --list --limit N, ai-cli list --outdated, atlas-ci-status.yml (daily cron), vault verify --format json-lines, metrics --group-by --with-cost, doctor --diff-history |
 
-Toplam **30 feat commit** + 5 docs commit bugün; **+309 test** (912
-→ 1221). Cov `%91.18 → %91.5+`. Docker YASAK otomatik gate; 6 yeni GHA
+Toplam **36 feat commit** + 6 docs commit bugün; **+362 test** (912
+→ 1274). Cov `%91.18 → %91.43`. Docker YASAK otomatik gate; 7 GHA
 workflow (vault-health, atlas-doctor, atlas-metrics, no-docker,
-ci-status + mevcut ci); 5 yeni CLI komutu/alt-komutu (vault fix-broken,
-vault fix-orphans, ai-cli install/uninstall/status); ~30 yeni CLI
-bayrağı/varyasyonu.
+ci-status, atlas-ci-status, + ci); 5 yeni CLI komutu/bayrak varyasyonu
+bu turda.

@@ -1,6 +1,63 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-05 (31. tur — 085 + 088 + 089 + 087 + 084 + 086)
+
+Kullanıcı "devam et → hepsini sıra ile" → 30. tur adayları (084-089)
+tümü zincirleme, küçükten büyüğe: `085 → 088 → 089 → 087 → 084 → 086`.
+
+- [KARAR] 085 `--limit N`: sıralamadan **SONRA** `entries[:N]` (top-N,
+  orta değil). `N <= 0` → SPEC HATASI exit 2 (argparse yerine semantik
+  hata — "N > 0 olmalı" mesajı net). `N > len(entries)` → tüm liste
+  (kesme yok). `--limit` VERİLMEZSE SPEC 075/079 BİT-UYUMLU.
+- [KARAR] 088 `_strip_semver_prefix`: `^`, `~`, `>=`, `>`, `=`, `*`,
+  boşluk sıyır. **npm semver-satisfies DEĞİL** — yalın prefix temizlik.
+  `^1.18.8` + installed `1.18.9` → outdated (yanlış pozitif) çünkü range
+  hesabı yok. Dokümanta net belirt; kullanıcı gerçek semver için
+  `npm outdated` çalıştırır. Karar YAGNI — semver kütüphanesi eklemek
+  bağımlılık maliyeti.
+- [KARAR] 088 pretty başlık: `... — outdated` (--outdated verildiyse
+  başlığa suffix). Boş sonuç → `(guncelleme yok)` cp1254 uyumlu ASCII.
+- [KARAR] 089 `.github/workflows/atlas-ci-status.yml` AYRI workflow
+  (082 `ci-status.yml`'ye dokunmayış). Neden: 082 push/PR gate, 089
+  cron+dispatch. İki farklı use-case → iki workflow.
+- [KARAR] 089 drift → `peter-evans/create-issue-from-file@v5` ile issue.
+  Label: `ci-status/drift/automated`. `permissions: issues: write`
+  eklendi; sistem token'ı yeter (PAT gerekmez).
+- [KARAR] 089 cron `0 6 * * *` (06:00 UTC = 09:00 Istanbul). Deterministik
+  saat + iş saatinde issue görünür.
+- [KARAR] 087 `--format {human,json,json-pretty,json-lines}` yeni
+  bayrak. `--json` ve `--pretty` MUTEX (exit 2). `--format` VERİLMEZSE
+  mevcut `--json`/`--pretty` yolu → SPEC 042 BİT-UYUMLU.
+- [KARAR] 087 json-lines şema: `{type: "broken_link|orphan_note|
+  orphan_tag", ...}` ve son satır `{type: "summary", ...}`. Temiz vault
+  → tek summary satırı (clean=True). Konsept: NDJSON tüketici tek pass
+  ile hem bulgu hem özet alır.
+- [KARAR] 087 `--strict` (exit 4) ve `--dump-report` (markdown yan etki)
+  format'tan bağımsız — verify sonucu bit-uyumlu.
+- [KARAR] 084 `_group_cost_usd(g, Pin, Pout)`: SPEC 043 Prometheus
+  formülü ile **BİT-UYUMLU** (in*Pin + cc*Pin*1.25 + cr*Pin*0.1 +
+  out*Pout) / 1M. Extract helper — DRY (Prometheus dalı da bu formül).
+- [KARAR] 084 `--with-cost` yalnız `--group-by` ile anlamlı. Aksi hâlde
+  SPEC HATASI exit 2. Neden: cost YALIN metric olarak zaten Prometheus
+  export'ta var; `--with-cost` group aggregation üzerine özel.
+- [KARAR] 084 fiyat env yoksa cost 0.0 (SPEC 013 fail-safe), pretty'de
+  UYARI stderr'e. JSON tarafında UYARI YOK (JSON tüketici stderr'i
+  ignore edebilir, `cost_usd: 0.0` yeterli sinyal).
+- [KARAR] 084 `--with-cost` VERİLMEZSE grup dict alanları SPEC 081 AYNI
+  (cost_usd alanı EKLENMEZ) — BİT-UYUMLU.
+- [KARAR] 086 `--diff-history N` (yeni bayrak, `--diff PATH` ile MUTEX).
+  Neden: `--diff PATH` string ile `--diff N` int çakışır (argparse
+  tek tip); ayrı bayrak temiz. `_list_doctor_history()` date desc → N=1
+  en yeni; kullanıcı zihinsel model "1'ci en yakın" ile uyumlu.
+- [KARAR] 086 tarihçe boş → exit 2 + "atlas doctor --save-baseline"
+  öneri (SPEC 062 auto-baseline kalıbı ile simetrik).
+- [KARAR] 086 seçilen snapshot path'i `diff_baseline_arg`'a atanır →
+  mevcut `_diff_doctor_reports` yolu çalışır (SPEC 057 delta şeması
+  BİT-UYUMLU; yeni delta türü YOK).
+- [KARAR] 086 `--save-baseline` mutex listesi güncellendi:
+  `--diff-history` de mutex (kaynak/hedef çakışması önlenir).
+
 ## 2026-08-05 (30. tur — 082 + 079 + 083 + 078 + 080 + 081)
 
 Kullanıcı "devam et ve hepsini sıra ile uygula" → 29. tur adayları
