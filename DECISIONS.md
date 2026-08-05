@@ -1,6 +1,61 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-05 (34. tur — 105 + 106 + 103 + 104 + 102 + 107)
+
+Kullanıcı "hepsini sıra ile uygula, emirler atomiktir" → 33. tur
+adayları (102-107) tümü zincirleme, küçükten büyüğe:
+`105 → 106 → 103 → 104 → 102 → 107`.
+
+- [KARAR] 105 archive `--out` yalnız `--json-lines` ile anlamlı
+  (SPEC 092/096 kalıbı). Parent auto-mkdir + IO exit 2. Diğer
+  formatlar (pretty/JSON) için `--out` YOK — kullanıcı shell redirect
+  kullansın.
+- [KARAR] 106 ai-cli `--out` yalnız `--json-lines` ile. `--strict`
+  ile ORTOGONAL (exit 4 korunur, dosyaya yazılır). SPEC 105 ile
+  simetrik.
+- [KARAR] 103 `--gzip` yalnız `--out` ile anlamlı → aksi exit 2.
+  PATH `.gz` uzantı yoksa auto-suffix ekle (kullanıcı şaşırmasın).
+  Sahipse aynen kullan (çift `.gz.gz` yok).
+- [KARAR] 103 değişken adı `prom_text` (mypy no-redef: SPEC 064
+  `_post_alert_webhook` `payload` dict scope'la çakışma). Kalıp: aynı
+  fonksiyonda scope-narrow için isim çakışması → değişken adını
+  farklılaştır (SPEC 090 `group_lines` kalıbı).
+- [KARAR] 104 **SPEC 091 `--format prometheus` MUTEX KALDIRILDI**
+  (2. sözleşme değişikliği — SPEC 090 rollback kalıbı ile simetrik).
+  Neden: `--diff-history-all` çıktısı Prometheus'a grup metrikleri
+  olarak yayımlanabiliyor (labels: `snapshot_date`).
+- [KARAR] 104 5 metric: 3 counter (warnings_added/removed,
+  quality_deltas) + 2 gauge (has_regression/has_improvement 0|1).
+  HELP/TYPE her metric için (Prometheus text v0.0.4).
+- [KARAR] 104 `--strict` ile ORTOGONAL (SPEC 097 exit 9 korunur;
+  Prometheus çıktı hâlâ basılır). `--schema` kısa devre yine BİT-
+  UYUMLU (SPEC 040 kalıbı).
+- [KARAR] 102 `combine_split_parts(first_part)`: `.001` başlar, `.NNN`
+  sıralı okur, tek dosyaya birleştirir. Parçaların **orijinali
+  KORUNUR** (silinmez) — kullanıcı için ek yedek + hata durumunda
+  geri alınabilir.
+- [KARAR] 102 `<path>` `.001` olmalı (deterministik başlangıç); wildcard/
+  glob değil — Windows'ta shell expansion tutarsız. Kullanıcı ilk
+  parçayı verir, kod diğerlerini bulur.
+- [KARAR] 102 `--split` + `--decrypt`/`--decrypt-recipient` MUTEX
+  exit 2 (SPEC 101 backup MUTEX ile simetrik — encrypted split ayrı
+  SPEC, YAGNI).
+- [KARAR] 102 birleştirme temp dosyası `<base>.combined-<pid>`
+  restore sonrası `finally` bloğunda silinir (SPEC 066 kalıbı).
+- [KARAR] 107 cron `0 3 * * *` (03:00 UTC = 06:00 Istanbul, gece iş
+  yükü düşük saat). SPEC 089 (`0 6 * * *`) ci-status'la 3 saat aralık
+  → yoğunluk dağılır.
+- [KARAR] 107 `Check vault exists` step + `has_vault` conditional →
+  vault yoksa workflow durmaz (SPEC 095 fail-safe kalıbı). CI/repo'da
+  vault olmayabilir (env vault paylaşılabilir).
+- [KARAR] 107 `--split 50 MB` — GitHub artifact 2 GB per-artifact
+  sınırı; 50 MB parça → ~40 parça max (2 GB vault). `--keep 7` retention
+  → 7 gün eski yedek (workflow her gün çalışırsa haftalık pencere).
+- [KARAR] 107 upload artifact glob `vault-*.tar.gz.*` — yalnız split
+  parçaları (`.001..N`) — orijinal `.tar.gz` YOK çünkü `--split`
+  sonra silinir (SPEC 101 kalıbı).
+
 ## 2026-08-05 (33. tur — 099 + 098 + 096 + 097 + 100 + 101)
 
 Kullanıcı "hepsini sıra ile uygula" → 32. tur adayları (096-101) tümü
