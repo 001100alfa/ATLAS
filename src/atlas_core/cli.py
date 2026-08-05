@@ -3371,6 +3371,18 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # SPEC 096: --out yalnız --group-by + --format prometheus ile anlamlı
+    if getattr(args, "out", None) is not None and (
+        getattr(args, "group_by", None) is None
+        or getattr(args, "format", None) != "prometheus"
+    ):
+        print(
+            "SPEC HATASI: --out yalnız --group-by + --format prometheus "
+            "ile birlikte kullanılır",
+            file=sys.stderr,
+        )
+        return 2
+
     path = _metrics_path()
     limit: int = args.limit
     records: list[dict[str, Any]] = []
@@ -3477,6 +3489,8 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                 )
         # SPEC 090: --format prometheus → grup histogram (labels unit,key)
         if getattr(args, "format", None) == "prometheus":
+            # SPEC 096: --out yalnız --format prometheus + --group-by ile
+            out_path_arg = getattr(args, "out", None)
             def _lbl(k: str) -> str:
                 # Basit escape: `\` `"` newline (Prometheus text v0.0.4)
                 return (
@@ -3509,7 +3523,21 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                         f'{metric_name}{{unit="{group_by}",'
                         f'key="{_lbl(str(g["key"]))}"}} {val_str}'
                     )
-            print("\n".join(group_lines))
+            # SPEC 096: --out PATH → stdout yerine dosyaya yaz
+            if out_path_arg is not None:
+                try:
+                    op = Path(out_path_arg)
+                    op.parent.mkdir(parents=True, exist_ok=True)
+                    op.write_text("\n".join(group_lines) + "\n",
+                                  encoding="utf-8")
+                except OSError as exc:
+                    print(
+                        f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            else:
+                print("\n".join(group_lines))
             return 0
         if args.json:
             print(_json.dumps({
@@ -5781,6 +5809,9 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 084: --group-by ile birlikte; grup dict'e "
                             "cost_usd alanı ekle "
                             "(ATLAS_LLM_PRICE_IN/_OUT env; env yok → 0.0).")
+    p_met.add_argument("--out", default=None, metavar="PATH",
+                       help="SPEC 096: --group-by + --format prometheus ile "
+                            "birlikte; stdout yerine PATH'e yaz.")
     p_met_out = p_met.add_mutually_exclusive_group()
     p_met_out.add_argument("--json", action="store_true",
                            help="JSON liste çıktısı (ham kayıtlar)")
