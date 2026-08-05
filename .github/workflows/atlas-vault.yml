@@ -49,6 +49,24 @@ jobs:
           # --keep 7 retention (7 gün eski yedek).
           uv run atlas vault backup --auto --split 50 --keep 7
 
+      - name: Restore + verify (integrity check, SPEC 112)
+        if: steps.vault_check.outputs.has_vault == 'true'
+        run: |
+          # SPEC 102: split parçalardan restore
+          # SPEC 042: verify --strict → bulgu varsa exit 4
+          set -e
+          FIRST=$(ls archive/vault-*.tar.gz.001 2>/dev/null | sort | tail -1)
+          if [ -z "$FIRST" ]; then
+            echo "::error::SPEC 112: split .001 parça bulunamadı"
+            exit 1
+          fi
+          echo "SPEC 112: integrity restore ilk parça = $FIRST"
+          rm -rf /tmp/verify-vault
+          uv run atlas vault restore "$FIRST" --split --apply \
+            --vault-root /tmp/verify-vault
+          uv run atlas vault verify --vault-root /tmp/verify-vault --strict
+          echo "SPEC 112: integrity OK — restore + verify başarılı"
+
       - name: Upload split parts artifact
         if: steps.vault_check.outputs.has_vault == 'true'
         uses: actions/upload-artifact@v4

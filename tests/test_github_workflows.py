@@ -635,3 +635,68 @@ def test_107_atlas_vault_readme_badge_row() -> None:
     readme = (_REPO / "README.md").read_text(encoding="utf-8")
     assert "atlas-vault.yml" in readme
     assert "| atlas-vault |" in readme
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 112 — atlas-vault.yml restore-verify step
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_112_atlas_vault_restore_verify_step() -> None:
+    """`Restore + verify (integrity check, SPEC 112)` step'i var."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps
+         if "restore + verify" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "atlas vault restore" in run
+    assert "--split --apply" in run
+    assert "atlas vault verify" in run
+    assert "--strict" in run
+
+
+def test_112_atlas_vault_restore_verify_conditional() -> None:
+    """Step yalnız has_vault=true iken çalışır."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps
+         if "restore + verify" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    cond = step.get("if", "")
+    assert "has_vault" in cond
+
+
+def test_112_atlas_vault_restore_verify_fail_fast() -> None:
+    """`set -e` ile ilk hata anında fail."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps
+         if "restore + verify" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "set -e" in run
+
+
+def test_112_atlas_vault_mevcut_stepler_dokunulmadi() -> None:
+    """SPEC 107 mevcut backup + upload step'leri korundu."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    run_blocks = "\n".join(s.get("run", "") for s in steps if s.get("run"))
+    assert "atlas vault backup --auto --split 50 --keep 7" in run_blocks
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    assert "vault-*.tar.gz." in str(upload_step["with"]["path"])
