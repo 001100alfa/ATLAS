@@ -2833,6 +2833,27 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                     f"[alert-webhook] POST başarısız: {err}",
                     file=sys.stderr,
                 )
+        # SPEC 068: --alert-slack URL → Slack incoming webhook özel format
+        slack_url = getattr(args, "alert_slack", None)
+        if slack_url:
+            # Slack incoming webhook `{text}` bekler (attachments/blocks
+            # opsiyonel; MVP `text`). ATLAS özel formatı: markdown-benzeri.
+            text = (
+                f":warning: *ATLAS cache-hit alert*\n"
+                f"> {msg}\n"
+                f"> records: `{len(tail)}` · "
+                f"in: `{total_in}` · out: `{total_out}` · "
+                f"cache_r: `{total_cr}`"
+            )
+            payload_slack = {"text": text}
+            ok, err = _post_alert_webhook(slack_url, payload_slack)
+            if ok:
+                print("[alert-slack] POST başarılı", file=sys.stderr)
+            else:
+                print(
+                    f"[alert-slack] POST başarısız: {err}",
+                    file=sys.stderr,
+                )
         return 8
 
     return 0
@@ -4456,6 +4477,11 @@ def main(argv: list[str] | None = None) -> int:
                             "POST JSON webhook at (Slack/Discord/Teams "
                             "incoming). --alert-email ile ortogonal. "
                             "Başarısız POST → stderr'e; exit 8 KORUR.")
+    p_met.add_argument("--alert-slack", default=None, metavar="URL",
+                       help="SPEC 068: --alert eşiği aşıldığında Slack "
+                            "incoming webhook URL'sine `{text}` formatlı "
+                            "POST at (markdown). --alert-webhook/-email ile "
+                            "ORTOGONAL. Exit 8 KORUR.")
     p_met.set_defaults(func=_cmd_metrics)
 
     p_ai = sub.add_parser(
