@@ -919,6 +919,93 @@ def _search_archive_contents(
     return results
 
 
+def _list_archive_entries(archive_root: Path) -> list[dict[str, Any]]:
+    """SPEC 075: `<archive_root>/*.tar.gz` metadata listesi.
+
+    Her arşiv için `{archive, task_id, date, size_bytes, size_human,
+    member_count, mtime}` — tar açılmadan (`getmembers()` metadata).
+    Deterministik sıra: alfabetik.
+    """
+    import tarfile
+    from datetime import datetime as _dt
+
+    if not archive_root.is_dir():
+        return []
+    out: list[dict[str, Any]] = []
+    for tar_path in sorted(archive_root.glob("*.tar.gz")):
+        try:
+            stat = tar_path.stat()
+        except OSError:
+            continue
+        # <task_id>-YYYY-MM-DD.tar.gz → task_id + date
+        name = tar_path.name
+        stem = name[:-len(".tar.gz")]
+        task_id: str
+        date_str: str
+        if len(stem) > 11 and stem[-11] == "-":
+            task_id = stem[:-11]
+            date_str = stem[-10:]  # YYYY-MM-DD
+        else:
+            task_id = stem
+            date_str = ""
+        # Member count — tar açmadan
+        member_count = 0
+        try:
+            with tarfile.open(tar_path, "r:gz") as tar:
+                member_count = len(tar.getnames())
+        except (OSError, tarfile.TarError):
+            member_count = -1
+        size_bytes = stat.st_size
+        out.append({
+            "archive": name,
+            "task_id": task_id,
+            "date": date_str,
+            "size_bytes": size_bytes,
+            "size_human": _human_bytes(size_bytes),
+            "member_count": member_count,
+            "mtime": _dt.fromtimestamp(stat.st_mtime).isoformat(
+                timespec="seconds"),
+        })
+    return out
+
+
+def _cmd_archive_list(args: argparse.Namespace) -> int:
+    """SPEC 075: `atlas archive --list [--json]`.
+
+    Arşiv kökündeki tar.gz dosyalarının metadata listesi. Yıkıcı iş yok.
+
+    Exit:
+      - 0: başarı (bilgi komutu)
+      - 2: archive_root yok
+    """
+    import json as _json
+    archive_root = Path(args.archive_root)
+    if not archive_root.is_dir():
+        print(
+            f"SPEC HATASI: arşiv kökü yok: {archive_root}",
+            file=sys.stderr,
+        )
+        return 2
+    entries = _list_archive_entries(archive_root)
+    if getattr(args, "json", False):
+        print(_json.dumps(entries, ensure_ascii=False))
+        return 0
+    print(f"=== ATLAS archive --list ({archive_root}) — {len(entries)} arsiv ===")
+    if not entries:
+        print("  (arsiv yok)")
+        return 0
+    # Sütun genişliği
+    tid_w = max(24, *(len(e["task_id"]) for e in entries))
+    for e in entries:
+        mc = e["member_count"]
+        mc_str = str(mc) if mc >= 0 else "?"
+        print(
+            f"  {e['task_id']:<{tid_w}}  {e['date']:<12}  "
+            f"{e['size_human']:>10}  {mc_str:>6} uye  {e['mtime']}"
+        )
+    return 0
+
+
 def _cmd_archive_search(args: argparse.Namespace) -> int:
     """SPEC 065: `atlas archive --search PATTERN [--json]`.
 
@@ -977,6 +1064,9 @@ def _cmd_archive(args: argparse.Namespace) -> int:
       3. `--all` (SPEC 012)
       4. tekil task (SPEC 007)
     """
+    # SPEC 075: --list (bilgi komutu, en önde çünkü read-only)
+    if getattr(args, "list", False):
+        return _cmd_archive_list(args)
     # SPEC 071: --restore --search PATTERN → restore-search birleşim.
     # `--restore` `nargs="?"` const="" default=None → `is not None` truthy.
     if getattr(args, "restore", None) is not None:
@@ -4701,8 +4791,13 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 065: archive/*.tar.gz içinde dosya adı "
                             "regex ara (tar açılmaz — metadata yeter). "
                             "--json ile JSON çıktı.")
+    p_arc.add_argument("--list", action="store_true",
+                       help="SPEC 075: archive/*.tar.gz metadata listele "
+                            "(task_id/date/size/member_count/mtime). "
+                            "--json ile JSON çıktı.")
     p_arc.add_argument("--json", action="store_true",
-                       help="SPEC 065: --search ile birlikte JSON çıktı")
+                       help="SPEC 065/075: --search veya --list ile birlikte "
+                            "JSON çıktı")
     p_arc.add_argument("--summary", default=None,
                        help="vault notunun gövdesi (yoksa 09-ship.md okunur)")
     p_arc.add_argument("--tasks-root", default="pipeline/tasks",
