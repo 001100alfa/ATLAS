@@ -175,6 +175,67 @@ def prune_backups(archive_root: Path, keep: int) -> list[Path]:
     return deleted
 
 
+def encrypt_backup_recipient(
+    plain_path: Path,
+    out_path: Path,
+    recipient: str,
+    *,
+    gpg_bin: str | None = None,
+) -> Path:
+    """SPEC 073: `plain_path`'i GPG public-key ile şifrele.
+
+    - `gpg --batch --yes --encrypt --recipient <KEY_ID> --trust-model
+      always --output <out_path> <plain_path>`
+    - Passphrase YOK (asimetrik — recipient keyring'te olmalı).
+    - `--trust-model always`: kullanıcı KEY_ID trust'i doğrulanmadıysa
+      da devam et (CI/automation dostluğu; kullanıcı sözleşme kabulü).
+    - `out_path.parent` yoksa oluşturulur.
+    - Başarı → `out_path` döner; hata → `VaultBackupError`.
+
+    `gpg_bin=None` → `_find_gpg_bin()` otomatik bulur.
+    """
+    if not plain_path.is_file():
+        raise VaultBackupError(f"kaynak yok: {plain_path}")
+    if not recipient:
+        raise VaultBackupError("recipient (KEY_ID) boş olamaz")
+    gpg = gpg_bin or _find_gpg_bin()
+    if gpg is None:
+        raise VaultBackupError(
+            "gpg bulunamadı — ATLAS_GPG_BIN ver veya sisteme kur"
+        )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    args = [
+        gpg, "--batch", "--yes",
+        "--encrypt",
+        "--recipient", recipient,
+        "--trust-model", "always",
+        "--output", str(out_path),
+        str(plain_path),
+    ]
+    try:
+        proc = subprocess.run(  # noqa: S603 - argv sabit + gpg yolu filtrelendi
+            args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise VaultBackupError(f"gpg çalıştırılamadı: {exc}") from exc
+    if proc.returncode != 0:
+        raise VaultBackupError(
+            f"gpg encrypt hatası (exit {proc.returncode}): "
+            f"{(proc.stderr or '').strip()[:200]}"
+        )
+    if not out_path.is_file():
+        raise VaultBackupError(
+            f"gpg başarılı ama çıktı yok: {out_path}"
+        )
+    return out_path
+
+
 def decrypt_backup(
     encrypted_path: Path,
     out_path: Path,

@@ -3401,8 +3401,18 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
                 )
 
     # SPEC 063: --encrypt PASSPHRASE → GPG symmetric AES256 → .tar.gz.gpg
-    # Ara plain .tar.gz silinir (secret disk'te bırakılmasın).
+    # SPEC 073: --recipient KEY_ID → GPG public-key asimetrik → .tar.gz.gpg
+    # İkisi MUTEX (--encrypt ve --recipient birlikte kullanılamaz).
     encrypt_passphrase = getattr(args, "encrypt", None)
+    recipient = getattr(args, "recipient", None)
+    if encrypt_passphrase is not None and recipient:
+        print(
+            "SPEC HATASI: --encrypt ve --recipient birlikte kullanılamaz "
+            "(iki farklı GPG modu: symmetric vs public-key)",
+            file=sys.stderr,
+        )
+        return 2
+
     if encrypt_passphrase is not None:
         from atlas_core.memory.vault_backup import (
             VaultBackupError,
@@ -3430,6 +3440,28 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
             pass
         audit.record("atlas-vault", "encrypt", str(enc_out))
         print(f"vault yedeği şifrelendi: {enc_out}")
+    elif recipient:
+        # SPEC 073: public-key asimetrik encryption
+        from atlas_core.memory.vault_backup import (
+            VaultBackupError,
+            encrypt_backup_recipient,
+        )
+        enc_out = result.with_suffix(result.suffix + ".gpg")
+        try:
+            encrypt_backup_recipient(result, enc_out, recipient)
+        except VaultBackupError as exc:
+            audit.record("atlas-vault", "encrypt-error", str(exc)[:180])
+            print(f"SIFRELEME HATASI: {exc}", file=sys.stderr)
+            return 6
+        try:
+            result.unlink()
+        except OSError:
+            pass
+        audit.record(
+            "atlas-vault", "encrypt-recipient",
+            f"{recipient}: {enc_out}",
+        )
+        print(f"vault yedeği asimetrik şifrelendi (recipient={recipient}): {enc_out}")
 
     # SPEC 067: --keep-encrypted N → .tar.gz.gpg retention.
     # `--out` verilmişse retention YOK sayılır (SPEC 041.1 kalıbı — yalnız
@@ -4792,6 +4824,12 @@ def main(argv: list[str] | None = None) -> int:
                            "PASSPHRASE bayraktan veya env "
                            "ATLAS_BACKUP_PASSPHRASE. Env: ATLAS_GPG_BIN "
                            "gpg yolu override.")
+    p_vb.add_argument("--recipient", default=None, metavar="KEY_ID",
+                      help="SPEC 073: GPG public-key ile "
+                           "<yedek>.tar.gz.gpg üret; plain silinir. "
+                           "--encrypt ile MUTEX (symmetric vs public-key). "
+                           "KEY_ID keyring'te olmalı (email/fingerprint). "
+                           "--trust-model always (kullanıcı sözleşme kabulü).")
     p_vb.add_argument("--keep-encrypted", type=int, default=None, metavar="N",
                       help="SPEC 067: backup sonrası archive_root'daki "
                            "vault-*.tar.gz.gpg yedekleri N tut, gerisini "
