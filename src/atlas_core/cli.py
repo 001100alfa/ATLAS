@@ -2730,6 +2730,28 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                     f"[alert-email] gönderim başarısız: {err}",
                     file=sys.stderr,
                 )
+        # SPEC 064: --alert-webhook URL → POST JSON webhook (SMTP kardeşi)
+        webhook_url = getattr(args, "alert_webhook", None)
+        if webhook_url:
+            payload = {
+                "alert": "cache-hit",
+                "hit_ratio_pct": round(hit_ratio, 2),
+                "threshold_pct": alert,
+                "records": len(tail),
+                "tokens_in": total_in,
+                "tokens_out": total_out,
+                "cache_creation": total_cc,
+                "cache_read": total_cr,
+                "message": msg,
+            }
+            ok, err = _post_alert_webhook(webhook_url, payload)
+            if ok:
+                print("[alert-webhook] POST başarılı", file=sys.stderr)
+            else:
+                print(
+                    f"[alert-webhook] POST başarısız: {err}",
+                    file=sys.stderr,
+                )
         return 8
 
     return 0
@@ -2790,6 +2812,51 @@ def _send_alert_email(subject: str, body: str) -> tuple[bool, str]:
             smtp.send_message(msg)
     except (smtplib.SMTPException, OSError, TimeoutError) as exc:
         return False, f"SMTP hatası: {exc}"
+    return True, ""
+
+
+def _post_alert_webhook(
+    url: str, payload: dict[str, Any], timeout: float = 5.0,
+) -> tuple[bool, str]:
+    """SPEC 064: Alert JSON payload'ını POST webhook'a gönder.
+
+    - stdlib `urllib.request` — dış bağımlılık YOK.
+    - Content-Type: `application/json; charset=utf-8`.
+    - 2xx → başarı; non-2xx / HTTPError / URLError / OSError → False + err.
+    - Scheme http/https değil → False (SSRF savunma).
+
+    Slack/Discord/Teams incoming webhook'ları kabul eder (aynı payload
+    format). Kullanıcı istiyorsa provider-özel format için wrapper yazabilir.
+
+    Return: `(ok, error_message)`. Exception yakalanır; ATLAS çıktı
+    sözleşmesi bozulmaz.
+    """
+    import json as _json
+    import urllib.error
+    import urllib.request
+    from urllib.parse import urlparse
+
+    scheme = urlparse(url).scheme
+    if scheme not in ("http", "https"):
+        return False, f"URL scheme geçersiz: '{scheme}' (http/https bekleniyor)"
+
+    data = _json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data, method="POST",
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "User-Agent": "atlas-alert-webhook/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            status = resp.status
+    except urllib.error.HTTPError as exc:
+        return False, f"HTTP {exc.code}"
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return False, f"bağlantı hatası: {exc}"
+    if not 200 <= status < 300:
+        return False, f"HTTP {status}"
     return True, ""
 
 
@@ -4258,6 +4325,11 @@ def main(argv: list[str] | None = None) -> int:
                             "email at (env: ATLAS_SMTP_HOST/PORT/USER/"
                             "PASSWORD/STARTTLS + ATLAS_ALERT_FROM/TO). "
                             "Env eksik → uyarı stderr'e; exit 8 KORUR.")
+    p_met.add_argument("--alert-webhook", default=None, metavar="URL",
+                       help="SPEC 064: --alert eşiği aşıldığında URL'ye "
+                            "POST JSON webhook at (Slack/Discord/Teams "
+                            "incoming). --alert-email ile ortogonal. "
+                            "Başarısız POST → stderr'e; exit 8 KORUR.")
     p_met.set_defaults(func=_cmd_metrics)
 
     p_ai = sub.add_parser(
