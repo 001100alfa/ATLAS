@@ -1,6 +1,76 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-05 (27. tur — 061 + 062 + 060 + 064 + 065 + 063)
+
+Kullanıcı 27. turu yeni oturumda "Continue from where you left off"
++ SessionStart hook `continue` ile başlattı. Onay dizisi: HEPSI
+(küçükten büyüğe). Sıra: `061 → 062 → 060 → 064 → 065 → 063`.
+
+- [KARAR] 061 `docs/api/vault-verify-schema.json`: Draft-07 JSON Schema.
+  `additionalProperties: false` → gelecekte alan eklemek = **major bump**
+  (SPEC 042 kod tarafında değişmez, şema public API).
+- [KARAR] 061 test yaklaşımı: dış bağımlılık YOK (`jsonschema` paketi
+  eklenmedi). Minimal Draft-07 doğrulayıcı test içinde — 6 kural
+  (required, additionalProperties, type, integer minimum, array items
+  required/additionalProperties). Runtime kalabalığı yok.
+- [KARAR] 062 `--save-baseline PATH` `nargs="?"` `const=str(default)`:
+  bayraksız → default `.atlas/doctor-baseline.json`; explicit path
+  override.
+- [KARAR] 062 `--auto-baseline` yoksa nazik: baseline dosyası yoksa
+  bilgi + exit 0 (ilk çalıştırma). Kullanıcı `--save-baseline` ile
+  oluşturur. `--strict` bayrağıyla birleşince ise regresyon durumu
+  farklı — baseline yoksa strict de exit 0 (regresyon **var** demek
+  için baseline olmalı; yoksa "yeni state" default kabul).
+- [KARAR] 062 mutex zinciri: `--save-baseline` — `--diff`, `--auto-baseline`,
+  `--serve`, `--format prometheus` ile mutex (hepsi read-only mode
+  değil). `--auto-baseline` — `--diff` ile mutex (kaynak belirsiz).
+- [KARAR] 060 `_run_npm_install(bin, package)`: `npm install <package>
+  --save` (npm 7+ default explicit). `--save-exact=false` KULLANILMADI
+  — npm defaults yeter (`^X.Y.Z` yazılır).
+- [HATA] 060 test — `--save-exact=false` argv'ye eklemiştim ama
+  testler argv sırasına bakmıyor, ayrıca npm bunu YAGNI'ye sokar
+  (default `--save` ile aynı). Sürüm belirtmek isteyen kullanıcı
+  `install <name>@1.2.3` yazsın; npm argv aynen forward.
+- [KARAR] 064 `_post_alert_webhook`: SSRF savunma — `urlparse(url).scheme`
+  yalnız `http/https`. `file://`, `ftp://` reddedilir. Slack incoming
+  webhook default provider-agnostic (custom JSON kabul eder).
+- [KARAR] 064 `--alert-webhook` ve `--alert-email` ORTOGONAL: ikisi
+  verilirse ikisi de çalışır. Exit 8 KORUR (SMTP kalıbı — SPEC 059).
+- [KARAR] 065 `_search_archive_contents`: tarfile.open + `getnames()`
+  metadata; tar İÇERİĞİ AÇILMAZ (güvenlik + hız). Bozuk `.tar.gz`
+  skipped (best-effort). `re.search` part-match; kullanıcı `(?i)`
+  inline flag kullanır.
+- [KARAR] 065 dispatcher sıra: `--search` en önde (read-only) —
+  yıkıcı `--all`, `--restore` dallarından ÖNCE.
+- [HATA] 065 test bug: kaynak `arşivde` (`ş` = U+015F) → pytest capsys
+  Windows cp1254 stdout FD üzerinden capture ederken bozuluyor. SPEC
+  057 [KALIP] hatırı: **insan çıktısında ASCII-only marker + kelime**.
+  `arşivde` → `arsivde` düzeltildi. Kalıp: yeni `print()` string'lerinde
+  Unicode >0xFF kaçın.
+- [KARAR] 063 GPG passphrase stdin ile geçirildi (`subprocess.run(...,
+  input=passphrase)`) — komut satırı history'sinde görünmez. Env
+  fallback `ATLAS_BACKUP_PASSPHRASE`; argparse `nargs="?"
+  const=env` deseni ile bayraksız çağrı env değerini alır.
+- [KARAR] 063 `--encrypt` sonrası **ara plain `.tar.gz` silinir**
+  (secret disk'te bırakılmasın). Retention (`--keep`) plain .tar.gz'e
+  bakar; `.gpg` dosyaları retention'a girmez (SPEC 041.1 `vault-*.tar.gz`
+  glob'u değişmedi). Kullanıcı encrypted retention için ayrı bir
+  script/wrapper yazar (YAGNI, gelecek SPEC 067?).
+- [KARAR] 063 restore tarafı DEĞİŞMEDİ — kullanıcı `gpg --decrypt
+  <path>.gpg > /tmp/plain.tar.gz` sonra `atlas vault restore
+  /tmp/plain.tar.gz --apply` çağırır. Otomatik decrypt-restore SPEC 066
+  aday.
+- [KARAR] 063 `_find_gpg_bin` sırası: env `ATLAS_GPG_BIN` (kullanıcı
+  explicit) → portable `tools/gpg/gpg[.exe]` (depo-yerel) → `shutil.which("gpg")`
+  (sistem PATH). Portable önce çünkü ATLAS taşınabilir kurulum
+  disiplinine uyar (2026-07-28 [KALIP]).
+- [KARAR] Test toplamı: 995 (26. tur sonu) → 1007 (061) → 1018 (062)
+  → 1025 (060) → 1035 (064) → 1048 (065) → **1061** (063). Cov aynı
+  seviyede (%91.50+). +66 test.
+- [KARAR] 27. tur boyunca hiç yıkıcı git operasyonu (--amend/force) yok.
+  6 lineer feat commit + 1 docs commit; tek push tur sonunda.
+
 ## 2026-08-04 (26. tur — 056 + 057 + 054 + 058 + 055 + 059)
 
 Kullanıcı "DEVAM ET" tetikleyicisi → 6 aday görev, sıra
