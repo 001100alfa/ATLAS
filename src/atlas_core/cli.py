@@ -1125,14 +1125,39 @@ def _cmd_archive_list(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    # SPEC 105: --out yalnız --json-lines ile anlamlı
+    out_path_arg = getattr(args, "out", None)
+    if out_path_arg is not None and not jsonl_mode:
+        print(
+            "SPEC HATASI: --out yalnız --json-lines ile birlikte "
+            "kullanılır",
+            file=sys.stderr,
+        )
+        return 2
     if jsonl_mode:
-        for e in entries:
-            print(_json.dumps(e, ensure_ascii=False))
-        print(_json.dumps({
+        summary = {
             "type": "summary",
             "archive_root": str(archive_root),
             "count": len(entries),
-        }, ensure_ascii=False))
+        }
+        if out_path_arg is not None:
+            try:
+                op = Path(out_path_arg)
+                op.parent.mkdir(parents=True, exist_ok=True)
+                with op.open("w", encoding="utf-8") as fh:
+                    for e in entries:
+                        fh.write(_json.dumps(e, ensure_ascii=False) + "\n")
+                    fh.write(_json.dumps(summary, ensure_ascii=False) + "\n")
+            except OSError as exc:
+                print(
+                    f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                    file=sys.stderr,
+                )
+                return 2
+        else:
+            for e in entries:
+                print(_json.dumps(e, ensure_ascii=False))
+            print(_json.dumps(summary, ensure_ascii=False))
         return 0
     if getattr(args, "json", False):
         print(_json.dumps(entries, ensure_ascii=False))
@@ -5815,6 +5840,9 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 098: --list ile birlikte NDJSON stream "
                             "(arşiv başına 1 satır + son satır summary). "
                             "--json ile MUTEX.")
+    p_arc.add_argument("--out", default=None, metavar="PATH",
+                       help="SPEC 105: --json-lines ile birlikte; stdout "
+                            "yerine PATH'e stream.")
     p_arc.add_argument("--summary", default=None,
                        help="vault notunun gövdesi (yoksa 09-ship.md okunur)")
     p_arc.add_argument("--tasks-root", default="pipeline/tasks",
