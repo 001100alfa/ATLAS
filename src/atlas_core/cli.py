@@ -4809,8 +4809,23 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
     return 0
 
 
+_SEMVER_PREFIX_CHARS = set("^~><=* ")
+
+
+def _strip_semver_prefix(spec: str) -> str:
+    """SPEC 088: `^`, `~`, `>=`, `>`, `=`, `*`, boşluk sıyır.
+
+    npm semver-satisfies DEĞİL — sadece prefix temizler. Karşılaştırma
+    yaparken kullanılır (yanlış pozitif olabilir; dok. 088).
+    """
+    out = spec
+    while out and out[0] in _SEMVER_PREFIX_CHARS:
+        out = out[1:]
+    return out
+
+
 def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
-    """SPEC 037.2: `atlas ai-cli list [--json]` — kurulu AI CLI'ları listele.
+    """SPEC 037.2 + 088: `atlas ai-cli list [--json] [--outdated]`.
 
     `tools/ai-cli/package.json` dependencies alanını kaynak alır; her
     paketin `node_modules/<name>/package.json` version'ını yükler.
@@ -4827,6 +4842,9 @@ def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
     }
     ```
     `installed=null` → paket kurulu değil.
+    SPEC 088: `--outdated` → `installed is None` VEYA
+    `_strip_semver_prefix(expected) != installed` satırları.
+
     Exit 0 her zaman (bilgi komutu). `tools/ai-cli/` yoksa exit 2.
     """
     import json as _json
@@ -4857,6 +4875,14 @@ def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
             "installed": installed,
         })
 
+    # SPEC 088: --outdated filtresi
+    if getattr(args, "outdated", False):
+        packages = [
+            p for p in packages
+            if p["installed"] is None
+            or _strip_semver_prefix(str(p["expected"])) != p["installed"]
+        ]
+
     if getattr(args, "json", False):
         print(_json.dumps(
             {"path": str(_AI_CLI_DIR), "packages": packages},
@@ -4864,9 +4890,13 @@ def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
         ))
         return 0
 
-    print(f"=== ATLAS ai-cli — kurulu paketler ({_AI_CLI_DIR}) ===")
+    header_suffix = " — outdated" if getattr(args, "outdated", False) else ""
+    print(f"=== ATLAS ai-cli — kurulu paketler ({_AI_CLI_DIR}){header_suffix} ===")
     if not packages:
-        print("  (paket yok)")
+        if getattr(args, "outdated", False):
+            print("  (guncelleme yok)")
+        else:
+            print("  (paket yok)")
         return 0
     # Sütun genişliği: ad max(20, en uzun paket)
     name_w = max(20, *(len(p["name"]) for p in packages))
@@ -5418,6 +5448,9 @@ def main(argv: list[str] | None = None) -> int:
         help="tools/ai-cli/ kurulu paketleri + beklenen sürüm (SPEC 037.2)",
     )
     p_ai_ls.add_argument("--json", action="store_true", help="JSON çıktı")
+    p_ai_ls.add_argument("--outdated", action="store_true",
+                         help="SPEC 088: yalnız beklenen != kurulu "
+                              "(veya kurulu değil) satırlar")
     p_ai_ls.set_defaults(func=_cmd_ai_cli_list)
     p_ai_ex = ai_sub.add_parser(
         "exec",
