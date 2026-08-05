@@ -1,0 +1,76 @@
+name: atlas-metrics
+# SPEC 074: PR'da .atlas/metrics.jsonl artifact + insan-okunur özet
+# comment (SPEC 023 metrics özeti + SPEC 043 Prometheus text).
+# SPEC 056 (vault-health) / SPEC 070 (atlas-doctor) kardeşi.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".atlas/metrics.jsonl"
+      - ".github/workflows/atlas-metrics.yml"
+  pull_request:
+    paths:
+      - ".atlas/metrics.jsonl"
+      - ".github/workflows/atlas-metrics.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: atlas-metrics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  metrics:
+    name: atlas metrics özet
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install ATLAS
+        run: uv sync --frozen --extra dev
+
+      - name: Generate metrics özet
+        id: metrics
+        run: |
+          set +e
+          if [ -f .atlas/metrics.jsonl ]; then
+              uv run atlas metrics --limit 100 > metrics-human.txt
+              uv run atlas metrics --limit 100 --json > metrics.json
+              uv run atlas metrics --limit 100 --format prometheus > metrics.prom
+              echo "has_data=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "(no metrics.jsonl in repo)" > metrics-human.txt
+              echo "[]" > metrics.json
+              echo "# no metrics" > metrics.prom
+              echo "has_data=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload metrics artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-metrics-report
+          path: |
+            metrics-human.txt
+            metrics.json
+            metrics.prom
+          retention-days: 30
+
+      - name: Comment PR with human summary
+        if: >-
+          github.event_name == 'pull_request'
+          && steps.metrics.outputs.has_data == 'true'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: metrics-human.txt

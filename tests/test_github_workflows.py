@@ -286,3 +286,75 @@ def test_077_no_docker_artefakt_repoda_yok() -> None:
     assert tracked == [], (
         f"Docker artefakti tracked (SPEC 077 ihlali): {tracked}"
     )
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 074: atlas-metrics.yml
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_074_atlas_metrics_yaml_valid() -> None:
+    data = _load("atlas-metrics.yml")
+    assert isinstance(data, dict)
+    assert data.get("name") == "atlas-metrics"
+
+
+def test_074_atlas_metrics_tetikleyiciler() -> None:
+    """push[main]+PR; `.atlas/metrics.jsonl` path filtresi."""
+    data = _load("atlas-metrics.yml")
+    on = data.get("on") or data.get(True)
+    assert isinstance(on, dict)
+    assert on["push"]["branches"] == ["main"]
+    for trig in ("push", "pull_request"):
+        paths = on[trig].get("paths", [])
+        assert any("metrics.jsonl" in p for p in paths), (
+            f"{trig}: metrics.jsonl path eksik: {paths}"
+        )
+
+
+def test_074_atlas_metrics_permissions_concurrency() -> None:
+    data = _load("atlas-metrics.yml")
+    assert data["permissions"]["pull-requests"] == "write"
+    assert data["concurrency"]["cancel-in-progress"] is True
+
+
+def test_074_atlas_metrics_uc_format_uretir() -> None:
+    """human + json + prometheus üç artifact üretir."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    run_blocks = "\n".join(s.get("run", "") for s in steps if s.get("run"))
+    assert "atlas metrics --limit" in run_blocks
+    assert "--json" in run_blocks
+    assert "--format prometheus" in run_blocks
+    # 3 artifact dosya adı
+    assert "metrics-human.txt" in run_blocks
+    assert "metrics.json" in run_blocks
+    assert "metrics.prom" in run_blocks
+
+
+def test_074_atlas_metrics_pr_comment_kosullu() -> None:
+    """PR comment step: sadece PR + has_data=true."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    comment_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("peter-evans/create-or-update-comment")),
+        None,
+    )
+    assert comment_step is not None
+    cond = comment_step.get("if", "")
+    assert "pull_request" in cond
+    assert "has_data" in cond
+
+
+def test_074_atlas_metrics_artifact_upload_always() -> None:
+    """artifact upload `if: always()` — job fail'de bile artifact atılsın."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    assert upload_step.get("if") == "always()"
