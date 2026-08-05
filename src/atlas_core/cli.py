@@ -3418,6 +3418,13 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    # SPEC 103: --gzip yalnız --out ile anlamlı
+    if getattr(args, "gzip", False) and getattr(args, "out", None) is None:
+        print(
+            "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+            file=sys.stderr,
+        )
+        return 2
 
     path = _metrics_path()
     limit: int = args.limit
@@ -3560,12 +3567,21 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                         f'key="{_lbl(str(g["key"]))}"}} {val_str}'
                     )
             # SPEC 096: --out PATH → stdout yerine dosyaya yaz
+            # SPEC 103: --gzip → gzip sıkıştırma (yalnız --out ile)
             if out_path_arg is not None:
+                use_gzip = bool(getattr(args, "gzip", False))
                 try:
                     op = Path(out_path_arg)
+                    if use_gzip and op.suffix != ".gz":
+                        op = op.with_suffix(op.suffix + ".gz")
                     op.parent.mkdir(parents=True, exist_ok=True)
-                    op.write_text("\n".join(group_lines) + "\n",
-                                  encoding="utf-8")
+                    prom_text = "\n".join(group_lines) + "\n"
+                    if use_gzip:
+                        import gzip as _gzip
+                        with _gzip.open(op, "wt", encoding="utf-8") as fh:
+                            fh.write(prom_text)
+                    else:
+                        op.write_text(prom_text, encoding="utf-8")
                 except OSError as exc:
                     print(
                         f"SPEC HATASI: --out PATH yazılamadı: {exc}",
@@ -5924,6 +5940,9 @@ def main(argv: list[str] | None = None) -> int:
     p_met.add_argument("--out", default=None, metavar="PATH",
                        help="SPEC 096: --group-by + --format prometheus ile "
                             "birlikte; stdout yerine PATH'e yaz.")
+    p_met.add_argument("--gzip", action="store_true",
+                       help="SPEC 103: --out ile birlikte; gzip sıkıştırma "
+                            "(PATH sonuna .gz eklenir eğer yoksa).")
     p_met_out = p_met.add_mutually_exclusive_group()
     p_met_out.add_argument("--json", action="store_true",
                            help="JSON liste çıktısı (ham kayıtlar)")
