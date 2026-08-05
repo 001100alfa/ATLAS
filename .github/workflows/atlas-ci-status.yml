@@ -1,0 +1,74 @@
+name: atlas-ci-status
+# SPEC 089: SPEC 082 drift gate'in günlük planlı çalışması.
+# shields.io badge SVG cache invalidation + hafta boyunca kimse workflow
+# eklemezse README drift'i günlük tarama.
+
+on:
+  schedule:
+    # Her gün 06:00 UTC (Istanbul 09:00). Deterministik saat.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: atlas-ci-status-daily
+  cancel-in-progress: false
+
+jobs:
+  drift-scan:
+    name: README ci-status günlük drift tarama
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run gen_ci_badges.py --check
+        id: check
+        continue-on-error: true
+        run: |
+          set +e
+          python tools/scripts/gen_ci_badges.py --check
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Build issue body (on drift)
+        if: steps.check.outputs.rc != '0'
+        run: |
+          python tools/scripts/gen_ci_badges.py
+          {
+            echo "### README ci-status günlük drift tespit edildi"
+            echo ""
+            echo "Yerelde çalıştırıp commit'leyin:"
+            echo ""
+            echo '```sh'
+            echo "python tools/scripts/gen_ci_badges.py"
+            echo 'git add README.md && git commit -m "docs: ci-status badge güncelleme"'
+            echo '```'
+            echo ""
+            echo "Tetik: **${{ github.event_name }}** — ${{ github.run_id }}"
+          } > drift-issue.md
+
+      - name: Open issue on drift
+        if: steps.check.outputs.rc != '0'
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: "ci-status drift — README badge tablosu güncel değil"
+          content-filepath: drift-issue.md
+          labels: |
+            ci-status
+            drift
+            automated
+
+      - name: Fail on drift
+        if: steps.check.outputs.rc != '0'
+        run: |
+          echo "::error::README ci-status bloğu drift — issue açıldı."
+          exit 1

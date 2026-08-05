@@ -358,3 +358,69 @@ def test_074_atlas_metrics_artifact_upload_always() -> None:
     )
     assert upload_step is not None
     assert upload_step.get("if") == "always()"
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 089 — atlas-ci-status.yml (scheduled daily drift scan)
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_089_atlas_ci_status_yaml_valid() -> None:
+    data = _load("atlas-ci-status.yml")
+    assert isinstance(data, dict)
+    assert data.get("name") == "atlas-ci-status"
+
+
+def test_089_atlas_ci_status_schedule_daily() -> None:
+    """cron: her gün 06:00 UTC (deterministik)."""
+    data = _load("atlas-ci-status.yml")
+    on = data.get("on") or data.get(True)
+    assert isinstance(on, dict)
+    assert "schedule" in on
+    crons = on["schedule"]
+    assert isinstance(crons, list) and len(crons) >= 1
+    assert any(c.get("cron") == "0 6 * * *" for c in crons)
+
+
+def test_089_atlas_ci_status_workflow_dispatch() -> None:
+    """Manuel tetik `workflow_dispatch` var."""
+    data = _load("atlas-ci-status.yml")
+    on = data.get("on") or data.get(True)
+    assert "workflow_dispatch" in on
+
+
+def test_089_atlas_ci_status_permissions() -> None:
+    """issues:write (issue aç), contents:read (checkout)."""
+    data = _load("atlas-ci-status.yml")
+    perms = data.get("permissions", {})
+    assert perms.get("issues") == "write"
+    assert perms.get("contents") == "read"
+
+
+def test_089_atlas_ci_status_runs_gen_ci_badges() -> None:
+    """Job `python tools/scripts/gen_ci_badges.py --check` çağırır."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    run_blocks = "\n".join(s.get("run", "") for s in steps if s.get("run"))
+    assert "gen_ci_badges.py --check" in run_blocks
+
+
+def test_089_atlas_ci_status_creates_issue_on_drift() -> None:
+    """Drift → issue açma step'i (peter-evans/create-issue-from-file@v5)."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    issue_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("peter-evans/create-issue-from-file")),
+        None,
+    )
+    assert issue_step is not None
+    cond = issue_step.get("if", "")
+    assert "rc" in cond and "!=" in cond
+
+
+def test_089_atlas_ci_status_readme_badge_row() -> None:
+    """README ci-status bloğunda `atlas-ci-status` satırı var."""
+    readme = (_REPO / "README.md").read_text(encoding="utf-8")
+    assert "atlas-ci-status.yml" in readme
+    assert "| atlas-ci-status |" in readme

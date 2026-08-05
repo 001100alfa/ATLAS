@@ -182,6 +182,7 @@ AGPL-3.0 (ayrı uygulama, [`docs/JUGGLER.md`](docs/JUGGLER.md)); taşınabilir
 
 | Workflow | Durum |
 |---|---|
+| atlas-ci-status | [![atlas-ci-status](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-ci-status.yml/badge.svg)](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-ci-status.yml) |
 | atlas-doctor | [![atlas-doctor](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-doctor.yml/badge.svg)](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-doctor.yml) |
 | atlas-metrics | [![atlas-metrics](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-metrics.yml/badge.svg)](https://github.com/001100alfa/ATLAS/actions/workflows/atlas-metrics.yml) |
 | ci-status | [![ci-status](https://github.com/001100alfa/ATLAS/actions/workflows/ci-status.yml/badge.svg)](https://github.com/001100alfa/ATLAS/actions/workflows/ci-status.yml) |
