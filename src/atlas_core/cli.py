@@ -5448,6 +5448,13 @@ def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    # SPEC 109: --gzip yalnız --out ile anlamlı
+    if getattr(args, "gzip", False) and getattr(args, "out", None) is None:
+        print(
+            "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+            file=sys.stderr,
+        )
+        return 2
 
     total_deps = len(packages)
     if outdated_mode:
@@ -5465,26 +5472,41 @@ def _cmd_ai_cli_list(args: argparse.Namespace) -> int:
 
     # SPEC 099 + 106: --json-lines NDJSON stream + son satır summary;
     # --out PATH ile dosyaya yaz (SPEC 092/096/105 kalıbı).
+    # SPEC 109: --gzip ile birlikte sıkıştırılmış NDJSON.
     if jsonl_mode:
         out_path_arg = getattr(args, "out", None)
+        use_gzip = bool(getattr(args, "gzip", False))
         summary = {
             "type": "summary",
             "path": str(_AI_CLI_DIR),
             "outdated": len(packages),
             "total_deps": total_deps,
         }
+
+        def _pkg_line(pkg: dict[str, Any]) -> str:
+            return _json.dumps({
+                "name": pkg["name"],
+                "expected": pkg["expected"],
+                "installed": pkg["installed"],
+            }, ensure_ascii=False)
+
         if out_path_arg is not None:
             try:
                 op = Path(out_path_arg)
+                if use_gzip and op.suffix != ".gz":
+                    op = op.with_suffix(op.suffix + ".gz")
                 op.parent.mkdir(parents=True, exist_ok=True)
-                with op.open("w", encoding="utf-8") as fh:
-                    for p in packages:
-                        fh.write(_json.dumps({
-                            "name": p["name"],
-                            "expected": p["expected"],
-                            "installed": p["installed"],
-                        }, ensure_ascii=False) + "\n")
-                    fh.write(_json.dumps(summary, ensure_ascii=False) + "\n")
+                if use_gzip:
+                    import gzip as _gzip
+                    with _gzip.open(op, "wt", encoding="utf-8") as fh:
+                        for p in packages:
+                            fh.write(_pkg_line(p) + "\n")
+                        fh.write(_json.dumps(summary, ensure_ascii=False) + "\n")
+                else:
+                    with op.open("w", encoding="utf-8") as fh:
+                        for p in packages:
+                            fh.write(_pkg_line(p) + "\n")
+                        fh.write(_json.dumps(summary, ensure_ascii=False) + "\n")
             except OSError as exc:
                 print(
                     f"SPEC HATASI: --out PATH yazılamadı: {exc}",
@@ -6126,6 +6148,9 @@ def main(argv: list[str] | None = None) -> int:
     p_ai_ls.add_argument("--out", default=None, metavar="PATH",
                          help="SPEC 106: --json-lines ile birlikte; stdout "
                               "yerine PATH'e stream.")
+    p_ai_ls.add_argument("--gzip", action="store_true",
+                         help="SPEC 109: --out ile birlikte; gzip sıkıştırma "
+                              "(PATH sonuna .gz eklenir eğer yoksa).")
     p_ai_ls.set_defaults(func=_cmd_ai_cli_list)
     p_ai_ex = ai_sub.add_parser(
         "exec",
