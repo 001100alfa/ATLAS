@@ -4412,6 +4412,14 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    # SPEC 111: --gzip yalnız --out ile anlamlı
+    use_gzip = bool(getattr(args, "gzip", False))
+    if use_gzip and out_path_arg is None:
+        print(
+            "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+            file=sys.stderr,
+        )
+        return 2
 
     vault_root = Path(args.vault_root) if args.vault_root else _vault_root()
     if not vault_root.is_dir():
@@ -4445,13 +4453,19 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
 
     # SPEC 087: --format json-lines / json / json-pretty
     if fmt == "json-lines":
-        # SPEC 092: --out PATH → stdout yerine dosyaya stream
-        out_fh = None
+        # SPEC 092 + 111: --out PATH → stdout yerine dosyaya stream (gzip ops)
+        out_fh: Any = None
         if out_path_arg is not None:
             try:
                 op = Path(out_path_arg)
+                if use_gzip and op.suffix != ".gz":
+                    op = op.with_suffix(op.suffix + ".gz")
                 op.parent.mkdir(parents=True, exist_ok=True)
-                out_fh = op.open("w", encoding="utf-8")
+                if use_gzip:
+                    import gzip as _gzip
+                    out_fh = _gzip.open(op, "wt", encoding="utf-8")
+                else:
+                    out_fh = op.open("w", encoding="utf-8")
             except OSError as exc:
                 print(
                     f"SPEC HATASI: --out PATH yazılamadı: {exc}",
@@ -5951,6 +5965,9 @@ def main(argv: list[str] | None = None) -> int:
                       help="SPEC 092: --format json-lines ile birlikte "
                            "stdout yerine PATH'e stream (büyük vault için "
                            "dosyaya doğrudan yaz).")
+    p_vv.add_argument("--gzip", action="store_true",
+                      help="SPEC 111: --out ile birlikte; gzip sıkıştırma "
+                           "(PATH sonuna .gz eklenir eğer yoksa).")
     p_vv.add_argument("--dump-report", default=None, metavar="PATH",
                       help="SPEC 052: rapor markdown olarak PATH'e yazılır "
                            "(dizin yoksa oluşturulur). Yazma hatası sessiz "
