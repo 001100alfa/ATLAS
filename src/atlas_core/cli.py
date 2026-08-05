@@ -4310,6 +4310,33 @@ def _run_npm_install(
     return proc.returncode, proc.stdout or "", proc.stderr or ""
 
 
+def _run_npm_uninstall(
+    npm_bin: str, package: str,
+) -> tuple[int, str, str]:
+    """SPEC 083: `npm uninstall <package>` çağır (`--save` ile deps'ten sil).
+
+    - `cwd = tools/ai-cli`.
+    - `--save` deps.json güncellensin (npm 7+ default; explicit).
+
+    Döner: `(returncode, stdout, stderr)`. Subprocess hatası → (-1, "", err).
+    """
+    args = [npm_bin, "uninstall", package, "--save"]
+    try:
+        proc = subprocess.run(  # noqa: S603 - argv sabit + npm_bin filtrelendi
+            args,
+            cwd=str(_AI_CLI_DIR),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return -1, "", f"npm çağrısı başarısız: {exc}"
+    return proc.returncode, proc.stdout or "", proc.stderr or ""
+
+
 def _read_ai_cli_package_json() -> tuple[dict[str, Any] | None, str | None]:
     """SPEC 037.2: `tools/ai-cli/package.json` oku, dict + err döner.
 
@@ -4647,6 +4674,68 @@ def _cmd_ai_cli_install(args: argparse.Namespace) -> int:
         print(
             f"\n[ai-cli] '{package}' eklendi. Doğrulama:\n"
             f"  atlas ai-cli status {package}\n"
+            f"  atlas ai-cli list"
+        )
+    return rc
+
+
+def _cmd_ai_cli_uninstall(args: argparse.Namespace) -> int:
+    """SPEC 083: `atlas ai-cli uninstall <name>` — paket kaldır.
+
+    `npm uninstall <name> --save` wrap. `tools/ai-cli/package.json`
+    dependencies'te olmalı; yoksa exit 2 SPEC HATASI + `atlas ai-cli
+    list` önerisi.
+
+    Exit kodları:
+      - 0: yükleme kaldırıldı; kullanıcıya doğrulama (`ai-cli list`).
+      - 2: `tools/ai-cli/` yok / paket deps'te yok / npm yok / subprocess.
+      - npm exit ≠0 yansıtılır.
+    """
+    if not _AI_CLI_DIR.is_dir():
+        print(
+            f"SPEC HATASI: {_AI_CLI_DIR} yok — portable ai-cli kurulumu bulunamadı",
+            file=sys.stderr,
+        )
+        return 2
+
+    package = args.name
+    data, err = _read_ai_cli_package_json()
+    if err is not None:
+        print(f"SPEC HATASI: {err}", file=sys.stderr)
+        return 2
+    assert data is not None
+    deps = data.get("dependencies", {}) if isinstance(data, dict) else {}
+    if not isinstance(deps, dict) or package not in deps:
+        print(
+            f"SPEC HATASI: '{package}' package.json dependencies içinde yok. "
+            f"Kurulu paketleri görmek için: atlas ai-cli list",
+            file=sys.stderr,
+        )
+        return 2
+
+    npm_bin, source = _find_npm_bin()
+    if npm_bin is None:
+        print(
+            "SPEC HATASI: npm bulunamadı — tools/node/ portable kurulumu "
+            "yapın veya npm'i PATH'e ekleyin",
+            file=sys.stderr,
+        )
+        return 2
+
+    print(f"[ai-cli] npm uninstall ({package}) ({source}: {npm_bin})")
+    rc, out, stderr_ = _run_npm_uninstall(npm_bin, package)
+    if rc == -1:
+        print(stderr_, file=sys.stderr)
+        return 2
+    if out:
+        print(out, end="" if out.endswith("\n") else "\n")
+    if stderr_.strip():
+        print(stderr_, end="" if stderr_.endswith("\n") else "\n",
+              file=sys.stderr)
+
+    if rc == 0:
+        print(
+            f"\n[ai-cli] '{package}' kaldırıldı. Doğrulama:\n"
             f"  atlas ai-cli list"
         )
     return rc
@@ -5053,6 +5142,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_ai_in.add_argument("name", help="npm paket adı (ör. @scope/pkg)")
     p_ai_in.set_defaults(func=_cmd_ai_cli_install)
+    p_ai_un = ai_sub.add_parser(
+        "uninstall",
+        help="Paketi tools/ai-cli/'den kaldır "
+             "(npm uninstall <name> --save wrap, SPEC 083)",
+    )
+    p_ai_un.add_argument("name", help="package.json deps'te olan paket adı")
+    p_ai_un.set_defaults(func=_cmd_ai_cli_uninstall)
     p_ai_ls = ai_sub.add_parser(
         "list",
         help="tools/ai-cli/ kurulu paketleri + beklenen sürüm (SPEC 037.2)",
