@@ -1,6 +1,69 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-05 (32. tur — 092 + 094 + 093 + 095 + 091 + 090)
+
+Kullanıcı "devam et → hepsini sıra ile" → 31. tur adayları (090-095)
+tümü zincirleme, küçükten büyüğe: `092 → 094 → 093 → 095 → 091 → 090`.
+
+- [KARAR] 092 `--out PATH` yalnız `--format json-lines` ile anlamlı.
+  Diğer format'lar için `--out` YOK — çünkü json/json-pretty tek satır,
+  human human, shell redirect (`> file`) yeter. json-lines'a özel:
+  streaming büyük vault memory/CPU tasarrufu + Windows shell redirect
+  karakter kodlaması sorunlarını atlar.
+- [KARAR] 092 `open("w")` başarısız → SPEC HATASI exit 2 (mesajda hata
+  metni). `try/finally close` — kaynak sızıntısı yok. Parent dir
+  auto-mkdir (SPEC 052 dump-report kalıbı ile simetrik).
+- [KARAR] 092 `--out` + `--dump-report` ORTOGONAL — biri NDJSON hedef,
+  diğeri markdown yan etki (SPEC 052/087 kalıp korunur).
+- [KARAR] 094 `--strict` yalnız `--outdated` ile anlamlı — aksi hâlde
+  SPEC HATASI exit 2. Neden: `list` (outdated değil) her zaman exit 0
+  bilgi komutu; `--strict` bilgi komutunu CI-uyumlu karara dönüştürür
+  → yalnız filtre üzerinde anlamlı.
+- [KARAR] 094 exit 4 kalıbı: SPEC 042 vault verify `--strict` +
+  SPEC 032 doctor `--strict` UYUMLU. "SAĞLIK BAŞARISIZ" stderr mesajı
+  (SPEC 042 kalıbı) — insan-okunur.
+- [KARAR] 093 `--name-match PATTERN` yeni bayrak; `--search` (SPEC 065)
+  ile ORTOGONAL. Neden: `--search` içerik (arcname) araması + list-only
+  komut; `--name-match` arşiv **AD** filtresi + --list ile birlikte.
+  İki farklı use-case → iki farklı bayrak.
+- [KARAR] 093 filtre sıralamadan ÖNCE (list → filter → sort → limit).
+  Neden: sort filter'lı liste üzerinde çalışsın (top-N stabil); ancak
+  bit-uyumluluk: name-match yoksa filter no-op → SPEC 075/079 AYNI.
+- [KARAR] 093 boş sonuç pretty mesaj ayrımı: `--name-match` verildiyse
+  `(esleme yok)`, aksi hâlde SPEC 075 `(arsiv yok)` BİT-UYUMLU
+  (semantik ayrım — "arşiv yok" farklı, "filter eşleşmedi" farklı).
+- [KARAR] 095 workflow yeni step `if: steps.metrics.outputs.has_data ==
+  'true'`. Env fiyat yoksa cost 0 (SPEC 013 fail-safe); komut kırılırsa
+  `||` ile boş JSON fallback (workflow durmaz — SPEC 074 kalıbı).
+- [KARAR] 095 mevcut 3 artifact (`metrics-human.txt`, `metrics.json`,
+  `metrics.prom`) DOKUNULMADI — yeni `metrics-cost-by-day.json` upload
+  path listesine EKLENDİ (bit-uyumluluk: mevcut tüketiciler etkilenmez).
+- [KARAR] 091 `--diff-history-all` action="store_true"; MUTEX listesi:
+  `--diff/--auto-baseline/--diff-history/--save-baseline/--serve/
+  --format prometheus`. `--schema` MUTEX **GEREKSİZ** çünkü SPEC 040
+  `--schema` kısa devre (dispatcher önce çalışır — asla erişilemez).
+- [KARAR] 091 çıktı sırası date desc (SPEC 086 kalıbı ile simetrik —
+  N=1 en yeni). Pretty tablo `date | +warn | -warn | Δquality` kısa;
+  detay için `--json` (SPEC 057 delta şeması).
+- [KARAR] 091 snapshot okunamazsa (bozuk JSON/OSError) UYARI stderr'e
+  ve continue — 1 bozuk snapshot toplu diff'i patlatmaz (SPEC 052
+  best-effort kalıbı).
+- [KARAR] 090 **SPEC 081 `--group-by + --format prometheus` MUTEX
+  KALDIRILDI** (karar geri alındı). Neden: SPEC 084 cost eklendikten
+  sonra Grafana dashboard'da "günlük cost trend" tek scrape için grup
+  histogram gerçek ihtiyaç oldu. YAGNI kalktı.
+- [KARAR] 090 Grup Prometheus metrikleri: 5 base (records/tokens_in/out/
+  cache_creation/cache_read) + opsiyonel 6. (cost_usd `--with-cost` ile).
+  Labels: `unit`, `key`. Escape: `\` `"` `\n` (Prometheus text v0.0.4).
+- [KARAR] 090 SPEC 081 `--group-by + --alert` MUTEX **KORUNDU** —
+  alert tekil hit-ratio değere, grup aggregation'ıyla anlamsız
+  (bu karar hala geçerli).
+- [KARAR] 090 değişken adı `group_lines` (Prometheus dalındaki
+  `lines: list[str]` ile mypy no-redef çakışması). Kalıp: aynı
+  fonksiyonda iki farklı dal aynı adı kullanamaz — narrow scope
+  çözümü değişken adı.
+
 ## 2026-08-05 (31. tur — 085 + 088 + 089 + 087 + 084 + 086)
 
 Kullanıcı "devam et → hepsini sıra ile" → 30. tur adayları (084-089)
