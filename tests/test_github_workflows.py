@@ -687,6 +687,72 @@ def test_112_atlas_vault_restore_verify_fail_fast() -> None:
     assert "set -e" in run
 
 
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 113 — atlas-metrics.yml gzip artifact entegrasyonu
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_113_atlas_metrics_group_prom_gzip_step() -> None:
+    """`Generate group prometheus (gzip, SPEC 103/113)` step'i var."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "group prometheus" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "--group-by day" in run
+    assert "--format prometheus" in run
+    assert "--gzip" in run
+    assert "metrics-group-day.prom" in run
+
+
+def test_113_atlas_metrics_group_prom_conditional() -> None:
+    """Step yalnız has_data=true iken."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "group prometheus" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    cond = step.get("if", "")
+    assert "has_data" in cond
+
+
+def test_113_atlas_metrics_gzip_artifact_uploaded() -> None:
+    """Upload artifact listesinde `metrics-group-day.prom.gz` var."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    path_str = str(upload_step.get("with", {}).get("path", ""))
+    assert "metrics-group-day.prom.gz" in path_str
+
+
+def test_113_atlas_metrics_mevcut_4_artifact_dokunulmadi() -> None:
+    """SPEC 074/095 mevcut 4 artifact listede AYNI."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    path_str = str(upload_step.get("with", {}).get("path", ""))
+    for name in ("metrics-human.txt", "metrics.json", "metrics.prom",
+                 "metrics-cost-by-day.json"):
+        assert name in path_str
+
+
 def test_112_atlas_vault_mevcut_stepler_dokunulmadi() -> None:
     """SPEC 107 mevcut backup + upload step'leri korundu."""
     data = _load("atlas-vault.yml")

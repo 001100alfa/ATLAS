@@ -63,6 +63,16 @@ jobs:
             --group-by day --with-cost --json \
             > metrics-cost-by-day.json || echo '{"unit":"day","groups":[]}' > metrics-cost-by-day.json
 
+      - name: Generate group prometheus (gzip, SPEC 103/113)
+        if: steps.metrics.outputs.has_data == 'true'
+        run: |
+          # SPEC 103: --gzip artifact boyutu için sıkıştırma.
+          # --out zorunlu; auto-suffix `.gz` uygulanır.
+          uv run atlas metrics --limit 100 \
+            --group-by day --format prometheus \
+            --out metrics-group-day.prom --gzip \
+            || echo "(group prometheus üretilemedi)" > metrics-group-day.prom.gz
+
       - name: Upload metrics artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -73,6 +83,7 @@ jobs:
             metrics.json
             metrics.prom
             metrics-cost-by-day.json
+            metrics-group-day.prom.gz
           retention-days: 30
 
       - name: Comment PR with human summary
