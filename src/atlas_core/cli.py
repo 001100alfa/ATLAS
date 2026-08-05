@@ -141,8 +141,43 @@ def _compute_context(goal: Goal) -> tuple[str | None, str]:
     return ctx, f"{n} not enjekte edildi"
 
 
+def _estimate_run_cost(
+    goal_obj: Any, backend: str, tokens_per_call: int,
+    price_in: float, price_out: float,
+) -> dict[str, Any]:
+    """SPEC 069: Run başlamadan önden tahmini planlanan çağrı+token+cost.
+
+    Heuristik: her adım 1 planner çağrısı → `tokens_per_call` token
+    (varsayılan 500). Toplam token = `max_steps * tokens_per_call`
+    (input+output birleşik). Cost = tokens × (price_in+price_out) / 1M.
+
+    Backend `stub` ise cost 0 (LLM çağrılmaz). `anthropic`/`acp` için
+    env fiyatları kullanılır; fiyat 0 ise cost 0 raporlanır.
+    """
+    max_steps = int(goal_obj.max_steps)
+    total_tokens = max_steps * tokens_per_call
+    if backend == "stub" or (price_in == 0.0 and price_out == 0.0):
+        cost = 0.0
+    else:
+        # Yaklaşım: yarısı input, yarısı output (heuristik)
+        input_tok = total_tokens // 2
+        output_tok = total_tokens - input_tok
+        cost = (input_tok * price_in + output_tok * price_out) / 1_000_000
+    return {
+        "goal": goal_obj.goal,
+        "backend": backend,
+        "max_steps": max_steps,
+        "budget": float(goal_obj.budget),
+        "tokens_per_call": tokens_per_call,
+        "estimated_total_tokens": total_tokens,
+        "estimated_cost_usd": round(cost, 6),
+        "price_in_per_1m": price_in,
+        "price_out_per_1m": price_out,
+    }
+
+
 def _cmd_run_goal(args: argparse.Namespace) -> int:
-    """SPEC 002: `--goal-file` verildiğinde gerçek görev sürücüsü.
+    """SPEC 002 + 069: `--goal-file` verildiğinde gerçek görev sürücüsü.
 
     goal YAML'ini yükler, sandbox'i kurar, planner+action+judge'u
     fabrikadan alır, run_loop'u sürer. ActionDeniedError yakalanır,
@@ -151,12 +186,45 @@ def _cmd_run_goal(args: argparse.Namespace) -> int:
     SPEC 006: `_context_enabled(goal)` True ise GBrain.context_for(goal.goal)
     tek kez çağrılıp planner fabrikasına geçirilir; static görevler ve
     `ATLAS_CONTEXT=off` durumu için GBrain hiç instantiate edilmez.
+
+    SPEC 069: `--estimate` bayrağı → LLM çağrısı YAPMA, planner+context+
+    action fabrikaları hiç kurulmaz. Yalnız `_estimate_run_cost` sonucu
+    (JSON veya insan) basılır, exit 0. Audit yazılmaz.
     """
     try:
         goal = load_goal(Path(args.goal_file))
     except SpecError as exc:
         print(f"SPEC HATASI: {exc}", file=sys.stderr)
         return 2
+
+    # SPEC 069: --estimate erken dallanma — LLM/context/sandbox hiç kurulmaz
+    if getattr(args, "estimate", False):
+        import json as _json
+        backend = os.environ.get("ATLAS_LLM", "stub")
+        try:
+            tokens_per_call = int(
+                os.environ.get("ATLAS_ESTIMATE_TOKENS_PER_CALL", "500")
+            )
+        except ValueError:
+            tokens_per_call = 500
+        price_in, price_out = _read_llm_prices()
+        summary = _estimate_run_cost(
+            goal, backend, tokens_per_call, price_in, price_out,
+        )
+        if getattr(args, "json", False):
+            print(_json.dumps(summary, ensure_ascii=False))
+        else:
+            print("=== ATLAS run --estimate (LLM cagrilmadi) ===")
+            print(f"  goal:            {summary['goal'][:80]}")
+            print(f"  backend:         {summary['backend']}")
+            print(f"  max_steps:       {summary['max_steps']}")
+            print(f"  budget:          {summary['budget']}")
+            print(f"  tokens/call:     {summary['tokens_per_call']}")
+            print(f"  tahmini token:   {summary['estimated_total_tokens']}")
+            print(f"  tahmini cost:    ${summary['estimated_cost_usd']:.6f}")
+            if summary["price_in_per_1m"] == 0.0 and summary["price_out_per_1m"] == 0.0:
+                print("  UYARI: fiyat env yok (ATLAS_LLM_PRICE_IN_PER_1M / _OUT_)")
+        return 0
 
     run_id = args.run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
     goal_id = f"{Path(args.goal_file).stem}-{run_id}"
@@ -577,6 +645,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 goal_file=files[0],
                 run_id=args.run_id,
                 dry_run=getattr(args, "dry_run", False),
+                estimate=getattr(args, "estimate", False),
+                json=getattr(args, "json", False),
             )
             return _cmd_run_goal(single_args)
         return _cmd_run_batch(args, files)
@@ -4434,6 +4504,12 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--step-cost", type=float, default=10.0)
     p_run.add_argument("--dry-run", action="store_true",
                        help="planner çalıştır, action stub (yıkıcı iş yok) — SPEC 020")
+    p_run.add_argument("--estimate", action="store_true",
+                       help="SPEC 069: LLM çağırmadan planlanan çağrı+token+cost "
+                            "tahmini bas (audit yok). Env "
+                            "ATLAS_ESTIMATE_TOKENS_PER_CALL (default 500).")
+    p_run.add_argument("--json", action="store_true",
+                       help="SPEC 069: --estimate ile birlikte JSON çıktı")
     p_run.add_argument("--continue-on-error", action="store_true",
                        help="SPEC 030: batch modunda ilk hatada durma, tümünü çalıştır")
     p_run.add_argument("--jobs", type=int, default=1,
