@@ -3028,6 +3028,37 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
                     f"prune: {len(deleted)} eski yedek silindi "
                     f"(keep={keep})"
                 )
+
+    # SPEC 063: --encrypt PASSPHRASE → GPG symmetric AES256 → .tar.gz.gpg
+    # Ara plain .tar.gz silinir (secret disk'te bırakılmasın).
+    encrypt_passphrase = getattr(args, "encrypt", None)
+    if encrypt_passphrase is not None:
+        from atlas_core.memory.vault_backup import (
+            VaultBackupError,
+            encrypt_backup,
+        )
+        # Boş passphrase kabul edilmez (kullanıcı gafil düşmesin).
+        if not encrypt_passphrase:
+            print(
+                "SPEC HATASI: --encrypt passphrase boş olamaz "
+                "(env: ATLAS_BACKUP_PASSPHRASE veya bayraktan ver)",
+                file=sys.stderr,
+            )
+            return 2
+        enc_out = result.with_suffix(result.suffix + ".gpg")
+        try:
+            encrypt_backup(result, enc_out, encrypt_passphrase)
+        except VaultBackupError as exc:
+            audit.record("atlas-vault", "encrypt-error", str(exc)[:180])
+            print(f"SIFRELEME HATASI: {exc}", file=sys.stderr)
+            return 6
+        # Plain dosyayı sil — encrypted çıktı yeni "yedek"
+        try:
+            result.unlink()
+        except OSError:
+            pass
+        audit.record("atlas-vault", "encrypt", str(enc_out))
+        print(f"vault yedeği şifrelendi: {enc_out}")
     return 0
 
 
@@ -4281,6 +4312,14 @@ def main(argv: list[str] | None = None) -> int:
                       help="SPEC 041.1: backup sonrası archive_root'daki "
                            "vault-*.tar.gz yedekleri N tut, gerisini sil "
                            "(N>=1). --out ile birlikte YOK sayılır.")
+    p_vb.add_argument("--encrypt", nargs="?",
+                      const=os.environ.get("ATLAS_BACKUP_PASSPHRASE", ""),
+                      default=None, metavar="PASSPHRASE",
+                      help="SPEC 063: GPG symmetric (AES256) ile "
+                           "<yedek>.tar.gz.gpg üret; plain silinir. "
+                           "PASSPHRASE bayraktan veya env "
+                           "ATLAS_BACKUP_PASSPHRASE. Env: ATLAS_GPG_BIN "
+                           "gpg yolu override.")
     p_vb.set_defaults(func=_cmd_vault_backup)
     p_vr = vault_sub.add_parser("restore", help=".tar.gz'i vault'a geri aç")
     p_vr.add_argument("tar", help="Yedek dosyası yolu")

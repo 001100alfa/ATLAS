@@ -1,4 +1,4 @@
-"""SPEC 041: Vault yedekleme + geri yükleme.
+"""SPEC 041 + 063: Vault yedekleme + geri yükleme + GPG şifreleme.
 
 `vault/` dizinini `.tar.gz` sarmalar ve geri açar. SPEC 033 archive
 kalıbının kardeşi — aynı path traversal koruması + `filter="data"`
@@ -7,11 +7,18 @@ güvenli extract + Windows kolon reddi.
 Backup üretilen `.tar.gz` içinde vault kökü `vault/` altındadır
 (arcname sabit). Restore çakışma → RestoreError; path traversal veya
 kolon → RestoreError.
+
+SPEC 063: `encrypt_backup` yardımcı — GPG symmetric (AES256) ile
+`.tar.gz.gpg` üretir. Passphrase stdin ile (`--passphrase-fd 0`)
+geçilir; komut satırı history'sinde görünmez.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
+import sys
 import tarfile
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +31,89 @@ class VaultBackupError(RuntimeError):
 
 
 _ARCNAME = "vault"  # tar içindeki kök klasör adı
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 063: GPG symmetric encryption yardımcıları
+# ═════════════════════════════════════════════════════════════════════
+
+
+def _find_gpg_bin() -> str | None:
+    """SPEC 063: gpg binary yolunu bul.
+
+    Öncelik: `ATLAS_GPG_BIN` env override → depo-yerel `tools/gpg/gpg[.exe]`
+    → sistem PATH (`shutil.which("gpg")`).
+    """
+    override = os.environ.get("ATLAS_GPG_BIN", "").strip()
+    if override and Path(override).is_file():
+        return override
+    # Portable depo-yerel
+    portable_name = "gpg.exe" if sys.platform == "win32" else "gpg"
+    portable = Path("tools/gpg") / portable_name
+    if portable.is_file():
+        return str(portable.resolve())
+    return shutil.which("gpg")
+
+
+def encrypt_backup(
+    plain_path: Path,
+    out_path: Path,
+    passphrase: str,
+    *,
+    gpg_bin: str | None = None,
+    cipher: str = "AES256",
+) -> Path:
+    """SPEC 063: `plain_path` dosyasını GPG symmetric ile şifrele.
+
+    - `gpg --batch --yes --symmetric --cipher-algo <cipher> --passphrase-fd 0
+      --output <out_path> <plain_path>`
+    - Passphrase stdin ile geçirilir (komut satırı history'sinde görünmez).
+    - `out_path.parent` yoksa oluşturulur.
+    - Başarı → `out_path` döner; hata → `VaultBackupError`.
+
+    `gpg_bin=None` → `_find_gpg_bin()` otomatik bulur.
+    """
+    if not plain_path.is_file():
+        raise VaultBackupError(f"kaynak yok: {plain_path}")
+    if not passphrase:
+        raise VaultBackupError("passphrase boş olamaz")
+    gpg = gpg_bin or _find_gpg_bin()
+    if gpg is None:
+        raise VaultBackupError(
+            "gpg bulunamadı — ATLAS_GPG_BIN ver veya sisteme kur"
+        )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    # `--yes` mevcut çıktıyı üzerine yazar (idempotent).
+    args = [
+        gpg, "--batch", "--yes",
+        "--symmetric", "--cipher-algo", cipher,
+        "--passphrase-fd", "0",
+        "--output", str(out_path),
+        str(plain_path),
+    ]
+    try:
+        proc = subprocess.run(  # noqa: S603 - argv sabit + gpg yolu filtrelendi
+            args,
+            input=passphrase,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise VaultBackupError(f"gpg çalıştırılamadı: {exc}") from exc
+    if proc.returncode != 0:
+        raise VaultBackupError(
+            f"gpg hatası (exit {proc.returncode}): "
+            f"{(proc.stderr or '').strip()[:200]}"
+        )
+    if not out_path.is_file():
+        raise VaultBackupError(
+            f"gpg başarılı ama çıktı yok: {out_path}"
+        )
+    return out_path
 
 
 def backup_vault(vault_root: Path, out_path: Path) -> Path:
