@@ -2583,8 +2583,51 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
                     f'code="{_lbl(str(code))}"'
                     f'}} 1'
                 )
-            print("\n".join(schema_lines))
+            # SPEC 134: --out PATH [--gzip] → stdout yerine dosyaya yaz
+            schema_out = getattr(args, "out", None)
+            schema_gzip = bool(getattr(args, "gzip", False))
+            if schema_gzip and schema_out is None:
+                print(
+                    "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+                    file=sys.stderr,
+                )
+                return 2
+            if schema_out is not None:
+                try:
+                    op = Path(schema_out)
+                    if schema_gzip and op.suffix != ".gz":
+                        op = op.with_suffix(op.suffix + ".gz")
+                    op.parent.mkdir(parents=True, exist_ok=True)
+                    payload = "\n".join(schema_lines) + "\n"
+                    if schema_gzip:
+                        import gzip as _gzip_sch
+                        with _gzip_sch.open(op, "wt", encoding="utf-8") as fh:
+                            fh.write(payload)
+                    else:
+                        op.write_text(payload, encoding="utf-8")
+                except OSError as exc:
+                    print(
+                        f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            else:
+                print("\n".join(schema_lines))
             return 0
+        # SPEC 134: --schema + --out yalnız --format prometheus ile anlamlı
+        if getattr(args, "out", None) is not None:
+            print(
+                "SPEC HATASI: --schema --out yalnız --format prometheus "
+                "ile birlikte kullanılır",
+                file=sys.stderr,
+            )
+            return 2
+        if getattr(args, "gzip", False):
+            print(
+                "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+                file=sys.stderr,
+            )
+            return 2
         # --pretty ile birlikte indent=2 (tutarlılık)
         pretty = getattr(args, "pretty", False)
         indent = 2 if pretty else None
