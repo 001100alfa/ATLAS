@@ -5409,6 +5409,59 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
         "bin_path": str(bin_path) if bin_path else None,
     }
 
+    # SPEC 118: --json-lines / --out MUTEX ön-kontrol
+    jsonl_mode = bool(getattr(args, "json_lines", False))
+    out_arg = getattr(args, "out", None)
+    if jsonl_mode and getattr(args, "json", False):
+        print(
+            "SPEC HATASI: --json ile --json-lines birlikte kullanılamaz "
+            "(MUTEX)",
+            file=sys.stderr,
+        )
+        return 2
+    if out_arg is not None and not jsonl_mode:
+        print(
+            "SPEC HATASI: --out yalnız --json-lines ile birlikte kullanılır",
+            file=sys.stderr,
+        )
+        return 2
+
+    if jsonl_mode:
+        # Her alan bir satır + son satır summary
+        field_order = [
+            "name", "installed_version", "declared_version", "up_to_date",
+            "install_dir", "size_bytes", "size_human", "bin_path",
+        ]
+        summary = {
+            "type": "summary",
+            "name": name,
+            "up_to_date": up_to_date,
+        }
+        if out_arg is not None:
+            try:
+                op = Path(out_arg)
+                op.parent.mkdir(parents=True, exist_ok=True)
+                with op.open("w", encoding="utf-8") as fh:
+                    for f in field_order:
+                        fh.write(_json.dumps(
+                            {"field": f, "value": report[f]},
+                            ensure_ascii=False,
+                        ) + "\n")
+                    fh.write(_json.dumps(summary, ensure_ascii=False) + "\n")
+            except OSError as exc:
+                print(
+                    f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                    file=sys.stderr,
+                )
+                return 2
+        else:
+            for f in field_order:
+                print(_json.dumps(
+                    {"field": f, "value": report[f]}, ensure_ascii=False,
+                ))
+            print(_json.dumps(summary, ensure_ascii=False))
+        return 0
+
     if getattr(args, "json", False):
         print(_json.dumps(report, ensure_ascii=False))
         return 0
@@ -6250,6 +6303,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_ai_st.add_argument("name", help="paket adı (ör. opencode-ai, cline)")
     p_ai_st.add_argument("--json", action="store_true", help="JSON çıktı")
+    p_ai_st.add_argument("--json-lines", action="store_true",
+                         help="SPEC 118: NDJSON stream (alan başına satır + "
+                              "son satır summary). --json ile MUTEX.")
+    p_ai_st.add_argument("--out", default=None, metavar="PATH",
+                         help="SPEC 118: --json-lines ile birlikte; stdout "
+                              "yerine PATH'e stream.")
     p_ai_st.set_defaults(func=_cmd_ai_cli_status)
 
     p_hooks = sub.add_parser("hooks", help="Git pre-commit hook yönetimi (SPEC 034)")
