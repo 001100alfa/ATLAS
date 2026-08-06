@@ -939,9 +939,32 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
         return 6
     restored_dir = tasks_root / task_id
     json_mode = bool(getattr(args, "json", False))
+    # SPEC 133: --json-lines NDJSON stream (dry-run + apply)
+    jsonl_mode = bool(getattr(args, "json_lines", False))
+    if json_mode and jsonl_mode:
+        print(
+            "SPEC HATASI: --json ile --json-lines birlikte kullanılamaz "
+            "(MUTEX)",
+            file=sys.stderr,
+        )
+        return 2
 
     if not args.apply:
-        if json_mode:
+        if jsonl_mode:
+            import json as _json
+            print(_json.dumps({
+                "type": "plan",
+                "task_id": task_id,
+                "archive": str(tar_path),
+                "target": str(restored_dir),
+                "conflict": restored_dir.exists(),
+            }, ensure_ascii=False))
+            print(_json.dumps({
+                "type": "summary",
+                "task_id": task_id,
+                "mode": "dry-run",
+            }, ensure_ascii=False))
+        elif json_mode:
             import json as _json
             print(_json.dumps({
                 "mode": "dry-run",
@@ -972,7 +995,28 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
         return 6
 
     audit.record("atlas-archive", "restore", task_id)
-    if json_mode:
+    if jsonl_mode:
+        import json as _json
+        print(_json.dumps({
+            "type": "plan",
+            "task_id": task_id,
+            "archive": str(tar_out),
+            "target": str(restored_out),
+            "conflict": False,
+        }, ensure_ascii=False))
+        print(_json.dumps({
+            "type": "restored",
+            "task_id": task_id,
+            "target": str(restored_out),
+            "archive": str(tar_out),
+        }, ensure_ascii=False))
+        print(_json.dumps({
+            "type": "summary",
+            "task_id": task_id,
+            "mode": "apply",
+            "restored": True,
+        }, ensure_ascii=False))
+    elif json_mode:
         import json as _json
         print(_json.dumps({
             "mode": "apply",
