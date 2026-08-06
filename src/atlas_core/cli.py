@@ -948,22 +948,49 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    # SPEC 138: --out yalnız --json-lines ile anlamlı
+    restore_out_arg = getattr(args, "out", None)
+    if restore_out_arg is not None and not jsonl_mode:
+        print(
+            "SPEC HATASI: --out yalnız --json-lines ile birlikte "
+            "kullanılır (--restore)",
+            file=sys.stderr,
+        )
+        return 2
+
+    def _restore_emit_lines(records: list[dict[str, Any]]) -> int:
+        """SPEC 138: NDJSON kayıtları stdout veya --out PATH'e yaz."""
+        import json as _json_r
+        if restore_out_arg is not None:
+            try:
+                op = Path(restore_out_arg)
+                op.parent.mkdir(parents=True, exist_ok=True)
+                with op.open("w", encoding="utf-8") as fh:
+                    for r in records:
+                        fh.write(_json_r.dumps(r, ensure_ascii=False) + "\n")
+            except OSError as exc:
+                print(
+                    f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                    file=sys.stderr,
+                )
+                return 2
+        else:
+            for r in records:
+                print(_json_r.dumps(r, ensure_ascii=False))
+        return 0
 
     if not args.apply:
         if jsonl_mode:
-            import json as _json
-            print(_json.dumps({
-                "type": "plan",
-                "task_id": task_id,
-                "archive": str(tar_path),
-                "target": str(restored_dir),
-                "conflict": restored_dir.exists(),
-            }, ensure_ascii=False))
-            print(_json.dumps({
-                "type": "summary",
-                "task_id": task_id,
-                "mode": "dry-run",
-            }, ensure_ascii=False))
+            rc_out = _restore_emit_lines([
+                {"type": "plan", "task_id": task_id,
+                 "archive": str(tar_path),
+                 "target": str(restored_dir),
+                 "conflict": restored_dir.exists()},
+                {"type": "summary", "task_id": task_id,
+                 "mode": "dry-run"},
+            ])
+            if rc_out != 0:
+                return rc_out
         elif json_mode:
             import json as _json
             print(_json.dumps({
@@ -996,26 +1023,19 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
 
     audit.record("atlas-archive", "restore", task_id)
     if jsonl_mode:
-        import json as _json
-        print(_json.dumps({
-            "type": "plan",
-            "task_id": task_id,
-            "archive": str(tar_out),
-            "target": str(restored_out),
-            "conflict": False,
-        }, ensure_ascii=False))
-        print(_json.dumps({
-            "type": "restored",
-            "task_id": task_id,
-            "target": str(restored_out),
-            "archive": str(tar_out),
-        }, ensure_ascii=False))
-        print(_json.dumps({
-            "type": "summary",
-            "task_id": task_id,
-            "mode": "apply",
-            "restored": True,
-        }, ensure_ascii=False))
+        rc_out = _restore_emit_lines([
+            {"type": "plan", "task_id": task_id,
+             "archive": str(tar_out),
+             "target": str(restored_out),
+             "conflict": False},
+            {"type": "restored", "task_id": task_id,
+             "target": str(restored_out),
+             "archive": str(tar_out)},
+            {"type": "summary", "task_id": task_id,
+             "mode": "apply", "restored": True},
+        ])
+        if rc_out != 0:
+            return rc_out
     elif json_mode:
         import json as _json
         print(_json.dumps({
@@ -6474,8 +6494,8 @@ def main(argv: list[str] | None = None) -> int:
                             "(arşiv başına 1 satır + son satır summary). "
                             "--json ile MUTEX.")
     p_arc.add_argument("--out", default=None, metavar="PATH",
-                       help="SPEC 105: --json-lines ile birlikte; stdout "
-                            "yerine PATH'e stream.")
+                       help="SPEC 105/138: --json-lines ile birlikte; stdout "
+                            "yerine PATH'e stream (--list veya --restore).")
     p_arc.add_argument("--gzip", action="store_true",
                        help="SPEC 108: --out ile birlikte; gzip sıkıştırma "
                             "(PATH sonuna .gz eklenir eğer yoksa).")
