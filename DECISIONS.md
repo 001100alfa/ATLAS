@@ -1,6 +1,46 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-06 (39. tur — 134 + 133 + 137 + 132 + 136 + 135)
+
+Kullanıcı "hepsini sıra ile uygula, emirler atomiktir" → 38. tur
+adayları (132-137) tümü zincirleme, küçükten büyüğe:
+`134 → 133 → 137 → 132 → 136 → 135`.
+
+- [KARAR] 134 doctor `--schema --format prometheus --out --gzip` —
+  SPEC 128 üstüne SPEC 103/114 kalıbı simetrik. `--schema` bloğunda
+  yeni `schema_out`/`schema_gzip` locale değişkenleri; JSON modu +
+  `--out`/`--gzip` verilirse SPEC HATASI exit 2 (bilgi komutu için
+  dosyaya yazma yalnız Prometheus modu makul).
+- [KARAR] 133 archive `--restore --json-lines` NDJSON stream (SPEC 127
+  yanında). Dry-run şeması `{type:plan,...}` + `{type:summary,mode:
+  dry-run}`; apply `{plan,restored,summary}`. `--json` ile MUTEX
+  (SPEC 099/098 kalıbı). Hata durumu (RestoreError) NDJSON basmaz —
+  stderr SPEC HATASI mevcut kalıp.
+- [KARAR] 137 atlas-metrics.yml upload artifact path'e
+  `.atlas/alert-history.jsonl` + `if-no-files-found: ignore`. Neden:
+  SPEC 126 log opt-in; her turda üretilmez. `ignore` ile dosya yok
+  ise uyarı da yok (SPEC 095 fail-safe kalıbı).
+- [KARAR] 132 `--alert-history-show` `nargs="?"` const default —
+  bayrak yalın veya PATH ile. `_cmd_metrics` en başında kısa devre
+  (SPEC 040 doctor `--schema` kalıbı) — normal metrics özet YAPMAZ,
+  bilgi komutu olarak sadece log okur. `--limit` default 10 (dashboard
+  ölçek). Bozuk satır atlanır (`JSONDecodeError` sessiz), dosya yok
+  → boş çıktı + rc 0 (info command sözleşmesi).
+- [KARAR] 132 pretty tablo formatı: `ts | hit%(1f) | threshold%(1f)
+  | [channels csv]`. cp1254 uyumlu ASCII markörler yok, sadece boru.
+- [KARAR] 136 vault verify `--schema` — SPEC 040 doctor kalıbı tam
+  simetrik. Vault dizini GEREKMEZ (kısa devre önce). 4 format tanımı
+  (human/json/json-pretty/json-lines) + 6 top_level alan + 3 exit code.
+  `--pretty` indent=2. Diğer bayraklar (--strict/--out/--gzip)
+  --schema modunda YOKSAYILIR (kısa devre önce çalışır).
+- [KARAR] 135 atlas-doctor.yml alert-webhook gate — SPEC 131 kalıp
+  simetrik. Conditional: env + rc_strict|rc_diff|rc_hist != '0'.
+  Payload `{alert:"doctor",rc_*,run_id,sha}` — Slack/Discord webhook
+  formatı yerine düz JSON (POST endpoint yönlendirir).
+  `continue-on-error: true` — webhook fail workflow durdurmaz;
+  Fail step ORTOGONAL sıra (webhook önce, fail sonra).
+
 ## 2026-08-06 (38. tur — 127 + 129 + 131 + 130 + 128 + 126)
 
 Kullanıcı "hepsini sıra ile uygula, emirler atomiktir" → 37. tur
