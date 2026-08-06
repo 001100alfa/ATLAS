@@ -1,6 +1,52 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-06 (38. tur — 127 + 129 + 131 + 130 + 128 + 126)
+
+Kullanıcı "hepsini sıra ile uygula, emirler atomiktir" → 37. tur
+adayları (126-131) tümü zincirleme, küçükten büyüğe:
+`127 → 129 → 131 → 130 → 128 → 126`.
+
+- [KARAR] 127 `archive --restore --json` dry-run + apply iki mode.
+  Dry-run schema: `{mode:"dry-run",task_id,archive,target,conflict}`;
+  apply schema: `{mode:"apply",...,restored:true}`. Hata durumu JSON
+  basmaz — stderr SPEC HATASI mevcut kalıp korunur.
+- [KARAR] 129 salt-test tur: SPEC 087+092+111+042 vault verify
+  tam zinciri regresyon önleme (SPEC 121/122/123 kalıp).
+- [KARAR] 131 alert-webhook workflow step `continue-on-error: true` —
+  webhook POST fail job kırmaz (metrics job artifact üretimi kritik).
+  Env `secrets.ATLAS_ALERT_WEBHOOK_URL`; secret yoksa step atlar.
+- [KARAR] 131 conditional `env.ALERT_WEBHOOK_URL != ''` — GitHub
+  Actions'da secret yoksa env boş string olur (Actions davranışı).
+  Step atlanır (fail-safe SPEC 095 kalıbı).
+- [KARAR] 130 atlas-doctor.yml yeni step id `history_gate` — fail
+  step conditional'a `rc_hist != '0'` eklendi. Tarihçe yoksa skip
+  (fail-safe). `continue-on-error: true` — step kendi output'ını
+  yazsın diye (rc_hist).
+- [KARAR] 128 **SPEC 047 MUTEX ROLLBACK (3.)** — `--schema` `p_doc_out`
+  grubundan çıkarıldı. Neden: `--schema --format prometheus` info-metric
+  ailesi için MUTEX'in kaldırılması gerek. `--json` ile `--format`
+  MUTEX KORUNDU (grup içinde). `--schema --json` mutex de kalktı —
+  `--schema` kısa devre önce çalıştığı için `--json` bilgi komutunda
+  ignored (bit-uyumlu).
+- [KARAR] 128 4 info-metric ailesi: `atlas_doctor_schema_version` +
+  `_top_level_field` + `_quality_field` + `_exit_code`. Prometheus
+  info-metric kalıbı: değer daima 1, tüm bilgi labels'te. Grafana
+  dashboards için schema drift takibi.
+- [HATA] 128 pyc cache — argparse tanım değişikliği sonrası
+  `__pycache__` + `.pytest_cache` temizleme gerekti (rm -rf), aksi
+  hâlde eski mutex hataları hayaletti. Kalıp: argparse tanımı
+  değişikliğinde `find . -name __pycache__ -exec rm -rf {} +`.
+- [KARAR] 126 `--alert-history` `nargs="?"` const=default — bayrak
+  yalın veya PATH verilebilir. Default `.atlas/alert-history.jsonl`
+  (SPEC 013 `.atlas/` git-ignored konvansiyon).
+- [KARAR] 126 yazma hatası **sessiz** UYARI + exit 8 KORUNUR — alert
+  bilgisi kanalları (email/webhook/slack) POST hatası da exit 8'i
+  kırmaz (SPEC 059/064/068 kalıbı). Alert kritik, log log.
+- [KARAR] 126 `channels[]` field: verilen bayrak listesi (email/
+  webhook/slack). POST başarısı DEĞİL, tetikleme listesi — history
+  post-mortem için hangi kanallara aktarma denenmişini gösterir.
+
 ## 2026-08-05 (37. tur — 120 + 121 + 122 + 123 + 124 + 125)
 
 Kullanıcı "hepsini sıra ile uygula, emirler atomiktir" → 36. tur
