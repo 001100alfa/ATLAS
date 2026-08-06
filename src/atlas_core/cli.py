@@ -5425,6 +5425,14 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    # SPEC 120: --gzip yalnız --out ile anlamlı
+    use_gzip = bool(getattr(args, "gzip", False))
+    if use_gzip and out_arg is None:
+        print(
+            "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+            file=sys.stderr,
+        )
+        return 2
 
     if jsonl_mode:
         # Her alan bir satır + son satır summary
@@ -5440,14 +5448,26 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
         if out_arg is not None:
             try:
                 op = Path(out_arg)
+                if use_gzip and op.suffix != ".gz":
+                    op = op.with_suffix(op.suffix + ".gz")
                 op.parent.mkdir(parents=True, exist_ok=True)
-                with op.open("w", encoding="utf-8") as fh:
-                    for f in field_order:
-                        fh.write(_json.dumps(
-                            {"field": f, "value": report[f]},
-                            ensure_ascii=False,
-                        ) + "\n")
-                    fh.write(_json.dumps(summary, ensure_ascii=False) + "\n")
+                if use_gzip:
+                    import gzip as _gzip
+                    with _gzip.open(op, "wt", encoding="utf-8") as fh:
+                        for f in field_order:
+                            fh.write(_json.dumps(
+                                {"field": f, "value": report[f]},
+                                ensure_ascii=False,
+                            ) + "\n")
+                        fh.write(_json.dumps(summary, ensure_ascii=False) + "\n")
+                else:
+                    with op.open("w", encoding="utf-8") as fh:
+                        for f in field_order:
+                            fh.write(_json.dumps(
+                                {"field": f, "value": report[f]},
+                                ensure_ascii=False,
+                            ) + "\n")
+                        fh.write(_json.dumps(summary, ensure_ascii=False) + "\n")
             except OSError as exc:
                 print(
                     f"SPEC HATASI: --out PATH yazılamadı: {exc}",
@@ -6309,6 +6329,9 @@ def main(argv: list[str] | None = None) -> int:
     p_ai_st.add_argument("--out", default=None, metavar="PATH",
                          help="SPEC 118: --json-lines ile birlikte; stdout "
                               "yerine PATH'e stream.")
+    p_ai_st.add_argument("--gzip", action="store_true",
+                         help="SPEC 120: --out ile birlikte; gzip sıkıştırma "
+                              "(PATH sonuna .gz eklenir eğer yoksa).")
     p_ai_st.set_defaults(func=_cmd_ai_cli_status)
 
     p_hooks = sub.add_parser("hooks", help="Git pre-commit hook yönetimi (SPEC 034)")
