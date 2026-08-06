@@ -599,6 +599,67 @@ def test_100_atlas_doctor_artifact_uploaded() -> None:
     assert "doctor-diff-history-all.json" in path_str
 
 
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 130 — atlas-doctor.yml --diff-history-all --strict gate
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_130_atlas_doctor_history_gate_step() -> None:
+    """`Doctor history regression gate (SPEC 097/130)` step var."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "history regression gate" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "--diff-history-all" in run
+    assert "--strict" in run
+
+
+def test_130_atlas_doctor_history_gate_id() -> None:
+    """Step id `history_gate` — fail step conditional için."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "history regression gate" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert step.get("id") == "history_gate"
+
+
+def test_130_atlas_doctor_history_gate_fail_step_referans() -> None:
+    """Fail step `rc_hist != '0'` kontrolü içerir."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    fail_step = next(
+        (s for s in steps
+         if "fail the workflow" in s.get("name", "").lower()),
+        None,
+    )
+    assert fail_step is not None
+    cond = fail_step.get("if", "")
+    assert "history_gate.outputs.rc_hist" in cond
+
+
+def test_130_atlas_doctor_history_gate_artifact() -> None:
+    """Upload artifact listesinde `doctor-history-strict.txt`."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    path_str = str(upload_step.get("with", {}).get("path", ""))
+    assert "doctor-history-strict.txt" in path_str
+
+
 def test_100_atlas_doctor_mevcut_2_artifact_dokunulmadi() -> None:
     """SPEC 070 mevcut 2 artifact (`doctor-report.json`, `doctor-diff.txt`)
     upload listesinde AYNI (BİT-UYUMLU)."""

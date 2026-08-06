@@ -77,6 +77,25 @@ jobs:
             > doctor-diff-history-all.json 2>/dev/null \
             || echo '{"snapshots":[]}' > doctor-diff-history-all.json
 
+      - name: Doctor history regression gate (SPEC 097/130)
+        id: history_gate
+        continue-on-error: true
+        run: |
+          # SPEC 097: --diff-history-all --strict → herhangi snapshot'ta
+          # regresyon → exit 9. Tarihçe yoksa skip (fail-safe).
+          set +e
+          if [ -d .atlas/doctor-history ] && \
+             ls .atlas/doctor-history/baseline-*.json >/dev/null 2>&1; then
+              uv run atlas doctor --diff-history-all --strict \
+                > doctor-history-strict.txt 2>&1
+              rc_hist=$?
+              echo "rc_hist=$rc_hist" >> "$GITHUB_OUTPUT"
+          else
+              echo "(tarihçe yok — --save-baseline default path ile açılır)" \
+                > doctor-history-strict.txt
+              echo "rc_hist=0" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload doctor artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -86,6 +105,7 @@ jobs:
             doctor-report.json
             doctor-diff.txt
             doctor-diff-history-all.json
+            doctor-history-strict.txt
           retention-days: 30
 
       - name: Comment PR on failure
@@ -102,7 +122,8 @@ jobs:
         if: >-
           steps.doctor.outputs.rc_strict != '0'
           || steps.doctor.outputs.rc_diff != '0'
+          || steps.history_gate.outputs.rc_hist != '0'
         run: |
-          echo "::error::atlas doctor gate başarısız (strict=${{ steps.doctor.outputs.rc_strict }}, diff=${{ steps.doctor.outputs.rc_diff }})"
-          echo "Detay: doctor-diff.txt / doctor-report.json artifact."
+          echo "::error::atlas doctor gate başarısız (strict=${{ steps.doctor.outputs.rc_strict }}, diff=${{ steps.doctor.outputs.rc_diff }}, hist=${{ steps.history_gate.outputs.rc_hist }})"
+          echo "Detay: doctor-diff.txt / doctor-report.json / doctor-history-strict.txt artifact."
           exit 1
