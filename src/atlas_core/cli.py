@@ -938,14 +938,25 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
         )
         return 6
     restored_dir = tasks_root / task_id
+    json_mode = bool(getattr(args, "json", False))
 
     if not args.apply:
-        print("[dry-run] geri yükleme planı:")
-        print(f"  arşiv:  {tar_path}")
-        print(f"  hedef:  {restored_dir}")
-        if restored_dir.exists():
-            print("  UYARI:  hedef zaten var — --apply patlar (exit 3)")
-        print(f"Uygulamak için: atlas archive --restore {task_id} --apply")
+        if json_mode:
+            import json as _json
+            print(_json.dumps({
+                "mode": "dry-run",
+                "task_id": task_id,
+                "archive": str(tar_path),
+                "target": str(restored_dir),
+                "conflict": restored_dir.exists(),
+            }, ensure_ascii=False))
+        else:
+            print("[dry-run] geri yükleme planı:")
+            print(f"  arşiv:  {tar_path}")
+            print(f"  hedef:  {restored_dir}")
+            if restored_dir.exists():
+                print("  UYARI:  hedef zaten var — --apply patlar (exit 3)")
+            print(f"Uygulamak için: atlas archive --restore {task_id} --apply")
         return 0
 
     audit = AuditLog(_audit_path())
@@ -961,8 +972,18 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
         return 6
 
     audit.record("atlas-archive", "restore", task_id)
-    print(f"geri yüklendi: {restored_out}")
-    print(f"kaynak:        {tar_out}")
+    if json_mode:
+        import json as _json
+        print(_json.dumps({
+            "mode": "apply",
+            "task_id": task_id,
+            "archive": str(tar_out),
+            "target": str(restored_out),
+            "restored": True,
+        }, ensure_ascii=False))
+    else:
+        print(f"geri yüklendi: {restored_out}")
+        print(f"kaynak:        {tar_out}")
     return 0
 
 
