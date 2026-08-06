@@ -3909,6 +3909,42 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
     if alert is not None and alert > 0.0 and hit_ratio < alert:
         msg = f"UYARI: cache-hit %{hit_ratio:.1f} < eşik %{alert:.1f}"
         print(msg, file=sys.stderr)
+        # SPEC 126: --alert-history [PATH] → NDJSON append log
+        alert_history_arg = getattr(args, "alert_history", None)
+        if alert_history_arg is not None:
+            from datetime import datetime as _dt
+            history_path = (
+                Path(alert_history_arg) if alert_history_arg
+                else Path(".atlas/alert-history.jsonl")
+            )
+            channels: list[str] = []
+            if getattr(args, "alert_email", False):
+                channels.append("email")
+            if getattr(args, "alert_webhook", None):
+                channels.append("webhook")
+            if getattr(args, "alert_slack", None):
+                channels.append("slack")
+            record_line = _json.dumps({
+                "ts": _dt.now().isoformat(timespec="seconds"),
+                "alert": "cache-hit",
+                "hit_ratio_pct": round(hit_ratio, 2),
+                "threshold_pct": alert,
+                "records": len(tail),
+                "tokens_in": total_in,
+                "tokens_out": total_out,
+                "cache_creation": total_cc,
+                "cache_read": total_cr,
+                "channels": channels,
+            }, ensure_ascii=False)
+            try:
+                history_path.parent.mkdir(parents=True, exist_ok=True)
+                with history_path.open("a", encoding="utf-8") as fh:
+                    fh.write(record_line + "\n")
+            except OSError as exc:
+                print(
+                    f"[alert-history] append başarısız: {exc}",
+                    file=sys.stderr,
+                )
         # SPEC 059: --alert-email → SMTP notify (env ile config)
         if getattr(args, "alert_email", False):
             subject = (
@@ -6314,6 +6350,13 @@ def main(argv: list[str] | None = None) -> int:
                             "incoming webhook URL'sine `{text}` formatlı "
                             "POST at (markdown). --alert-webhook/-email ile "
                             "ORTOGONAL. Exit 8 KORUR.")
+    p_met.add_argument("--alert-history", nargs="?",
+                       const=".atlas/alert-history.jsonl",
+                       default=None, metavar="PATH",
+                       help="SPEC 126: --alert tetiklenirse NDJSON append log "
+                            "(default: .atlas/alert-history.jsonl). Yazma "
+                            "hatası sessiz — exit 8 KORUR. Alert tetiklenmezse "
+                            "log yazılmaz.")
     p_met.set_defaults(func=_cmd_metrics)
 
     p_ai = sub.add_parser(
