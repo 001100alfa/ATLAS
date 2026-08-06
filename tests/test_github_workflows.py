@@ -382,6 +382,66 @@ def test_089_atlas_ci_status_schedule_daily() -> None:
     assert any(c.get("cron") == "0 6 * * *" for c in crons)
 
 
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 141 — atlas-ci-status.yml alert-webhook gate
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_141_atlas_ci_status_alert_webhook_step() -> None:
+    """`Post ci-status alert webhook (SPEC 131/141)` step var."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "ci-status alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "curl" in run
+    assert "ALERT_WEBHOOK_URL" in run
+    assert '"alert":"ci-status"' in run
+
+
+def test_141_atlas_ci_status_alert_webhook_env() -> None:
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "ci-status alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    env = step.get("env", {})
+    assert "ATLAS_ALERT_WEBHOOK_URL" in str(env.get("ALERT_WEBHOOK_URL", ""))
+
+
+def test_141_atlas_ci_status_alert_webhook_conditional() -> None:
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "ci-status alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    cond = step.get("if", "")
+    assert "ALERT_WEBHOOK_URL" in cond
+    assert "rc" in cond
+
+
+def test_141_atlas_ci_status_alert_webhook_continue_on_error() -> None:
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "ci-status alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert step.get("continue-on-error") is True
+
+
 def test_119_atlas_ci_status_weekly_cron() -> None:
     """SPEC 119: haftalık cron `0 7 * * 1` eklenir; daily bozulmaz."""
     data = _load("atlas-ci-status.yml")

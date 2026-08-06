@@ -79,6 +79,28 @@ jobs:
             drift-issue.md
           retention-days: 30
 
+      - name: Post ci-status alert webhook (SPEC 131/141)
+        if: >-
+          env.ALERT_WEBHOOK_URL != ''
+          && steps.check.outputs.rc != '0'
+        env:
+          ALERT_WEBHOOK_URL: ${{ secrets.ATLAS_ALERT_WEBHOOK_URL }}
+        continue-on-error: true
+        run: |
+          # SPEC 131/135 kalibi: drift tespitinde env webhook'a POST.
+          # Env yok/bossa step conditional ile atlar.
+          # continue-on-error: webhook fail workflow durdurmaz.
+          payload=$(cat <<EOF
+          {"alert":"ci-status",
+           "rc":"${{ steps.check.outputs.rc }}",
+           "run_id":"${{ github.run_id }}",
+           "sha":"${{ github.sha }}",
+           "event":"${{ github.event_name }}"}
+          EOF
+          )
+          curl -sS -X POST -H 'Content-Type: application/json' \
+            -d "$payload" "$ALERT_WEBHOOK_URL" || true
+
       - name: Fail on drift
         if: steps.check.outputs.rc != '0'
         run: |
