@@ -7,6 +7,8 @@ on:
   schedule:
     # Her gün 06:00 UTC (Istanbul 09:00). Deterministik saat.
     - cron: "0 6 * * *"
+    # SPEC 119: Haftalık ek tetik — Pazartesi 07:00 UTC (retrospektif).
+    - cron: "0 7 * * 1"
   workflow_dispatch: {}
 
 permissions:

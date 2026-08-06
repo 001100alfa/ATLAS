@@ -382,6 +382,16 @@ def test_089_atlas_ci_status_schedule_daily() -> None:
     assert any(c.get("cron") == "0 6 * * *" for c in crons)
 
 
+def test_119_atlas_ci_status_weekly_cron() -> None:
+    """SPEC 119: haftalık cron `0 7 * * 1` eklenir; daily bozulmaz."""
+    data = _load("atlas-ci-status.yml")
+    on = data.get("on") or data.get(True)
+    crons = on["schedule"]
+    values = {c.get("cron") for c in crons}
+    assert "0 6 * * *" in values  # SPEC 089 daily
+    assert "0 7 * * 1" in values  # SPEC 119 weekly
+
+
 def test_089_atlas_ci_status_workflow_dispatch() -> None:
     """Manuel tetik `workflow_dispatch` var."""
     data = _load("atlas-ci-status.yml")
