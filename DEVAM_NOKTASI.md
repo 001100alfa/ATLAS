@@ -12,11 +12,11 @@
 >    tur kapanış rutini — mevcut oturumda onaylandı.
 > 5. Zorunlu Döngü'ye (`CLAUDE.md` §Zorunlu Döngü) gir.
 
-**Son çalışma:** 2026-08-05 (36. tur — 114 + 116 + 115 + 118 + 117 + 119)
-**Branch:** `main` (6 feat + docs, PUSH edilecek)
+**Son çalışma:** 2026-08-05 (37. tur — 120 + 121 + 122 + 123 + 124 + 125)
+**Branch:** `main` (6 commit, PUSH edilecek)
 **Working tree:** temiz
-**Durum:** 36. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
-**1479/1479 test yeşil** (+12 skip), cov ~%91.37, mypy strict + ruff +
+**Durum:** 37. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
+**1503/1503 test yeşil** (+12 skip), cov ~%91.39, mypy strict + ruff +
 scan temiz.
 
 ---
@@ -27,39 +27,39 @@ Yeni oturumda tek cümle yeter: **"devam et"**
 
 ---
 
-## Bu turda yapılan (2026-08-05 — 36. tur)
+## Bu turda yapılan (2026-08-05 — 37. tur)
 
 Kullanıcı "hepsini sıra ile uygula, emirler atomiktir
-(atomic-order-doctrine)" → 35. tur adayları (114-119) tümü zincirleme.
+(atomic-order-doctrine)" → 36. tur adayları (120-125) tümü zincirleme.
 
-1. **Görev 114** — doctor prometheus --out --gzip (`07ae709`)
-   - SPEC 110 üstüne SPEC 103/108/109/111 gzip kalıbı.
+1. **Görev 120** — ai-cli status --json-lines --out --gzip (`30eebf8`)
+   - SPEC 118 üstüne SPEC 108/109/111/114 gzip kalıbı.
    - +6 test.
 
-2. **Görev 116** — metrics tam zincir regresyon testleri (`7034225`)
-   - SPEC 084+090+096+103 birlikte → dosya+gzip+cost_usd.
-   - Kod DEĞİŞMEZ (salt-test tur).
+2. **Görev 121** — archive tam zincir regresyon (`075ea05`)
+   - SPEC 075+079+085+093+108+115 birlikte doğrulama.
+   - Kod DEĞİŞMEZ (salt-test).
    - +4 test.
 
-3. **Görev 115** — archive --list --json --out PATH (`f44f3e4`)
-   - `--out` mutex genişletildi (--json VEYA --json-lines).
-   - --gzip ile ORTOGONAL.
-   - SPEC 105 test güncellendi (eski mutex → yeni davranış).
-   - +7 test + 1 update.
-
-4. **Görev 118** — ai-cli status <name> --json-lines --out (`35ea75e`)
-   - 8 alan satırı + summary NDJSON.
-   - --json + --json-lines MUTEX; --out yalnız --json-lines ile.
-   - +6 test.
-
-5. **Görev 117** — atlas-vault.yml doctor gate (`0e600e8`)
-   - Restore edilen vault üzerinde `atlas doctor --strict --scan-src`.
-   - ATLAS_VAULT=/tmp/verify-vault env override.
+3. **Görev 122** — metrics --limit prom regresyon (`4d94abe`)
+   - SPEC 090 `--limit N` grup Prometheus'a ÖNCE uygulanır.
+   - Kod DEĞİŞMEZ (salt-test).
    - +4 test.
 
-6. **Görev 119** — atlas-ci-status.yml weekly cron (`98c017b`)
-   - `0 7 * * 1` (Pazartesi 07:00 UTC) eklendi; daily korundu.
-   - +1 test.
+4. **Görev 123** — doctor tam zincir regresyon (`8e87a9d`)
+   - SPEC 104+110+114 birlikte doğrulama + --strict ortogonal.
+   - Kod DEĞİŞMEZ (salt-test).
+   - +4 test.
+
+5. **Görev 124** — atlas-vault.yml retention verify step (`1a44eed`)
+   - `find archive/ -name 'vault-*.tar.gz.*' | wc -l` sayı kontrolü.
+   - Ana `.tar.gz` split sonrası silinmiş olmalı (uyarı).
+   - +3 test.
+
+6. **Görev 125** — atlas-ci-status.yml drift diff artifact (`8c897a9`)
+   - `Upload drift diff artifact` step + README.md + drift-issue.md.
+   - `rc != 0` conditional; 30 gün retention.
+   - +3 test.
 
 7. **Kalite kapıları:** her görev branch → kod → test → tam
    pytest/mypy/ruff/scan → main'e ff-merge. 6 lineer commit.
@@ -68,65 +68,92 @@ Kullanıcı "hepsini sıra ile uygula, emirler atomiktir
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-36. tur adayları tamamlandı. Yeni 6 aday üretildi:
+37. tur adayları tamamlandı. Yeni 6 aday üretildi:
 
-- **Görev 120 — `atlas ai-cli status <name> --json-lines --out --gzip`:**
-  SPEC 118 stream'i gzip (SPEC 108/109/111 kalıbı). Küçük.
-- **Görev 121 — `atlas archive --list --json --out --gzip fresh test`:**
-  SPEC 115 tam zincir regresyon. Küçük.
-- **Görev 122 — `atlas metrics --group-by --format prometheus --limit N`
-  fresh test:** SPEC 090 --limit ile birlikte grup hesaplama regresyon.
+- **Görev 126 — `atlas metrics --alert-history` JSON log:** SPEC
+  029/064/068 alert'lerin dosya log'u (`.atlas/alert-history.jsonl`).
+  Küçük-orta.
+- **Görev 127 — `atlas archive --restore <id> --json`:** SPEC 033
+  restore dry-run JSON çıktısı. Küçük.
+- **Görev 128 — `atlas doctor --schema --format prometheus`:** SPEC 040
+  schema Prometheus text (labels: field, exit_code). Orta.
+- **Görev 129 — `atlas vault verify --format json-lines --out --gzip
+  fresh test`:** SPEC 111 tam zincir salt-test regresyon.
   Küçük.
-- **Görev 123 — `atlas doctor --diff-history-all --format prometheus
-  --out --gzip fresh test`:** SPEC 114 tam zincir regresyon. Küçük.
-- **Görev 124 — `.github/workflows/atlas-vault.yml` retention verify
-  step:** SPEC 041.1 `--keep 7` retention'ın gerçekten uygulandığı
-  kontrol. Küçük-orta.
-- **Görev 125 — `.github/workflows/atlas-ci-status.yml` --diff-only
-  komut çıktısı diff artifact:** SPEC 082 gen_ci_badges.py `--check`
-  farkını dosyaya yaz + upload. Küçük.
-- Ya da başka öncelik varsa net söyle.
+- **Görev 130 — `.github/workflows/atlas-doctor.yml` --strict scan
+  gate:** SPEC 070'e `atlas doctor --diff-history-all --strict` ek
+  step. Küçük.
+- **Görev 131 — `.github/workflows/atlas-metrics.yml` alert-webhook
+  post:** SPEC 064 alert-webhook ile PR fail durumunda Slack/Discord
+  ping (env-driven). Orta.
 
 ---
 
 ## Hızlı Bağlam
 
-**main'e giren 6 feat (2026-08-05 36. tur):**
+**Branch grafı:** `origin/main + 6 commit local (37. tur — push edilecek)`
+
+**main'e giren 6 commit (2026-08-05 37. tur):**
 ```
-98c017b feat(119): atlas-ci-status.yml weekly cron (SPEC 089 uzerine)
-0e600e8 feat(117): atlas-vault.yml doctor gate on restored vault
-35ea75e feat(118): atlas ai-cli status <name> --json-lines --out PATH
-f44f3e4 feat(115): atlas archive --list --json --out PATH (SPEC 075 -> dosya)
-7034225 test(116): metrics tam zincir SPEC 084+090+096+103 regresyon
-07ae709 feat(114): atlas doctor prometheus --out --gzip (SPEC 110 uzerine)
+8c897a9 feat(125): atlas-ci-status.yml drift diff artifact (SPEC 082/089)
+1a44eed feat(124): atlas-vault.yml retention verify step (SPEC 041.1/107)
+8e87a9d test(123): doctor tam zincir SPEC 104+110+114 regresyon
+4d94abe test(122): metrics --group-by prometheus --limit regresyon (SPEC 090)
+075ea05 test(121): archive tam zincir SPEC 075+079+085+093+108+115 regresyon
+30eebf8 feat(120): atlas ai-cli status --json-lines --out --gzip (SPEC 118)
 ```
 
 **Kalite kapıları:**
 ```bash
 uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
-# 1479 passed, 12 skipped; cov 91.37%
+# 1503 passed, 12 skipped; cov 91.39%
 uv run mypy src                # temiz (31 kaynak dosya)
 uv run ruff check src tests    # temiz
 uv run atlas scan src          # sır bulunamadı
 ```
 
 **Yeni CLI davranışları (bu turda):**
-- `atlas doctor --diff-history-all --format prometheus --out --gzip` (SPEC 114)
-- `atlas archive --list --json --out PATH [--gzip]` (SPEC 115)
-- `atlas ai-cli status <name> --json-lines [--out PATH]` (SPEC 118)
+- `atlas ai-cli status <name> --json-lines --out PATH --gzip` (SPEC 120)
 
 **Yeni workflow adımları:**
-- `atlas-vault.yml` `Doctor gate on restored vault` (SPEC 117)
-- `atlas-ci-status.yml` haftalık cron `0 7 * * 1` (SPEC 119)
+- `atlas-vault.yml` `Verify retention (--keep 7)` (SPEC 124)
+- `atlas-ci-status.yml` `Upload drift diff artifact` (SPEC 125)
+
+**Yeni test dosyaları (regresyon önleme):**
+- `test_cli_ai_cli_status_jsonl_gzip.py` (SPEC 120)
+- `test_cli_archive_full_chain.py` (SPEC 121)
+- `test_cli_metrics_prom_limit.py` (SPEC 122)
+- `test_cli_doctor_full_chain.py` (SPEC 123)
 
 **Kritik sözleşme değişmezlikleri:**
-- SPEC 110/075/037.4/089/112: mevcut davranışlar AYNI.
+- SPEC 118: `--gzip` yoksa düz NDJSON dosya AYNI.
+- SPEC 075/079/085/093/108/115: archive tam zinciri AYNI (regresyon
+  yakalayıcı 121).
+- SPEC 090: metrics `--limit` grup Prometheus önce uygulanır AYNI.
+- SPEC 104/110/114: doctor tam zinciri AYNI.
+- SPEC 107/117: atlas-vault.yml mevcut backup+restore+verify+doctor
+  step'leri AYNI (retention verify eklendi).
+- SPEC 089/119: atlas-ci-status.yml drift-scan job AYNI (artifact
+  eklendi).
 
-**Docker YASAK:** hâlâ yürürlükte + otomatik gate.
+**Docker YASAK:** hâlâ yürürlükte + otomatik gate (SPEC 077, CI + hook v5).
 
 ---
 
-## 11 Turluk Toplu İstatistik (2026-08-05 tek gün)
+## Kapanış Notları
+
+- **1503 test yeşil** (1479 → 1503; bu tur +24 — 4 salt-test + 2 CLI feat
+  + 2 workflow step)
+- 3 salt-test tur (121/122/123) — mevcut çıktıların regresyona karşı
+  sözleşme sigortası
+- 3 feat: ai-cli --gzip (SPEC 120), vault retention verify (SPEC 124),
+  ci-status drift artifact (SPEC 125)
+- Docker YASAK yürürlükte + hook v5
+- Sıradaki tur için 6 aday (126–131).
+
+---
+
+## 12 Turluk Toplu İstatistik (2026-08-05 tek gün)
 
 | Tur | Test toplam | Delta |
 |---|---:|---:|
@@ -140,8 +167,9 @@ uv run atlas scan src          # sır bulunamadı
 | 33 | 1366 | +45 |
 | 34 | 1415 | +49 |
 | 35 | 1451 | +36 |
-| **36** | **1479** | **+28** |
+| 36 | 1479 | +28 |
+| **37** | **1503** | **+24** |
 
-Toplam **65 feat + 1 test-tur** + 11 docs commit bugün; **+567 test**
-(912 → 1479). Cov `%91.18 → %91.37`. 8 GHA workflow; 2 sözleşme
-rollback; +48 CLI bayrak varyasyonu.
+Toplam **~70 feat/test-tur** commit + 12 docs commit bugün; **+591
+test** (912 → 1503). Cov `%91.18 → %91.39`. 8 GHA workflow; 2 sözleşme
+rollback (SPEC 081→090, SPEC 091→104).

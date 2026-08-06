@@ -1,6 +1,36 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-05 (37. tur — 120 + 121 + 122 + 123 + 124 + 125)
+
+Kullanıcı "hepsini sıra ile uygula, emirler atomiktir" → 36. tur
+adayları (120-125) tümü zincirleme.
+
+- [KARAR] 120 ai-cli status `--gzip` — SPEC 108/109/111/114 kalıp
+  simetrisi (4. kez aynı pattern). `--out` yok ise exit 2; `.gz`
+  auto-suffix; içerik decompress edilince düz NDJSON ile BİT-UYUMLU.
+- [KARAR] 121 salt-test tur: SPEC 075+079+085+093+108+115 archive
+  tam zinciri tek dosyada regresyon önleme. Kod DEĞİŞMEZ; her yeni
+  bayrak eklendiğinde tam zincirin bozulmaması için sözleşme sigortası.
+- [KARAR] 122 salt-test tur: SPEC 090 `--limit N` grup Prometheus'a
+  ÖNCE uygulanır (window + limit + group_by sırası doğrulama). Regresyon
+  yakalayıcı — `_group_records_by(tail, unit)` `tail=records[-limit:]`
+  önce çalışır.
+- [KARAR] 123 salt-test tur: SPEC 104+110+114 doctor zinciri regresyon.
+  3 salt-test tur (121/122/123) tek atomik pakette — SPEC 116 kalıbı
+  tekrar edildi. Kod DEĞİŞMEZ.
+- [KARAR] 124 atlas-vault.yml yeni step: `Verify retention (--keep 7,
+  SPEC 041.1/124)`. Neden: `--keep 7` komutta olsa da workflow'da
+  gerçekten uygulandığı doğrulanmıyordu. `find` + `wc -l` sayı kontrolü
+  + `set -e` fail-fast. Ana `.tar.gz` split sonrası silinmiş olmalı
+  (uyarı; error değil çünkü split akışı zaten silmeli — extra kontrol).
+- [KARAR] 125 atlas-ci-status.yml yeni step: `Upload drift diff
+  artifact`. Neden: drift issue'sunda README fark yok — kullanıcı
+  lokal `git diff HEAD README.md` yapmak zorundaydı. Artifact ile
+  regen edilen README + drift-issue.md indirilebilir.
+- [KARAR] 125 conditional `rc != '0'` — issue step'i ile aynı guard
+  (SPEC 089 kalıbı). Retention 30 gün (SPEC 095/100 artifact kalıbı).
+
 ## 2026-08-05 (36. tur — 114 + 116 + 115 + 118 + 117 + 119)
 
 Kullanıcı "hepsini sıra ile uygula, emirler atomiktir" → 35. tur
