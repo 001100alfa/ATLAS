@@ -429,6 +429,53 @@ def test_089_atlas_ci_status_creates_issue_on_drift() -> None:
     assert "rc" in cond and "!=" in cond
 
 
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 125 — atlas-ci-status.yml drift diff artifact
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_125_atlas_ci_status_drift_artifact_step() -> None:
+    """`Upload drift diff artifact (SPEC 125)` step var."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "upload drift" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert step.get("uses", "").startswith("actions/upload-artifact")
+
+
+def test_125_atlas_ci_status_drift_artifact_conditional() -> None:
+    """Artifact step yalnız drift varsa (rc != 0) çalışır."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "upload drift" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    cond = step.get("if", "")
+    assert "rc" in cond and "!=" in cond
+
+
+def test_125_atlas_ci_status_drift_artifact_path() -> None:
+    """Artifact path README.md + drift-issue.md içerir."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "upload drift" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    path_str = str(step.get("with", {}).get("path", ""))
+    assert "README.md" in path_str
+    assert "drift-issue.md" in path_str
+
+
 def test_089_atlas_ci_status_readme_badge_row() -> None:
     """README ci-status bloğunda `atlas-ci-status` satırı var."""
     readme = (_REPO / "README.md").read_text(encoding="utf-8")

@@ -69,6 +69,16 @@ jobs:
             drift
             automated
 
+      - name: Upload drift diff artifact (SPEC 125)
+        if: steps.check.outputs.rc != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-status-drift-readme
+          path: |
+            README.md
+            drift-issue.md
+          retention-days: 30
+
       - name: Fail on drift
         if: steps.check.outputs.rc != '0'
         run: |
