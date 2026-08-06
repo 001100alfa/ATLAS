@@ -3678,6 +3678,57 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
 
     from atlas_core.orchestrator.planner import _metrics_path
 
+    # SPEC 132: --alert-history-show → yalın bilgi komutu, metrics özet
+    # yerine alert-history NDJSON log okur (SPEC 126 kalıbı).
+    show_path = getattr(args, "alert_history_show", None)
+    if show_path is not None:
+        show_limit: int = getattr(args, "limit", 10) or 10
+        history_path = Path(show_path) if show_path else Path(
+            ".atlas/alert-history.jsonl",
+        )
+        history_records: list[dict[str, Any]] = []
+        if history_path.is_file():
+            try:
+                for line in history_path.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = _json.loads(line)
+                    except _json.JSONDecodeError:
+                        continue
+                    if isinstance(obj, dict):
+                        history_records.append(obj)
+            except OSError:
+                pass
+        tail_recs = history_records[-show_limit:]
+        if getattr(args, "json", False):
+            for r in tail_recs:
+                print(_json.dumps(r, ensure_ascii=False))
+            print(_json.dumps({
+                "type": "summary",
+                "path": str(history_path),
+                "count": len(tail_recs),
+                "total": len(history_records),
+            }, ensure_ascii=False))
+            return 0
+        print(
+            f"=== ATLAS metrics --alert-history-show ({history_path}) — "
+            f"{len(tail_recs)}/{len(history_records)} kayit ==="
+        )
+        if not tail_recs:
+            print("  (alert kaydi yok)")
+            return 0
+        for r in tail_recs:
+            ch = ",".join(r.get("channels", []) or []) or "-"
+            print(
+                f"  {r.get('ts','?'):<20}  "
+                f"{r.get('hit_ratio_pct',0):>6.1f}%  "
+                f"< {r.get('threshold_pct',0):>5.1f}%  "
+                f"[{ch}]"
+            )
+        return 0
+
     # SPEC 029: sınır kontrolü — geçersiz eşik = SPEC HATASI
     alert: float | None = getattr(args, "alert", None)
     if alert is not None and (alert < 0.0 or alert > 100.0):
@@ -4618,6 +4669,51 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
 
     from atlas_core.memory.vault import Vault
     from atlas_core.memory.vault_verify import format_report_markdown, verify_graph
+
+    # SPEC 136: --schema kısa devre — vault dizini gerekmez, yalnız
+    # verify JSON çıktı şema tanımını bas (SPEC 040 doctor kalıbı).
+    if getattr(args, "schema", False):
+        pretty = getattr(args, "pretty", False)
+        indent = 2 if pretty else None
+        schema = {
+            "schema_version": "1",
+            "top_level": [
+                {"name": "notes_total", "type": "int",
+                 "desc": "Vault'taki toplam not sayısı"},
+                {"name": "links_total", "type": "int",
+                 "desc": "Toplam wikilink sayısı"},
+                {"name": "tags_total", "type": "int",
+                 "desc": "Toplam #tag sayısı"},
+                {"name": "broken_links", "type": "list[{from,to}]",
+                 "desc": "Hedefi yok wikilink'ler"},
+                {"name": "orphan_notes", "type": "list[str]",
+                 "desc": "Ne link veren ne alan notlar"},
+                {"name": "orphan_tags", "type": "list[str]",
+                 "desc": "Yalnız bir notta geçen tag'ler"},
+            ],
+            "exit_codes": {
+                "0": "başarılı (bulgu olsa da; --strict yoksa uyarı)",
+                "2": "SPEC HATASI (vault dizini yok / MUTEX)",
+                "4": "--strict verildi ve rapor temiz değil",
+            },
+            "formats": [
+                {"name": "human", "spec": "042", "desc": "İnsan-okunur özet"},
+                {"name": "json", "spec": "042", "desc": "Tek satır JSON"},
+                {"name": "json-pretty", "spec": "087",
+                 "desc": "Indent'li JSON"},
+                {"name": "json-lines", "spec": "087",
+                 "desc": "NDJSON stream + son satır summary"},
+            ],
+            "notes": [
+                "SPEC 087: --format seçimi (--json/--pretty ile MUTEX).",
+                "SPEC 092: --out PATH (yalnız --format json-lines).",
+                "SPEC 111: --out --gzip (auto-suffix .gz).",
+                "SPEC 052: --dump-report PATH (markdown yan etki).",
+                "SPEC 136: bu şema `atlas vault verify --schema` ile yayımlanır.",
+            ],
+        }
+        print(_json.dumps(schema, ensure_ascii=False, indent=indent))
+        return 0
 
     # SPEC 087: --format ile --json/--pretty MUTEX
     fmt = getattr(args, "format", None)
@@ -6273,6 +6369,10 @@ def main(argv: list[str] | None = None) -> int:
                       help="SPEC 052: rapor markdown olarak PATH'e yazılır "
                            "(dizin yoksa oluşturulur). Yazma hatası sessiz "
                            "geçilir — verify çıktı sözleşmesi bit-uyumlu.")
+    p_vv.add_argument("--schema", action="store_true",
+                      help="SPEC 136: vault dizini gerekmez; yalnız verify "
+                           "JSON çıktı şema tanımını bas. --pretty ile "
+                           "indent=2.")
     p_vv.set_defaults(func=_cmd_vault_verify)
     # SPEC 046: vault fix-orphans (orfan notları arşivle — YIKICI)
     p_vfo = vault_sub.add_parser(
@@ -6444,6 +6544,12 @@ def main(argv: list[str] | None = None) -> int:
                             "(default: .atlas/alert-history.jsonl). Yazma "
                             "hatası sessiz — exit 8 KORUR. Alert tetiklenmezse "
                             "log yazılmaz.")
+    p_met.add_argument("--alert-history-show", nargs="?",
+                       const=".atlas/alert-history.jsonl",
+                       default=None, metavar="PATH",
+                       help="SPEC 132: NDJSON log OKU (metrics özet yerine). "
+                            "Default .atlas/alert-history.jsonl. --limit N "
+                            "son N kayıt (default 10). --json ile NDJSON stream + summary.")
     p_met.set_defaults(func=_cmd_metrics)
 
     p_ai = sub.add_parser(
