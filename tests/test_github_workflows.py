@@ -794,6 +794,71 @@ def test_113_atlas_metrics_gzip_artifact_uploaded() -> None:
     assert "metrics-group-day.prom.gz" in path_str
 
 
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 131 — atlas-metrics.yml alert-webhook post
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_131_atlas_metrics_alert_webhook_step() -> None:
+    """`Post alert webhook (SPEC 064/131)` step var."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "atlas metrics" in run
+    assert "--alert 30" in run
+    assert "--alert-webhook" in run
+
+
+def test_131_atlas_metrics_alert_webhook_env_secret() -> None:
+    """Env `ALERT_WEBHOOK_URL` GitHub secret'tan gelir."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    env = step.get("env", {})
+    val = env.get("ALERT_WEBHOOK_URL", "")
+    assert "secrets" in val
+    assert "ATLAS_ALERT_WEBHOOK_URL" in val
+
+
+def test_131_atlas_metrics_alert_webhook_conditional() -> None:
+    """Step yalnız has_data + env != '' iken."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    cond = step.get("if", "")
+    assert "has_data" in cond
+    assert "ALERT_WEBHOOK_URL" in cond
+
+
+def test_131_atlas_metrics_alert_webhook_continue_on_error() -> None:
+    """Webhook POST fail → job kırılmaz."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert step.get("continue-on-error") is True
+
+
 def test_113_atlas_metrics_mevcut_4_artifact_dokunulmadi() -> None:
     """SPEC 074/095 mevcut 4 artifact listede AYNI."""
     data = _load("atlas-metrics.yml")
