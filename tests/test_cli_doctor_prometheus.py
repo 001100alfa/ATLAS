@@ -118,25 +118,31 @@ def test_047_cli_doctor_format_prometheus_json_mutex(
     assert excinfo.value.code == 2
 
 
-def test_047_cli_doctor_format_prometheus_schema_mutex(
+def test_047_128_cli_doctor_format_prometheus_schema_no_longer_mutex(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """`--schema --format prometheus` argparse mutex → SystemExit(2)."""
+    """SPEC 128: `--schema --format prometheus` MUTEX KALDIRILDI —
+    artık info-metric text yayımlar (rc 0)."""
     _env(monkeypatch, tmp_path)
-    with pytest.raises(SystemExit) as excinfo:
-        main(["doctor", "--schema", "--format", "prometheus"])
-    assert excinfo.value.code == 2
+    rc = main(["doctor", "--schema", "--format", "prometheus"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "atlas_doctor_schema_version" in out
 
 
-def test_047_cli_doctor_json_schema_mutex(
+def test_047_128_cli_doctor_json_schema_no_longer_mutex(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """`--json --schema` da mutex (yeni add_mutually_exclusive_group)."""
+    """SPEC 128: `--json --schema` MUTEX KALDIRILDI. --schema kısa devre
+    JSON şema yayımlar; --json bilgi komutunda ignored (bit-uyumlu)."""
     _env(monkeypatch, tmp_path)
-    with pytest.raises(SystemExit) as excinfo:
-        main(["doctor", "--json", "--schema"])
-    assert excinfo.value.code == 2
+    rc = main(["doctor", "--json", "--schema"])
+    assert rc == 0
+    import json
+    data = json.loads(capsys.readouterr().out.strip())
+    assert "schema_version" in data
 
 
 def test_047_cli_doctor_default_bit_uyumlu(

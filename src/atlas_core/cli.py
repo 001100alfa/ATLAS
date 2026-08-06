@@ -2534,15 +2534,61 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     şema tanımını basar (schema_version + alan listesi + exit kodları).
     """
     # SPEC 040: --schema kısa devre — hiçbir dizine dokunmaz, yalnız
-    # şema tanımı JSON olarak basılır (idempotent, IO'suz).
+    # şema tanımı JSON (default) veya Prometheus text (SPEC 128) basılır.
     if getattr(args, "schema", False):
         import json as _json
+        schema = _doctor_schema_descriptor()
+        # SPEC 128: --format prometheus → info-metric ailesi
+        if getattr(args, "format", None) == "prometheus":
+            def _lbl(k: str) -> str:
+                return (
+                    k.replace("\\", "\\\\").replace('"', '\\"')
+                    .replace("\n", "\\n")
+                )
+            schema_lines: list[str] = []
+            schema_lines += [
+                "# HELP atlas_doctor_schema_version doctor JSON şema major sürüm etiketi",
+                "# TYPE atlas_doctor_schema_version gauge",
+                f'atlas_doctor_schema_version{{version="{_lbl(str(schema["schema_version"]))}"}} 1',
+                "# HELP atlas_doctor_schema_top_level_field "
+                "doctor JSON top-level alanlari (SPEC 040)",
+                "# TYPE atlas_doctor_schema_top_level_field gauge",
+            ]
+            for f in schema["top_level"]:
+                schema_lines.append(
+                    f'atlas_doctor_schema_top_level_field{{'
+                    f'name="{_lbl(str(f["name"]))}",'
+                    f'type="{_lbl(str(f["type"]))}"'
+                    f'}} 1'
+                )
+            schema_lines += [
+                "# HELP atlas_doctor_schema_quality_field "
+                "doctor quality.* alan sozlesmesi (SPEC 040)",
+                "# TYPE atlas_doctor_schema_quality_field gauge",
+            ]
+            for f in schema["quality_fields"]:
+                schema_lines.append(
+                    f'atlas_doctor_schema_quality_field{{'
+                    f'name="{_lbl(str(f["name"]))}",'
+                    f'spec="{_lbl(str(f["spec"]))}"'
+                    f'}} 1'
+                )
+            schema_lines += [
+                "# HELP atlas_doctor_schema_exit_code doctor exit code sözleşmesi (SPEC 040)",
+                "# TYPE atlas_doctor_schema_exit_code gauge",
+            ]
+            for code in sorted(schema["exit_codes"].keys()):
+                schema_lines.append(
+                    f'atlas_doctor_schema_exit_code{{'
+                    f'code="{_lbl(str(code))}"'
+                    f'}} 1'
+                )
+            print("\n".join(schema_lines))
+            return 0
         # --pretty ile birlikte indent=2 (tutarlılık)
         pretty = getattr(args, "pretty", False)
         indent = 2 if pretty else None
-        print(_json.dumps(
-            _doctor_schema_descriptor(), ensure_ascii=False, indent=indent,
-        ))
+        print(_json.dumps(schema, ensure_ascii=False, indent=indent))
         return 0
 
     # SPEC 110: --out yalnız --diff-history-all + --format prometheus ile
@@ -6369,25 +6415,29 @@ def main(argv: list[str] | None = None) -> int:
 
     p_doc = sub.add_parser("doctor",
                            help="Env sağlık özeti + quality gate (SPEC 021/032)")
-    # SPEC 047: --json / --schema / --format üçlüsü mutex
-    # (add_mutually_exclusive_group). store_true davranışı korunur.
+    # SPEC 047: --json / --format üçlüsü mutex (add_mutually_exclusive_group).
+    # SPEC 128: --schema mutex GRUBUNDAN ÇIKARILDI — --schema kısa devre
+    # kendi başına, --format prometheus ile birlikte info-metric yayımlar.
     p_doc_out = p_doc.add_mutually_exclusive_group()
     p_doc_out.add_argument("--json", action="store_true",
                            help="JSON çıktı (CI/pre-flight uyumlu) — SPEC 021.1")
-    p_doc_out.add_argument("--schema", action="store_true",
-                           help="SPEC 040: sağlık kontrolü YAPMA, yalnız JSON "
-                                "şema tanımını bas (alan listesi + exit kodları). "
-                                "--pretty ile birlikte indent=2.")
     p_doc_out.add_argument("--format", default=None,
                            choices=["human", "prometheus"],
                            help="SPEC 047: 'prometheus' = Prometheus text v0.0.4 "
                                 "export (up + warnings_total + quality_healthy "
-                                "labels); 'human' = default insan çıktısı.")
+                                "labels); 'human' = default insan çıktısı. "
+                                "SPEC 128: --schema ile birlikte kullanıldığında "
+                                "info-metric ailesi yayımlar.")
     p_doc_out.add_argument("--serve", default=None, metavar="HOST:PORT",
                            help="SPEC 051: Prometheus scrape HTTP endpoint "
                                 "başlat (blocking; Ctrl+C ile durdur). "
                                 "Ör: ':9091' veya '0.0.0.0:9091'. --ping ile "
                                 "mutex (her istek anthropic quota tüketir).")
+    p_doc.add_argument("--schema", action="store_true",
+                       help="SPEC 040: sağlık kontrolü YAPMA, yalnız JSON "
+                            "şema tanımını bas (alan listesi + exit kodları). "
+                            "--pretty ile birlikte indent=2. SPEC 128: "
+                            "--format prometheus ile info-metric text.")
     # SPEC 057: --diff mutex GRUBU DIŞINDA (ortogonal `--json` ile;
     # semantik mutex `--serve/--schema/--format` ile _cmd_doctor içinde).
     p_doc.add_argument("--diff", default=None, metavar="BASELINE_JSON",
