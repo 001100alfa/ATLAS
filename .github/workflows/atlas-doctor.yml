@@ -118,6 +118,30 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           body-path: doctor-diff.txt
 
+      - name: Post doctor alert webhook (SPEC 131/135)
+        if: >-
+          env.ALERT_WEBHOOK_URL != ''
+          && (steps.doctor.outputs.rc_strict != '0'
+              || steps.doctor.outputs.rc_diff != '0'
+              || steps.history_gate.outputs.rc_hist != '0')
+        env:
+          ALERT_WEBHOOK_URL: ${{ secrets.ATLAS_ALERT_WEBHOOK_URL }}
+        continue-on-error: true
+        run: |
+          # SPEC 131 kalibi: doctor gate FAIL ise env webhook'a POST.
+          # Env yok/boşsa step conditional ile atlar.
+          payload=$(cat <<EOF
+          {"alert":"doctor",
+           "rc_strict":"${{ steps.doctor.outputs.rc_strict }}",
+           "rc_diff":"${{ steps.doctor.outputs.rc_diff }}",
+           "rc_hist":"${{ steps.history_gate.outputs.rc_hist }}",
+           "run_id":"${{ github.run_id }}",
+           "sha":"${{ github.sha }}"}
+          EOF
+          )
+          curl -sS -X POST -H 'Content-Type: application/json' \
+            -d "$payload" "$ALERT_WEBHOOK_URL" || true
+
       - name: Fail the workflow on quality issues
         if: >-
           steps.doctor.outputs.rc_strict != '0'
