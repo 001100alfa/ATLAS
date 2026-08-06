@@ -2513,6 +2513,13 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    # SPEC 114: --gzip yalnız --out ile anlamlı (doctor)
+    if getattr(args, "gzip", False) and getattr(args, "out", None) is None:
+        print(
+            "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+            file=sys.stderr,
+        )
+        return 2
 
     # SPEC 080: --history-list kısa devre — sağlık kontrolü YAPMA,
     # yalnız .atlas/doctor-history/*.json listele (bilgi komutu).
@@ -2771,14 +2778,23 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
                         f'{metric_name}{{snapshot_date='
                         f'"{_lbl(str(s["date"]))}"}} {val_str}'
                     )
-            # SPEC 110: --out PATH → stdout yerine dosyaya yaz
+            # SPEC 110 + 114: --out PATH → stdout yerine dosyaya yaz
+            # (opsiyonel --gzip ile sıkıştırılmış).
             out_path_arg = getattr(args, "out", None)
+            use_gzip_doc = bool(getattr(args, "gzip", False))
             if out_path_arg is not None:
                 try:
                     op = Path(out_path_arg)
+                    if use_gzip_doc and op.suffix != ".gz":
+                        op = op.with_suffix(op.suffix + ".gz")
                     op.parent.mkdir(parents=True, exist_ok=True)
-                    op.write_text("\n".join(hist_lines) + "\n",
-                                  encoding="utf-8")
+                    doc_text = "\n".join(hist_lines) + "\n"
+                    if use_gzip_doc:
+                        import gzip as _gzip_doc
+                        with _gzip_doc.open(op, "wt", encoding="utf-8") as fh:
+                            fh.write(doc_text)
+                    else:
+                        op.write_text(doc_text, encoding="utf-8")
                 except OSError as exc:
                     print(
                         f"SPEC HATASI: --out PATH yazılamadı: {exc}",
@@ -6292,6 +6308,9 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 110: --diff-history-all + --format "
                             "prometheus ile birlikte; stdout yerine PATH'e "
                             "yaz.")
+    p_doc.add_argument("--gzip", action="store_true",
+                       help="SPEC 114: --out ile birlikte; gzip sıkıştırma "
+                            "(PATH sonuna .gz eklenir eğer yoksa).")
     p_doc.add_argument("--ping", action="store_true",
                        help="Anthropic'e minimum request at, latency+cost raporla — SPEC 021.2")
     p_doc.add_argument("--strict", action="store_true",
