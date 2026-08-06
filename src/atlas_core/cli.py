@@ -1125,12 +1125,13 @@ def _cmd_archive_list(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    # SPEC 105: --out yalnız --json-lines ile anlamlı
+    # SPEC 105 + 115: --out --json-lines VEYA --json ile birlikte
     out_path_arg = getattr(args, "out", None)
-    if out_path_arg is not None and not jsonl_mode:
+    json_mode = bool(getattr(args, "json", False))
+    if out_path_arg is not None and not (jsonl_mode or json_mode):
         print(
-            "SPEC HATASI: --out yalnız --json-lines ile birlikte "
-            "kullanılır",
+            "SPEC HATASI: --out yalnız --json veya --json-lines ile "
+            "birlikte kullanılır",
             file=sys.stderr,
         )
         return 2
@@ -1176,8 +1177,29 @@ def _cmd_archive_list(args: argparse.Namespace) -> int:
                 print(_json.dumps(e, ensure_ascii=False))
             print(_json.dumps(summary, ensure_ascii=False))
         return 0
-    if getattr(args, "json", False):
-        print(_json.dumps(entries, ensure_ascii=False))
+    if json_mode:
+        # SPEC 115: --out ile birlikte dosyaya (opsiyonel --gzip)
+        if out_path_arg is not None:
+            try:
+                op = Path(out_path_arg)
+                if use_gzip and op.suffix != ".gz":
+                    op = op.with_suffix(op.suffix + ".gz")
+                op.parent.mkdir(parents=True, exist_ok=True)
+                payload = _json.dumps(entries, ensure_ascii=False)
+                if use_gzip:
+                    import gzip as _gzip
+                    with _gzip.open(op, "wt", encoding="utf-8") as fh:
+                        fh.write(payload)
+                else:
+                    op.write_text(payload, encoding="utf-8")
+            except OSError as exc:
+                print(
+                    f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                    file=sys.stderr,
+                )
+                return 2
+        else:
+            print(_json.dumps(entries, ensure_ascii=False))
         return 0
     print(f"=== ATLAS archive --list ({archive_root}) — {len(entries)} arsiv ===")
     if not entries:

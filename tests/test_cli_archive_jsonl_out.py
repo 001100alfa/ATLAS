@@ -128,11 +128,11 @@ def test_105_out_jsonl_yok_mutex(
     assert rc == 2
 
 
-def test_105_out_json_ile_mutex(
+def test_105_115_out_json_artik_calisir(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """--out --json (tek JSON) → SPEC HATASI exit 2 (json-lines gerek)."""
+    """SPEC 115: --out --json artık MUTEX değil (tek JSON dizisi dosyaya)."""
     _env(monkeypatch, tmp_path)
     arc = tmp_path / "arc"
     _mktar(arc, "a.tar.gz", ["x"])
@@ -141,7 +141,10 @@ def test_105_out_json_ile_mutex(
         "archive", "--list", "--json", "--out", str(out),
         "--archive-root", str(arc),
     ])
-    assert rc == 2
+    assert rc == 0
+    import json as _json
+    data = _json.loads(out.read_text(encoding="utf-8"))
+    assert isinstance(data, list)
 
 
 def test_105_out_sort_limit_ortogonal(
