@@ -1,6 +1,34 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-05 (36. tur — 114 + 116 + 115 + 118 + 117 + 119)
+
+Kullanıcı "hepsini sıra ile uygula, emirler atomiktir" → 35. tur
+adayları (114-119) tümü zincirleme.
+
+- [KARAR] 114 doctor prometheus `--gzip` — SPEC 103/108/109/111 kalıp
+  simetrisi. `--out` yok ise exit 2; `.gz` auto-suffix; değişken adı
+  `doc_text` (mypy scope temiz).
+- [KARAR] 116 salt-test tur: SPEC 084+090+096+103 zinciri tek dosyada
+  regresyon önleme. Kod değişikliği YOK; 4 yeni test → gzip+cost
+  formülünün her SPEC eklenmesinde bozulmasını yakalar.
+- [KARAR] 115 archive `--out` mutex genişletildi: `--json` VEYA
+  `--json-lines`. Neden: SPEC 105 sadece jsonl'e izin veriyordu;
+  düz JSON (dizi) için de PATH artifact ihtiyacı doğdu. SPEC 105
+  test'i (eski mutex) yeni davranışa uyarlandı.
+- [KARAR] 118 ai-cli status `--json-lines` şeması: 8 alan satırı
+  `{"field","value"}` + summary `{"type","name","up_to_date"}`. SPEC
+  099 ai-cli list-outdated pattern'iyle farklı — status tek paket
+  raporu, bu yüzden field-per-line (verbose ama grep-friendly).
+- [KARAR] 117 atlas-vault.yml doctor gate: restore edilen vault
+  `/tmp/verify-vault` üzerinde `atlas doctor --strict --scan-src`.
+  Kalıp: her integrity workflow'a (SPEC 112) sağlık gate zorunlu.
+  ATLAS_VAULT env override → tek komut, iki vault kontrol.
+- [KARAR] 119 atlas-ci-status.yml haftalık cron `0 7 * * 1` (Pazartesi
+  07:00 UTC = Istanbul 10:00). Sprint retrospektif ile senkron; daily
+  cron 06:00 UTC ile 1 saat aralık (yoğunluk dağılır). Aynı job
+  (drift-scan) tetiklenir — DRY.
+
 ## 2026-08-05 (35. tur — 108 + 109 + 110 + 111 + 112 + 113)
 
 Kullanıcı "hepsini sıra ile uygula, emirler atomiktir
