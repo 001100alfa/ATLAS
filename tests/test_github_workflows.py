@@ -604,6 +604,67 @@ def test_100_atlas_doctor_artifact_uploaded() -> None:
 # ═════════════════════════════════════════════════════════════════════
 
 
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 135 — atlas-doctor.yml alert-webhook gate
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_135_atlas_doctor_alert_webhook_step() -> None:
+    """`Post doctor alert webhook (SPEC 131/135)` step var."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post doctor alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "curl" in run
+    assert "ALERT_WEBHOOK_URL" in run
+
+
+def test_135_atlas_doctor_alert_webhook_env() -> None:
+    """Env `ALERT_WEBHOOK_URL: secrets.ATLAS_ALERT_WEBHOOK_URL`."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post doctor alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    env = step.get("env", {})
+    assert "ATLAS_ALERT_WEBHOOK_URL" in str(env.get("ALERT_WEBHOOK_URL", ""))
+
+
+def test_135_atlas_doctor_alert_webhook_conditional() -> None:
+    """Conditional: env + rc != 0."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post doctor alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    cond = step.get("if", "")
+    assert "ALERT_WEBHOOK_URL" in cond
+    assert "rc_strict" in cond
+
+
+def test_135_atlas_doctor_alert_webhook_continue_on_error() -> None:
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post doctor alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert step.get("continue-on-error") is True
+
+
 def test_130_atlas_doctor_history_gate_step() -> None:
     """`Doctor history regression gate (SPEC 097/130)` step var."""
     data = _load("atlas-doctor.yml")
@@ -858,6 +919,39 @@ def test_113_atlas_metrics_gzip_artifact_uploaded() -> None:
 # ═════════════════════════════════════════════════════════════════════
 # SPEC 131 — atlas-metrics.yml alert-webhook post
 # ═════════════════════════════════════════════════════════════════════
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 137 — atlas-metrics.yml alert-history artifact
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_137_atlas_metrics_alert_history_artifact() -> None:
+    """Upload artifact listesinde `.atlas/alert-history.jsonl`."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    path_str = str(upload_step.get("with", {}).get("path", ""))
+    assert ".atlas/alert-history.jsonl" in path_str
+
+
+def test_137_atlas_metrics_if_no_files_found_ignore() -> None:
+    """`if-no-files-found: ignore` — dosya yoksa hata yok."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    with_block = upload_step.get("with", {})
+    assert with_block.get("if-no-files-found") == "ignore"
 
 
 def test_131_atlas_metrics_alert_webhook_step() -> None:
