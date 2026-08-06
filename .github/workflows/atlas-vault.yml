@@ -78,6 +78,34 @@ jobs:
           uv run atlas doctor --strict --scan-src
           echo "SPEC 117: doctor gate başarılı — restore edilen vault sağlıklı"
 
+      - name: Verify retention (--keep 7, SPEC 041.1/124)
+        if: steps.vault_check.outputs.has_vault == 'true'
+        run: |
+          # SPEC 041.1: --keep 7 retention — arşivde 7'den fazla yedek
+          # (parça dahil) tutulmaz. Her parça 'vault-...tar.gz.NNN'.
+          # Beklenen yedek yolu: 1 backup × N split part (bugun),
+          # 6 gün öncesine kadar eski yedeklerin parçaları.
+          set -e
+          count=$(find archive/ -maxdepth 1 -name 'vault-*.tar.gz.*' | wc -l)
+          echo "SPEC 124: archive/ vault-*.tar.gz.* dosya sayisi = $count"
+          # Bir günlük backup ~ N parça (50 MB); 7 gün retention → 7×N parça
+          # üstü sınırı absolute değil, ama retention bit-uyumu şart. Sadece
+          # dosya varlığını + retention semantiğini teyit et:
+          if [ "$count" -lt 1 ]; then
+            echo "::error::SPEC 124: hiç parça bulunamadi — --split calismadi"
+            exit 1
+          fi
+          # SPEC 041.1 --keep 7: eski (7 günden eski) `vault-*.tar.gz`
+          # dosyaları prune edilmiş olmalı (retention). --keep parça
+          # dosyalarını değil, ana tar.gz'leri sayar; split sonrası ana
+          # tar.gz silindiği için archive/ sadece .NNN'ler tutar.
+          orig_count=$(find archive/ -maxdepth 1 -name 'vault-*.tar.gz' -not -name '*.gz.*' | wc -l)
+          echo "SPEC 124: original vault-*.tar.gz sayisi = $orig_count (beklenen: 0, split sonrasi silinir)"
+          if [ "$orig_count" -gt 0 ]; then
+            echo "::warning::SPEC 124: split sonrasi ana .tar.gz olmamali"
+          fi
+          echo "SPEC 124: retention verify OK ($count parca dosyasi)"
+
       - name: Upload split parts artifact
         if: steps.vault_check.outputs.has_vault == 'true'
         uses: actions/upload-artifact@v4

@@ -808,6 +808,51 @@ def test_117_atlas_vault_doctor_gate_conditional() -> None:
     assert "has_vault" in step.get("if", "")
 
 
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 124 — atlas-vault.yml retention verify step
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_124_atlas_vault_retention_verify_step() -> None:
+    """`Verify retention (--keep 7, SPEC 041.1/124)` step var."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps if "verify retention" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "vault-*.tar.gz.*" in run
+    assert "wc -l" in run
+
+
+def test_124_atlas_vault_retention_conditional() -> None:
+    """Retention step has_vault=true conditional."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps if "verify retention" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "has_vault" in step.get("if", "")
+
+
+def test_124_atlas_vault_retention_fail_fast() -> None:
+    """set -e fail-fast + `::error::` marker."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps if "verify retention" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "set -e" in run
+    assert "::error::" in run
+
+
 def test_117_atlas_vault_doctor_gate_fail_fast() -> None:
     """`set -e` fail-fast."""
     data = _load("atlas-vault.yml")
