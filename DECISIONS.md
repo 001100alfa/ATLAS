@@ -1,6 +1,43 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-05 (35. tur — 108 + 109 + 110 + 111 + 112 + 113)
+
+Kullanıcı "hepsini sıra ile uygula, emirler atomiktir
+(atomic-order-doctrine)" → 34. tur adayları (108-113) tümü zincirleme,
+küçükten büyüğe: `108 → 109 → 110 → 111 → 112 → 113`.
+
+- [KARAR] 108 archive `--gzip` bayrağı `--out` gerektirir (SPEC 103
+  kalıbı ile simetrik). Auto-suffix `.gz`; sahipse aynen (çift YOK).
+  gzip.open("wt") NDJSON satır satır — decompress edildiğinde SPEC 105
+  düz metin ile BİT-UYUMLU.
+- [KARAR] 109 ai-cli `--gzip`: SPEC 106 üstüne aynı kalıp. `_pkg_line(p)`
+  yardımcı lambda — düz ve gzip dallarında ortak satır üretici (DRY).
+  `--strict` ile ORTOGONAL (exit 4 korunur, gzip'e yazılır).
+- [KARAR] 110 doctor `--out` yalnız `--diff-history-all + --format
+  prometheus` ile anlamlı. Schema kısa devre (SPEC 040) `--out`'tan
+  ÖNCE — `--out --schema` argparse tarafında değil semantik tarafında
+  kontrol edilir; `--schema` çalışır, `--out` yok sayılır.
+- [KARAR] 110 doctor'da `--gzip` YOK bu tur (ayrı SPEC olabilir).
+  Neden: doctor prometheus çıktısı kısa (per-snapshot metric ailesi 5×N
+  satır); gzip artifact kazanımı YAGNI. Metric/archive/ai-cli'de gzip
+  gerçek büyük dosya için, doctor'da değil.
+- [KARAR] 111 vault verify `--gzip`: `out_fh: Any` tip (mypy gzip
+  TextIOWrapper vs `Path.open` TextIOWrapper union'ı). `_emit`
+  lambda değişmedi — `out_fh.write` her iki tipte de vardır.
+- [KARAR] 112 atlas-vault.yml yeni step `Restore + verify (integrity
+  check, SPEC 112)`: backup üretildikten sonra split'ten restore +
+  verify --strict. Herhangi biri başarısız → workflow fail (`set -e`).
+  Neden: backup üretilip de restore edilemezse fark edilmez —
+  end-to-end integrity kontrolü hafta boyu cron'la doğrulanır.
+- [KARAR] 112 restore hedef `/tmp/verify-vault` (üretim vault'unu
+  bozmaz). `rm -rf` ile idempotent (cron her gün aynı yere yazar).
+  Vault-verify --strict → SPEC 042 exit 4 varsa job fail.
+- [KARAR] 113 atlas-metrics.yml `metrics-group-day.prom.gz` yeni artifact.
+  SPEC 103 CLI gzip'i ilk kez workflow'da kullanıldı. Fallback:
+  `|| echo "(...)" > metrics-group-day.prom.gz` — komut kırılırsa
+  dosya var olur ama içerik "üretilemedi" mesajı (SPEC 095 kalıbı).
+
 ## 2026-08-05 (34. tur — 105 + 106 + 103 + 104 + 102 + 107)
 
 Kullanıcı "hepsini sıra ile uygula, emirler atomiktir" → 33. tur
