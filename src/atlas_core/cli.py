@@ -3702,15 +3702,40 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
             except OSError:
                 pass
         tail_recs = history_records[-show_limit:]
+        # SPEC 139: --out yalnız --json ile anlamlı
+        show_out = getattr(args, "out", None)
+        if show_out is not None and not getattr(args, "json", False):
+            print(
+                "SPEC HATASI: --out yalnız --json ile birlikte "
+                "kullanılır (--alert-history-show)",
+                file=sys.stderr,
+            )
+            return 2
         if getattr(args, "json", False):
-            for r in tail_recs:
-                print(_json.dumps(r, ensure_ascii=False))
-            print(_json.dumps({
+            summary = {
                 "type": "summary",
                 "path": str(history_path),
                 "count": len(tail_recs),
                 "total": len(history_records),
-            }, ensure_ascii=False))
+            }
+            if show_out is not None:
+                try:
+                    op = Path(show_out)
+                    op.parent.mkdir(parents=True, exist_ok=True)
+                    with op.open("w", encoding="utf-8") as fh:
+                        for r in tail_recs:
+                            fh.write(_json.dumps(r, ensure_ascii=False) + "\n")
+                        fh.write(_json.dumps(summary, ensure_ascii=False) + "\n")
+                except OSError as exc:
+                    print(
+                        f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            else:
+                for r in tail_recs:
+                    print(_json.dumps(r, ensure_ascii=False))
+                print(_json.dumps(summary, ensure_ascii=False))
             return 0
         print(
             f"=== ATLAS metrics --alert-history-show ({history_path}) — "
