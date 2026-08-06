@@ -67,6 +67,17 @@ jobs:
           uv run atlas vault verify --vault-root /tmp/verify-vault --strict
           echo "SPEC 112: integrity OK — restore + verify başarılı"
 
+      - name: Doctor gate on restored vault (SPEC 117)
+        if: steps.vault_check.outputs.has_vault == 'true'
+        env:
+          ATLAS_VAULT: /tmp/verify-vault
+        run: |
+          # SPEC 032/032.2 + 117: restore edilen vault üzerinde doctor
+          # sağlık gate — quality.* uyarısı varsa exit 9.
+          set -e
+          uv run atlas doctor --strict --scan-src
+          echo "SPEC 117: doctor gate başarılı — restore edilen vault sağlıklı"
+
       - name: Upload split parts artifact
         if: steps.vault_check.outputs.has_vault == 'true'
         uses: actions/upload-artifact@v4

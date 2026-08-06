@@ -753,6 +753,63 @@ def test_113_atlas_metrics_mevcut_4_artifact_dokunulmadi() -> None:
         assert name in path_str
 
 
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 117 — atlas-vault.yml doctor gate on restored vault
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_117_atlas_vault_doctor_gate_step() -> None:
+    """`Doctor gate on restored vault (SPEC 117)` step var."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps if "doctor gate" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "atlas doctor" in run
+    assert "--strict" in run
+    assert "--scan-src" in run
+
+
+def test_117_atlas_vault_doctor_gate_env() -> None:
+    """Doctor gate ATLAS_VAULT env = /tmp/verify-vault."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps if "doctor gate" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    env = step.get("env", {})
+    assert env.get("ATLAS_VAULT") == "/tmp/verify-vault"
+
+
+def test_117_atlas_vault_doctor_gate_conditional() -> None:
+    """Step yalnız has_vault=true iken."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps if "doctor gate" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "has_vault" in step.get("if", "")
+
+
+def test_117_atlas_vault_doctor_gate_fail_fast() -> None:
+    """`set -e` fail-fast."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps if "doctor gate" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "set -e" in step.get("run", "")
+
+
 def test_112_atlas_vault_mevcut_stepler_dokunulmadi() -> None:
     """SPEC 107 mevcut backup + upload step'leri korundu."""
     data = _load("atlas-vault.yml")
