@@ -4939,7 +4939,36 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
                     f'spec="{_lbl_vs(str(f["spec"]))}"'
                     f'}} 1'
                 )
-            print("\n".join(vs_lines))
+            # SPEC 145: --out PATH [--gzip] → stdout yerine dosyaya
+            vs_out = getattr(args, "out", None)
+            vs_use_gzip = bool(getattr(args, "gzip", False))
+            if vs_use_gzip and vs_out is None:
+                print(
+                    "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+                    file=sys.stderr,
+                )
+                return 2
+            if vs_out is not None:
+                try:
+                    op = Path(vs_out)
+                    if vs_use_gzip and op.suffix != ".gz":
+                        op = op.with_suffix(op.suffix + ".gz")
+                    op.parent.mkdir(parents=True, exist_ok=True)
+                    vs_text = "\n".join(vs_lines) + "\n"
+                    if vs_use_gzip:
+                        import gzip as _gzip_vs
+                        with _gzip_vs.open(op, "wt", encoding="utf-8") as fh:
+                            fh.write(vs_text)
+                    else:
+                        op.write_text(vs_text, encoding="utf-8")
+                except OSError as exc:
+                    print(
+                        f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            else:
+                print("\n".join(vs_lines))
             return 0
         print(_json.dumps(schema, ensure_ascii=False, indent=indent))
         return 0
