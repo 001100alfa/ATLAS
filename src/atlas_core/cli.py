@@ -5917,7 +5917,7 @@ def _human_bytes(n: int) -> str:
 
 
 def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
-    """SPEC 037.4: `atlas ai-cli status <name> [--json]` — paket sağlık raporu.
+    """SPEC 037.4 + 146: `atlas ai-cli status <name> [--json|--schema]`.
 
     Exec çalıştırmadan paket durumunu raporlar:
       - `name`, `installed_version`, `declared_version` (package.json
@@ -5925,12 +5925,60 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
       - `install_dir` (`tools/ai-cli/node_modules/<name>`),
       - `size_bytes`, `size_human`, `bin_path` (varsa).
 
+    SPEC 146: `--schema` kısa devre — vault/package.json dokunmaz,
+    yalnız JSON şema tanımını basar (SPEC 040/136 kalıbı).
+
     Exit kodları:
       - 0: paket kurulu (bilgi komutu; up_to_date bilgisi rapor içinde)
       - 2: `tools/ai-cli/` yok VEYA paket dependencies'te değil VEYA
         kurulu değil → SPEC HATASI + `atlas ai-cli list` önerisi.
     """
     import json as _json
+
+    # SPEC 146: --schema kısa devre — bilgi mod, dizin gerekmez
+    if getattr(args, "schema", False):
+        pretty_s = getattr(args, "pretty", False)
+        indent_s = 2 if pretty_s else None
+        status_schema: dict[str, Any] = {
+            "schema_version": "1",
+            "top_level": [
+                {"name": "name", "type": "str",
+                 "desc": "paket adı (dependencies key)"},
+                {"name": "installed_version", "type": "str|null",
+                 "desc": "node_modules/<name>/package.json version"},
+                {"name": "declared_version", "type": "str",
+                 "desc": "package.json dependencies değeri (ör. ^1.2.3)"},
+                {"name": "up_to_date", "type": "bool",
+                 "desc": "SPEC 088 _strip_semver_prefix eşitlik"},
+                {"name": "install_dir", "type": "str",
+                 "desc": "tools/ai-cli/node_modules/<name>"},
+                {"name": "size_bytes", "type": "int",
+                 "desc": "install_dir toplam boyut (bytes)"},
+                {"name": "size_human", "type": "str",
+                 "desc": "boyut insan-okunur (KB/MB)"},
+                {"name": "bin_path", "type": "str|null",
+                 "desc": "node_modules/.bin/<name> (Windows .cmd)"},
+            ],
+            "exit_codes": {
+                "0": "paket kurulu (bilgi çıktısı — up_to_date rapor içinde)",
+                "2": "SPEC HATASI (dizin/deps/install yok)",
+                "4": "SPEC 094 kalıbı — gelecek --strict için ayrılmış",
+            },
+            "formats": [
+                {"name": "human", "spec": "037.4", "desc": "İnsan-okunur özet"},
+                {"name": "json", "spec": "037.4", "desc": "Tek satır JSON"},
+                {"name": "json-lines", "spec": "118",
+                 "desc": "NDJSON stream (alan başına satır + summary)"},
+            ],
+            "notes": [
+                "SPEC 037.4: temel status; tek paket detayı.",
+                "SPEC 118: --json-lines NDJSON alan-satır formatı.",
+                "SPEC 120: --json-lines --out --gzip artifact.",
+                "SPEC 146: bu şema `atlas ai-cli status --schema` ile yayımlanır.",
+            ],
+        }
+        print(_json.dumps(status_schema, ensure_ascii=False, indent=indent_s))
+        return 0
 
     if not _AI_CLI_DIR.is_dir():
         print(
@@ -5946,6 +5994,14 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
     assert data is not None  # mypy narrow
 
     name = args.name
+    # SPEC 146: --schema yoksa name zorunlu
+    if not name:
+        print(
+            "SPEC HATASI: <name> zorunlu (paket adı). --schema ile birlikte "
+            "opsiyonel — sadece şema bas.",
+            file=sys.stderr,
+        )
+        return 2
     deps = data.get("dependencies", {}) if isinstance(data, dict) else {}
     if not isinstance(deps, dict) or name not in deps:
         print(
@@ -6919,7 +6975,9 @@ def main(argv: list[str] | None = None) -> int:
         "status",
         help="Paket sağlık raporu: sürüm+boyut+bin (SPEC 037.4)",
     )
-    p_ai_st.add_argument("name", help="paket adı (ör. opencode-ai, cline)")
+    p_ai_st.add_argument("name", nargs="?", default=None,
+                         help="paket adı (ör. opencode-ai, cline); "
+                              "--schema modunda gereksiz")
     p_ai_st.add_argument("--json", action="store_true", help="JSON çıktı")
     p_ai_st.add_argument("--json-lines", action="store_true",
                          help="SPEC 118: NDJSON stream (alan başına satır + "
@@ -6930,6 +6988,12 @@ def main(argv: list[str] | None = None) -> int:
     p_ai_st.add_argument("--gzip", action="store_true",
                          help="SPEC 120: --out ile birlikte; gzip sıkıştırma "
                               "(PATH sonuna .gz eklenir eğer yoksa).")
+    p_ai_st.add_argument("--schema", action="store_true",
+                         help="SPEC 146: paket dokunmaz, yalnız JSON şema "
+                              "tanımını bas (SPEC 040/136 kalıbı). --pretty "
+                              "ile indent=2.")
+    p_ai_st.add_argument("--pretty", action="store_true",
+                         help="SPEC 146: --schema ile birlikte indent=2 JSON")
     p_ai_st.set_defaults(func=_cmd_ai_cli_status)
 
     p_hooks = sub.add_parser("hooks", help="Git pre-commit hook yönetimi (SPEC 034)")
