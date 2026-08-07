@@ -3722,6 +3722,41 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
             except OSError:
                 pass
         tail_recs = history_records[-show_limit:]
+        # SPEC 143: --format prometheus → info-metric counter ailesi
+        if getattr(args, "format", None) == "prometheus":
+            def _lbl_ah(k: str) -> str:
+                return (
+                    k.replace("\\", "\\\\").replace('"', '\\"')
+                    .replace("\n", "\\n")
+                )
+            channel_counter: dict[str, int] = {}
+            for r in history_records:
+                chs = r.get("channels", []) or []
+                if not chs:
+                    channel_counter["-"] = channel_counter.get("-", 0) + 1
+                else:
+                    for c in chs:
+                        channel_counter[str(c)] = channel_counter.get(str(c), 0) + 1
+            ah_lines: list[str] = [
+                "# HELP atlas_metrics_alert_history_total "
+                "Total alert-history records observed",
+                "# TYPE atlas_metrics_alert_history_total counter",
+                f"atlas_metrics_alert_history_total {len(history_records)}",
+                "# HELP atlas_metrics_alert_history_recent "
+                "Alert-history records in --limit tail window",
+                "# TYPE atlas_metrics_alert_history_recent counter",
+                f"atlas_metrics_alert_history_recent {len(tail_recs)}",
+                "# HELP atlas_metrics_alert_channel_total "
+                "Alert notifications per channel (label 'channel')",
+                "# TYPE atlas_metrics_alert_channel_total counter",
+            ]
+            for ch in sorted(channel_counter.keys()):
+                ah_lines.append(
+                    f'atlas_metrics_alert_channel_total{{'
+                    f'channel="{_lbl_ah(ch)}"}} {channel_counter[ch]}'
+                )
+            print("\n".join(ah_lines))
+            return 0
         # SPEC 139: --out yalnız --json ile anlamlı
         show_out = getattr(args, "out", None)
         if show_out is not None and not getattr(args, "json", False):
