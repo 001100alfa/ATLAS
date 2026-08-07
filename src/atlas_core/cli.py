@@ -4821,10 +4821,11 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
 
     # SPEC 136: --schema kısa devre — vault dizini gerekmez, yalnız
     # verify JSON çıktı şema tanımını bas (SPEC 040 doctor kalıbı).
+    # SPEC 140: --format prometheus → info-metric ailesi (SPEC 128 kalıbı).
     if getattr(args, "schema", False):
         pretty = getattr(args, "pretty", False)
         indent = 2 if pretty else None
-        schema = {
+        schema: dict[str, Any] = {
             "schema_version": "1",
             "top_level": [
                 {"name": "notes_total", "type": "int",
@@ -4859,8 +4860,57 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
                 "SPEC 111: --out --gzip (auto-suffix .gz).",
                 "SPEC 052: --dump-report PATH (markdown yan etki).",
                 "SPEC 136: bu şema `atlas vault verify --schema` ile yayımlanır.",
+                "SPEC 140: --format prometheus info-metric ailesi.",
             ],
         }
+        if getattr(args, "format", None) == "prometheus":
+            def _lbl_vs(k: str) -> str:
+                return (
+                    k.replace("\\", "\\\\").replace('"', '\\"')
+                    .replace("\n", "\\n")
+                )
+            vs_lines: list[str] = [
+                "# HELP atlas_vault_verify_schema_version "
+                "vault verify JSON sema major surum etiketi",
+                "# TYPE atlas_vault_verify_schema_version gauge",
+                f'atlas_vault_verify_schema_version{{'
+                f'version="{_lbl_vs(str(schema["schema_version"]))}"}} 1',
+                "# HELP atlas_vault_verify_schema_top_level "
+                "vault verify JSON top-level alanlari (SPEC 136)",
+                "# TYPE atlas_vault_verify_schema_top_level gauge",
+            ]
+            for f in schema["top_level"]:
+                vs_lines.append(
+                    f'atlas_vault_verify_schema_top_level{{'
+                    f'name="{_lbl_vs(str(f["name"]))}",'
+                    f'type="{_lbl_vs(str(f["type"]))}"'
+                    f'}} 1'
+                )
+            vs_lines += [
+                "# HELP atlas_vault_verify_schema_exit_code "
+                "vault verify exit code sozlesmesi (SPEC 136)",
+                "# TYPE atlas_vault_verify_schema_exit_code gauge",
+            ]
+            for code in sorted(schema["exit_codes"].keys()):
+                vs_lines.append(
+                    f'atlas_vault_verify_schema_exit_code{{'
+                    f'code="{_lbl_vs(str(code))}"'
+                    f'}} 1'
+                )
+            vs_lines += [
+                "# HELP atlas_vault_verify_schema_format "
+                "vault verify --format secenekleri (SPEC 087/136)",
+                "# TYPE atlas_vault_verify_schema_format gauge",
+            ]
+            for f in schema["formats"]:
+                vs_lines.append(
+                    f'atlas_vault_verify_schema_format{{'
+                    f'name="{_lbl_vs(str(f["name"]))}",'
+                    f'spec="{_lbl_vs(str(f["spec"]))}"'
+                    f'}} 1'
+                )
+            print("\n".join(vs_lines))
+            return 0
         print(_json.dumps(schema, ensure_ascii=False, indent=indent))
         return 0
 
@@ -4872,6 +4922,14 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
         print(
             "SPEC HATASI: --format ile --json/--pretty birlikte "
             "kullanılamaz (MUTEX)",
+            file=sys.stderr,
+        )
+        return 2
+    # SPEC 140: --format prometheus yalnız --schema ile
+    if fmt == "prometheus":
+        print(
+            "SPEC HATASI: --format prometheus yalnız --schema ile "
+            "birlikte kullanılır (SPEC 140)",
             file=sys.stderr,
         )
         return 2
@@ -6503,9 +6561,10 @@ def main(argv: list[str] | None = None) -> int:
                       help="Bulgu varsa exit 4 (CI/pre-commit uyumlu)")
     p_vv.add_argument(
         "--format", default=None,
-        choices=["human", "json", "json-pretty", "json-lines"],
+        choices=["human", "json", "json-pretty", "json-lines", "prometheus"],
         help="SPEC 087: çıktı formatı seçimi (--json/--pretty ile MUTEX). "
-             "json-lines = NDJSON streaming (büyük vault dostu).",
+             "json-lines = NDJSON streaming; SPEC 140: prometheus yalnız "
+             "--schema ile birlikte info-metric ailesi.",
     )
     p_vv.add_argument("--out", default=None, metavar="PATH",
                       help="SPEC 092: --format json-lines ile birlikte "
