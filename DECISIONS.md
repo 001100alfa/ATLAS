@@ -1,6 +1,52 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-06 (40. tur — 139 + 138 + 141 + 143 + 142 + 140)
+
+Kullanıcı "hepsini sıra ile uygula, emirler atomiktir
+(atomic-order-doctrine)" → 39. tur adayları (138-143) tümü zincirleme,
+küçükten büyüğe: `139 → 138 → 141 → 143 → 142 → 140`.
+
+- [KARAR] 139 `metrics --alert-history-show --out` yalnız `--json` ile
+  anlamlı (pretty tablo dosyaya yazılmaz — SPEC 105 kalıbıyla
+  simetrik). Bu istisna: pretty tablo insan-okunur, dosyaya yazımı
+  YAGNI; JSON stream file-friendly.
+- [KARAR] 138 archive `--restore --json-lines --out`: `_restore_emit_lines`
+  lokal helper (stdout|PATH ortak yol — DRY). Hata (RestoreError) →
+  dosya YAZILMAZ (early return; kısmi yazım riski yok).
+- [KARAR] 141 atlas-ci-status.yml alert-webhook gate — SPEC 131/135
+  kalıp simetrik. Payload `{alert:"ci-status", rc, run_id, sha, event}`.
+  event alanı önemli: cron vs workflow_dispatch ayrımı.
+- [KARAR] 143 metrics alert-history-show `--format prometheus` counter:
+  3 metric ailesi (`history_total` + `history_recent` + `channel_total`).
+  Boş kanal listesi (`channels=[]`) → `channel="-"` bucket'ta sayılır
+  (Grafana filtre için görünür kalır).
+- [KARAR] 143 kanal sıralaması `sorted(channel_counter.keys())` —
+  deterministik alfabetik lex (email < slack < webhook).
+- [KARAR] 142 `_doctor_schema_descriptor()` 3 yeni alan ekleme
+  (backend_options + retry_pricing_envs + storage_envs) **BİT-UYUMLU
+  EKLEME** — SPEC 032.4 alan-ekleme kuralı (major bump YOK). SPEC 128
+  test `4 → 6` metric ailesi sayısına güncellendi.
+- [KARAR] 142 Prometheus env metric `{group, name}` label şeması —
+  group="retry_pricing|storage" iki bucket'la sınırlı; ilerde
+  `backend` group da eklenebilir (SPEC 032.4 alan ekleme uyumlu).
+- [KARAR] 140 vault verify `--format` choices'a `prometheus` eklendi,
+  ama semantik MUTEX ile yalnız `--schema` modunda geçerli — normal
+  verify modda prometheus çıktı YAGNI (SPEC HATASI exit 2).
+  Neden: verify normal modu report `to_dict()` üretir; grup metric
+  ailesi başka SPEC (137 metrics kalıbı) — şimdilik ayrı.
+- [KARAR] 140 4 info-metric ailesi (SPEC 128 kalıbı):
+  `schema_version + top_level + exit_code + format`. Doctor'daki
+  `quality_field` karşılığı vault'ta YOK (verify raporu top_level
+  yatay).
+- [KARAR] 140 `schema: dict[str, Any]` tipi (mypy narrow) — inline
+  dict literal `dict[str, str] | dict[str, list[...]]` yerine
+  homojen `Any`. SPEC 128 doctor kalıbı ile aynı.
+- [HATA] 140 Test flake: `test_actions_windows_job.py::test_0263_
+  windows_cpu_quota_kesir` bir kez fail (Windows CPU quota timing),
+  tekrar koşuda geçti. Kabul edilir — kalıp: Windows CPU quota timing
+  testleri retry-tolerant, tek fail'de yeniden koş.
+
 ## 2026-08-06 (39. tur — 134 + 133 + 137 + 132 + 136 + 135)
 
 Kullanıcı "hepsini sıra ile uygula, emirler atomiktir" → 38. tur
