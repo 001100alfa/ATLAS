@@ -3824,14 +3824,44 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                     f'atlas_metrics_alert_channel_total{{'
                     f'channel="{_lbl_ah(ch)}"}} {channel_counter[ch]}'
                 )
-            print("\n".join(ah_lines))
+            # SPEC 144: --out PATH [--gzip] → stdout yerine dosyaya yaz
+            ah_out = getattr(args, "out", None)
+            ah_use_gzip = bool(getattr(args, "gzip", False))
+            if ah_use_gzip and ah_out is None:
+                print(
+                    "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+                    file=sys.stderr,
+                )
+                return 2
+            if ah_out is not None:
+                try:
+                    op = Path(ah_out)
+                    if ah_use_gzip and op.suffix != ".gz":
+                        op = op.with_suffix(op.suffix + ".gz")
+                    op.parent.mkdir(parents=True, exist_ok=True)
+                    ah_text = "\n".join(ah_lines) + "\n"
+                    if ah_use_gzip:
+                        import gzip as _gzip_ah
+                        with _gzip_ah.open(op, "wt", encoding="utf-8") as fh:
+                            fh.write(ah_text)
+                    else:
+                        op.write_text(ah_text, encoding="utf-8")
+                except OSError as exc:
+                    print(
+                        f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            else:
+                print("\n".join(ah_lines))
             return 0
-        # SPEC 139: --out yalnız --json ile anlamlı
+        # SPEC 139: --out yalnız --json ile anlamlı (alert-history-show
+        # bilgi modu; --format prometheus dalında SPEC 144 zaten ele aldı).
         show_out = getattr(args, "out", None)
         if show_out is not None and not getattr(args, "json", False):
             print(
-                "SPEC HATASI: --out yalnız --json ile birlikte "
-                "kullanılır (--alert-history-show)",
+                "SPEC HATASI: --out yalnız --json veya --format prometheus "
+                "ile birlikte kullanılır (--alert-history-show)",
                 file=sys.stderr,
             )
             return 2
