@@ -3772,6 +3772,8 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
     show_path = getattr(args, "alert_history_show", None)
     if show_path is not None:
         show_limit: int = getattr(args, "limit", 10) or 10
+        # SPEC 148: --strict → >=1 kayıt varsa exit 4 (CI kararı)
+        show_strict = bool(getattr(args, "strict", False))
         history_path = Path(show_path) if show_path else Path(
             ".atlas/alert-history.jsonl",
         )
@@ -3791,6 +3793,10 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
             except OSError:
                 pass
         tail_recs = history_records[-show_limit:]
+        # SPEC 148: --strict exit code (log kayıt varsa 4; SPEC 094 kalıbı)
+        show_exit_rc = 0
+        if show_strict and history_records:
+            show_exit_rc = 4
         # SPEC 143: --format prometheus → info-metric counter ailesi
         if getattr(args, "format", None) == "prometheus":
             def _lbl_ah(k: str) -> str:
@@ -3854,7 +3860,13 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                     return 2
             else:
                 print("\n".join(ah_lines))
-            return 0
+            if show_exit_rc == 4:
+                print(
+                    f"SAĞLIK BAŞARISIZ: --strict verildi, "
+                    f"{len(history_records)} alert kaydı",
+                    file=sys.stderr,
+                )
+            return show_exit_rc
         # SPEC 139: --out yalnız --json ile anlamlı (alert-history-show
         # bilgi modu; --format prometheus dalında SPEC 144 zaten ele aldı).
         show_out = getattr(args, "out", None)
@@ -3890,14 +3902,20 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                 for r in tail_recs:
                     print(_json.dumps(r, ensure_ascii=False))
                 print(_json.dumps(summary, ensure_ascii=False))
-            return 0
+            if show_exit_rc == 4:
+                print(
+                    f"SAĞLIK BAŞARISIZ: --strict verildi, "
+                    f"{len(history_records)} alert kaydı",
+                    file=sys.stderr,
+                )
+            return show_exit_rc
         print(
             f"=== ATLAS metrics --alert-history-show ({history_path}) — "
             f"{len(tail_recs)}/{len(history_records)} kayit ==="
         )
         if not tail_recs:
             print("  (alert kaydi yok)")
-            return 0
+            return show_exit_rc  # log boş → 0
         for r in tail_recs:
             ch = ",".join(r.get("channels", []) or []) or "-"
             print(
@@ -3906,7 +3924,13 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                 f"< {r.get('threshold_pct',0):>5.1f}%  "
                 f"[{ch}]"
             )
-        return 0
+        if show_exit_rc == 4:
+            print(
+                f"SAĞLIK BAŞARISIZ: --strict verildi, "
+                f"{len(history_records)} alert kaydı",
+                file=sys.stderr,
+            )
+        return show_exit_rc
 
     # SPEC 029: sınır kontrolü — geçersiz eşik = SPEC HATASI
     alert: float | None = getattr(args, "alert", None)
@@ -6817,6 +6841,10 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 132: NDJSON log OKU (metrics özet yerine). "
                             "Default .atlas/alert-history.jsonl. --limit N "
                             "son N kayıt (default 10). --json ile NDJSON stream + summary.")
+    p_met.add_argument("--strict", action="store_true",
+                       help="SPEC 148: --alert-history-show ile birlikte; "
+                            "log dosyasında >=1 kayıt varsa exit 4 "
+                            "(CI/pre-commit uyumlu).")
     p_met.set_defaults(func=_cmd_metrics)
 
     p_ai = sub.add_parser(
