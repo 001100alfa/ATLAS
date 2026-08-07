@@ -62,13 +62,14 @@ def test_128_schema_prom_exit_codes(monkeypatch, tmp_path, capsys):
 
 
 def test_128_schema_prom_help_type_sayilari(monkeypatch, tmp_path, capsys):
-    """4 metric ailesi × HELP+TYPE."""
+    """SPEC 128 → 4; SPEC 142 sonrası → 6 metric ailesi (bit-uyumlu ekleme)."""
     _env(monkeypatch, tmp_path)
     rc = main(["doctor", "--schema", "--format", "prometheus"])
     assert rc == 0
     out = capsys.readouterr().out
-    assert out.count("# HELP atlas_doctor_schema_") == 4
-    assert out.count("# TYPE atlas_doctor_schema_") == 4
+    # SPEC 128 4 base + SPEC 142 2 ek (backend_option, env) = 6
+    assert out.count("# HELP atlas_doctor_schema_") == 6
+    assert out.count("# TYPE atlas_doctor_schema_") == 6
 
 
 def test_128_schema_json_bit_uyumlu(monkeypatch, tmp_path, capsys):

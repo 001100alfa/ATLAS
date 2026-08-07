@@ -2570,6 +2570,42 @@ def _doctor_schema_descriptor() -> dict[str, Any]:
             {"name": "scan_src", "spec": "032.2 + 038",
              "desc": "src/ sır taraması: total + unique_hits + sample_files"},
         ],
+        "backend_options": [
+            {"name": "ATLAS_LLM", "value": "stub",
+             "desc": "LLM çağrısı YOK — deterministik placeholder"},
+            {"name": "ATLAS_LLM", "value": "anthropic",
+             "desc": "Anthropic Messages API (ATLAS_ANTHROPIC_API_KEY)"},
+            {"name": "ATLAS_LLM", "value": "acp",
+             "desc": "Anthropic-Compat Provider (acp-agent binary)"},
+        ],
+        "retry_pricing_envs": [
+            {"name": "ATLAS_LLM_RETRIES",
+             "desc": "SPEC 026 — Anthropic 5xx retry sayısı (default 0)"},
+            {"name": "ATLAS_LLM_BACKOFF",
+             "desc": "SPEC 026 — exponential backoff base saniye (1.0)"},
+            {"name": "ATLAS_LLM_JITTER",
+             "desc": "SPEC 026 — jitter oranı 0-1 (default 0)"},
+            {"name": "ATLAS_LLM_PRICE_IN",
+             "desc": "SPEC 013 — input token per 1M USD"},
+            {"name": "ATLAS_LLM_PRICE_OUT",
+             "desc": "SPEC 013 — output token per 1M USD"},
+            {"name": "ATLAS_LLM_TRACE",
+             "desc": "SPEC 044 — LLM istek trace log yolu"},
+            {"name": "ATLAS_LLM_OBS_CHARS",
+             "desc": "SPEC 044 — trace prompt kısaltma (default 200)"},
+        ],
+        "storage_envs": [
+            {"name": "ATLAS_VAULT",
+             "desc": "Vault kökü (default: vault/)"},
+            {"name": "ATLAS_AUDIT",
+             "desc": "Audit log JSONL yolu (.atlas/audit.jsonl)"},
+            {"name": "ATLAS_SANDBOX",
+             "desc": "Sandbox kökü (.atlas/sandbox)"},
+            {"name": "ATLAS_CONTEXT",
+             "desc": "Context modu on|off (default on)"},
+            {"name": "ATLAS_ARCHIVE_AGE_DAYS",
+             "desc": "SPEC 012 auto-archive eşik (default 7)"},
+        ],
         "exit_codes": {
             "0": "sağlık kontrolü tamam",
             "8": "SPEC 029 — cache-hit oranı --alert altında",
@@ -2580,6 +2616,8 @@ def _doctor_schema_descriptor() -> dict[str, Any]:
             "SPEC 032.5: --pretty ile indent=2 JSON.",
             "SPEC 038: scan_src.unique_hits = tekil dosya sayısı.",
             "SPEC 040: bu şema tanımı `atlas doctor --schema` ile yayımlanır.",
+            "SPEC 142: backend_options + retry_pricing_envs + storage_envs "
+            "info-metric ailesi (--format prometheus).",
         ],
     }
 
@@ -2635,6 +2673,37 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
                     f'atlas_doctor_schema_quality_field{{'
                     f'name="{_lbl(str(f["name"]))}",'
                     f'spec="{_lbl(str(f["spec"]))}"'
+                    f'}} 1'
+                )
+            schema_lines += [
+                "# HELP atlas_doctor_schema_backend_option "
+                "doctor ATLAS_LLM backend seçenekleri (SPEC 142)",
+                "# TYPE atlas_doctor_schema_backend_option gauge",
+            ]
+            for b in schema.get("backend_options", []):
+                schema_lines.append(
+                    f'atlas_doctor_schema_backend_option{{'
+                    f'name="{_lbl(str(b["name"]))}",'
+                    f'value="{_lbl(str(b["value"]))}"'
+                    f'}} 1'
+                )
+            schema_lines += [
+                "# HELP atlas_doctor_schema_env "
+                "doctor env değişkeni sözleşmesi (SPEC 142)",
+                "# TYPE atlas_doctor_schema_env gauge",
+            ]
+            for e in schema.get("retry_pricing_envs", []):
+                schema_lines.append(
+                    f'atlas_doctor_schema_env{{'
+                    f'group="retry_pricing",'
+                    f'name="{_lbl(str(e["name"]))}"'
+                    f'}} 1'
+                )
+            for e in schema.get("storage_envs", []):
+                schema_lines.append(
+                    f'atlas_doctor_schema_env{{'
+                    f'group="storage",'
+                    f'name="{_lbl(str(e["name"]))}"'
                     f'}} 1'
                 )
             schema_lines += [
