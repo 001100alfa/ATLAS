@@ -3960,8 +3960,57 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                 "SPEC 126/132/143/144: --alert-history-* alt-ailesi.",
                 "SPEC 148: --alert-history-show --strict exit 4.",
                 "SPEC 153: bu şema `atlas metrics --schema` ile yayımlanır.",
+                "SPEC 157: --format prometheus info-metric ailesi.",
             ],
         }
+        if getattr(args, "format", None) == "prometheus":
+            def _lbl_ms(k: str) -> str:
+                return (
+                    k.replace("\\", "\\\\").replace('"', '\\"')
+                    .replace("\n", "\\n")
+                )
+            ms_lines: list[str] = [
+                "# HELP atlas_metrics_schema_version "
+                "metrics JSON sema major surum etiketi",
+                "# TYPE atlas_metrics_schema_version gauge",
+                f'atlas_metrics_schema_version{{'
+                f'version="{_lbl_ms(str(metrics_schema["schema_version"]))}"}} 1',
+                "# HELP atlas_metrics_schema_top_level "
+                "metrics JSON top-level alanlari (SPEC 023/153)",
+                "# TYPE atlas_metrics_schema_top_level gauge",
+            ]
+            for f in metrics_schema["top_level"]:
+                ms_lines.append(
+                    f'atlas_metrics_schema_top_level{{'
+                    f'name="{_lbl_ms(str(f["name"]))}",'
+                    f'type="{_lbl_ms(str(f["type"]))}"'
+                    f'}} 1'
+                )
+            ms_lines += [
+                "# HELP atlas_metrics_schema_exit_code "
+                "metrics exit code sozlesmesi (SPEC 023/029/148)",
+                "# TYPE atlas_metrics_schema_exit_code gauge",
+            ]
+            for code in sorted(metrics_schema["exit_codes"].keys()):
+                ms_lines.append(
+                    f'atlas_metrics_schema_exit_code{{'
+                    f'code="{_lbl_ms(str(code))}"'
+                    f'}} 1'
+                )
+            ms_lines += [
+                "# HELP atlas_metrics_schema_format "
+                "metrics --format secenekleri (SPEC 023/043)",
+                "# TYPE atlas_metrics_schema_format gauge",
+            ]
+            for f in metrics_schema["formats"]:
+                ms_lines.append(
+                    f'atlas_metrics_schema_format{{'
+                    f'name="{_lbl_ms(str(f["name"]))}",'
+                    f'spec="{_lbl_ms(str(f["spec"]))}"'
+                    f'}} 1'
+                )
+            print("\n".join(ms_lines))
+            return 0
         print(_json.dumps(metrics_schema, ensure_ascii=False, indent=indent_s))
         return 0
 
