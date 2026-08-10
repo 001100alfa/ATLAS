@@ -537,6 +537,85 @@ def test_125_atlas_ci_status_drift_artifact_path() -> None:
 
 
 # ═════════════════════════════════════════════════════════════════════
+# SPEC 160 — atlas-metrics.yml metrics schema prometheus artifact
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_160_atlas_metrics_schema_artifact_step() -> None:
+    """`Generate metrics schema prometheus artifact (SPEC 160)` step var."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "metrics schema prometheus artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "atlas metrics --schema" in run
+    assert "--format prometheus" in run
+    assert "metrics-schema.prom" in run
+    assert "gzip" in run
+
+
+def test_160_atlas_metrics_schema_artifact_fallback() -> None:
+    """`||` fallback (fail-safe SPEC 095/147/152 kalıbı)."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "metrics schema prometheus artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "||" in step.get("run", "")
+
+
+def test_160_atlas_metrics_schema_artifact_uploaded() -> None:
+    """Upload artifact listesinde `metrics-schema.prom.gz`."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    path_str = str(upload_step.get("with", {}).get("path", ""))
+    assert "metrics-schema.prom.gz" in path_str
+
+
+def test_160_atlas_metrics_mevcut_artifact_dokunulmadi() -> None:
+    """SPEC 074/084/095/103/113/126 mevcut 6 artifact listede AYNI."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    path_str = str(upload_step.get("with", {}).get("path", ""))
+    for name in ("metrics-human.txt", "metrics.json", "metrics.prom",
+                 "metrics-cost-by-day.json", "metrics-group-day.prom.gz",
+                 ".atlas/alert-history.jsonl"):
+        assert name in path_str
+
+
+def test_160_atlas_metrics_schema_artifact_conditional_yok() -> None:
+    """Schema step conditional YOK (kısa devre her zaman çalışır)."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "metrics schema prometheus artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert step.get("if") is None
+
+
+# ═════════════════════════════════════════════════════════════════════
 # SPEC 152 — atlas-ci-status.yml archive schema prometheus artifact
 # ═════════════════════════════════════════════════════════════════════
 

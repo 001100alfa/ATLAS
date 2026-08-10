@@ -73,6 +73,16 @@ jobs:
             --out metrics-group-day.prom --gzip \
             || echo "(group prometheus üretilemedi)" > metrics-group-day.prom.gz
 
+      - name: Generate metrics schema prometheus artifact (SPEC 160)
+        run: |
+          # SPEC 153/157: --schema --format prometheus info-metric,
+          # shell gzip artifact boyutu için (metrics --out --gzip henüz
+          # yok). Kısa devre — her zaman çalışır.
+          uv run atlas metrics --schema --format prometheus \
+            > metrics-schema.prom \
+            && gzip -f metrics-schema.prom \
+            || echo "(metrics schema uretilemedi)" > metrics-schema.prom.gz
+
       - name: Upload metrics artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -84,6 +94,7 @@ jobs:
             metrics.prom
             metrics-cost-by-day.json
             metrics-group-day.prom.gz
+            metrics-schema.prom.gz
             .atlas/alert-history.jsonl
           retention-days: 30
           if-no-files-found: ignore
