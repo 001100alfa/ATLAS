@@ -1412,10 +1412,68 @@ def _cmd_archive(args: argparse.Namespace) -> int:
                 "SPEC 133: --restore --json-lines NDJSON stream.",
                 "SPEC 138: --restore --json-lines --out PATH.",
                 "SPEC 149: bu şema `atlas archive --schema` ile yayımlanır.",
+                "SPEC 151: --format prometheus info-metric ailesi.",
             ],
         }
+        if getattr(args, "format", None) == "prometheus":
+            def _lbl_ar(k: str) -> str:
+                return (
+                    k.replace("\\", "\\\\").replace('"', '\\"')
+                    .replace("\n", "\\n")
+                )
+            ar_lines: list[str] = [
+                "# HELP atlas_archive_schema_version "
+                "archive JSON sema major surum etiketi",
+                "# TYPE atlas_archive_schema_version gauge",
+                f'atlas_archive_schema_version{{'
+                f'version="{_lbl_ar(str(archive_schema["schema_version"]))}"}} 1',
+                "# HELP atlas_archive_schema_top_level "
+                "archive JSON top-level alanlari (SPEC 149)",
+                "# TYPE atlas_archive_schema_top_level gauge",
+            ]
+            for f in archive_schema["top_level"]:
+                ar_lines.append(
+                    f'atlas_archive_schema_top_level{{'
+                    f'name="{_lbl_ar(str(f["name"]))}",'
+                    f'type="{_lbl_ar(str(f["type"]))}"'
+                    f'}} 1'
+                )
+            ar_lines += [
+                "# HELP atlas_archive_schema_exit_code "
+                "archive exit code sozlesmesi (SPEC 149)",
+                "# TYPE atlas_archive_schema_exit_code gauge",
+            ]
+            for code in sorted(archive_schema["exit_codes"].keys()):
+                ar_lines.append(
+                    f'atlas_archive_schema_exit_code{{'
+                    f'code="{_lbl_ar(str(code))}"'
+                    f'}} 1'
+                )
+            ar_lines += [
+                "# HELP atlas_archive_schema_format "
+                "archive --format secenekleri (SPEC 075/098/149)",
+                "# TYPE atlas_archive_schema_format gauge",
+            ]
+            for f in archive_schema["formats"]:
+                ar_lines.append(
+                    f'atlas_archive_schema_format{{'
+                    f'name="{_lbl_ar(str(f["name"]))}",'
+                    f'spec="{_lbl_ar(str(f["spec"]))}"'
+                    f'}} 1'
+                )
+            print("\n".join(ar_lines))
+            return 0
         print(_json.dumps(archive_schema, ensure_ascii=False, indent=indent_s))
         return 0
+
+    # SPEC 151: --format prometheus yalnız --schema ile (normal archive modda REDDEDER)
+    if getattr(args, "format", None) == "prometheus":
+        print(
+            "SPEC HATASI: --format prometheus yalnız --schema ile "
+            "birlikte kullanılır (SPEC 151)",
+            file=sys.stderr,
+        )
+        return 2
 
     # SPEC 075: --list (bilgi komutu, en önde çünkü read-only)
     if getattr(args, "list", False):
@@ -6925,6 +6983,11 @@ def main(argv: list[str] | None = None) -> int:
                             "(SPEC 040/136/146 kalıbı). --pretty ile indent=2.")
     p_arc.add_argument("--pretty", action="store_true",
                        help="SPEC 149: --schema ile birlikte indent=2 JSON")
+    p_arc.add_argument("--format", default=None, choices=["prometheus"],
+                       help="SPEC 151: --schema ile birlikte "
+                            "'prometheus' = 4 info-metric ailesi "
+                            "(version+top_level+exit_code+format). "
+                            "Normal archive komutlarında REDDEDİLİR (exit 2).")
     p_arc.set_defaults(func=_cmd_archive)
 
     p_dash = sub.add_parser("dashboard", help="Son N run özeti (SPEC 024)")
