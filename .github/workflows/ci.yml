@@ -35,3 +35,65 @@ jobs:
       - run: pip install -e ".[dev]"
       - name: Testler (Windows regresyon)
         run: pytest
+
+  schema-artifacts:
+    # SPEC 167: 6 schema komutunu tek yerde toplu artifact — Grafana/
+    # Prometheus scrape hedefleri için "hepsi bir arada" özet.
+    # Native --out --gzip destek (SPEC 134/145/155/156/162/163).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]"
+
+      - name: Generate doctor schema (SPEC 134)
+        run: |
+          atlas doctor --schema --format prometheus \
+            --out doctor-schema.prom --gzip \
+            || echo "(doctor schema uretilemedi)" > doctor-schema.prom.gz
+
+      - name: Generate archive schema (SPEC 155)
+        run: |
+          atlas archive --schema --format prometheus \
+            --out archive-schema.prom --gzip \
+            || echo "(archive schema uretilemedi)" > archive-schema.prom.gz
+
+      - name: Generate metrics schema (SPEC 162)
+        run: |
+          atlas metrics --schema --format prometheus \
+            --out metrics-schema.prom --gzip \
+            || echo "(metrics schema uretilemedi)" > metrics-schema.prom.gz
+
+      - name: Generate vault verify schema (SPEC 145)
+        run: |
+          atlas vault verify --schema --format prometheus \
+            --out vault-verify-schema.prom --gzip \
+            || echo "(vault verify schema uretilemedi)" > vault-verify-schema.prom.gz
+
+      - name: Generate vault backup schema (SPEC 163)
+        run: |
+          atlas vault backup --schema --format prometheus \
+            --out vault-backup-schema.prom --gzip \
+            || echo "(vault backup schema uretilemedi)" > vault-backup-schema.prom.gz
+
+      - name: Generate ai-cli status schema (SPEC 156)
+        run: |
+          atlas ai-cli status --schema --format prometheus \
+            --out ai-cli-status-schema.prom --gzip \
+            || echo "(ai-cli status schema uretilemedi)" > ai-cli-status-schema.prom.gz
+
+      - name: Upload atlas-schema-artifacts (SPEC 167)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-schema-artifacts
+          path: |
+            doctor-schema.prom.gz
+            archive-schema.prom.gz
+            metrics-schema.prom.gz
+            vault-verify-schema.prom.gz
+            vault-backup-schema.prom.gz
+            ai-cli-status-schema.prom.gz
+          retention-days: 30
+          if-no-files-found: ignore

@@ -1542,3 +1542,114 @@ def test_112_atlas_vault_mevcut_stepler_dokunulmadi() -> None:
     )
     assert upload_step is not None
     assert "vault-*.tar.gz." in str(upload_step["with"]["path"])
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 167 — ci.yml schema-artifacts özet job
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_167_ci_schema_artifacts_job_var() -> None:
+    """`schema-artifacts` job var (ubuntu-latest)."""
+    data = _load("ci.yml")
+    jobs = data.get("jobs", {})
+    assert "schema-artifacts" in jobs
+    assert jobs["schema-artifacts"]["runs-on"] == "ubuntu-latest"
+
+
+def test_167_ci_schema_artifacts_setup_stepleri() -> None:
+    """Setup: checkout + setup-python + pip install."""
+    data = _load("ci.yml")
+    steps = data["jobs"]["schema-artifacts"]["steps"]
+    uses = [s.get("uses", "") for s in steps if "uses" in s]
+    assert any("actions/checkout" in u for u in uses)
+    assert any("actions/setup-python" in u for u in uses)
+    run_blocks = "\n".join(s.get("run", "") for s in steps if s.get("run"))
+    assert 'pip install -e ".[dev]"' in run_blocks
+
+
+def test_167_ci_schema_artifacts_6_schema_step() -> None:
+    """6 schema step var (doctor + archive + metrics + vault verify +
+    vault backup + ai-cli status)."""
+    data = _load("ci.yml")
+    steps = data["jobs"]["schema-artifacts"]["steps"]
+    step_names = [s.get("name", "") for s in steps]
+    expected = [
+        "Generate doctor schema (SPEC 134)",
+        "Generate archive schema (SPEC 155)",
+        "Generate metrics schema (SPEC 162)",
+        "Generate vault verify schema (SPEC 145)",
+        "Generate vault backup schema (SPEC 163)",
+        "Generate ai-cli status schema (SPEC 156)",
+    ]
+    for name in expected:
+        assert name in step_names, f"eksik step: {name}"
+
+
+def test_167_ci_schema_artifacts_native_out_gzip() -> None:
+    """Her schema step native --out + --gzip kullanır (shell gzip YOK)."""
+    data = _load("ci.yml")
+    steps = data["jobs"]["schema-artifacts"]["steps"]
+    schema_runs = [
+        s.get("run", "") for s in steps
+        if "generate" in s.get("name", "").lower()
+        and "schema" in s.get("name", "").lower()
+    ]
+    assert len(schema_runs) == 6
+    for run in schema_runs:
+        assert "--out" in run
+        assert "--gzip" in run
+        assert "--schema" in run
+        assert "--format prometheus" in run
+        assert "||" in run  # fail-safe fallback
+
+
+def test_167_ci_schema_artifacts_upload_step() -> None:
+    """`Upload atlas-schema-artifacts (SPEC 167)` step var."""
+    data = _load("ci.yml")
+    steps = data["jobs"]["schema-artifacts"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if "atlas-schema-artifacts" in s.get("name", "").lower()),
+        None,
+    )
+    assert upload_step is not None
+    assert upload_step.get("uses", "").startswith("actions/upload-artifact")
+    with_block = upload_step.get("with", {})
+    assert with_block.get("name") == "atlas-schema-artifacts"
+    path_str = str(with_block.get("path", ""))
+    for name in ("doctor-schema.prom.gz", "archive-schema.prom.gz",
+                 "metrics-schema.prom.gz", "vault-verify-schema.prom.gz",
+                 "vault-backup-schema.prom.gz",
+                 "ai-cli-status-schema.prom.gz"):
+        assert name in path_str, f"eksik artifact path: {name}"
+
+
+def test_167_ci_schema_artifacts_upload_always() -> None:
+    """Upload `if: always()` — job fail'de bile artifact atılsın."""
+    data = _load("ci.yml")
+    steps = data["jobs"]["schema-artifacts"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if "atlas-schema-artifacts" in s.get("name", "").lower()),
+        None,
+    )
+    assert upload_step is not None
+    assert upload_step.get("if") == "always()"
+
+
+def test_167_ci_quality_test_windows_dokunulmadi() -> None:
+    """Mevcut `quality` + `test-windows` job'ları AYNI."""
+    data = _load("ci.yml")
+    jobs = data.get("jobs", {})
+    assert "quality" in jobs
+    assert "test-windows" in jobs
+    # quality job'un temel step'leri (lint/mypy/pytest) hâlâ var
+    quality_steps = jobs["quality"]["steps"]
+    step_names = [s.get("name", "").lower() for s in quality_steps]
+    assert any("lint" in n and "ruff" in n for n in step_names)
+    assert any("mypy" in n for n in step_names)
+    # test-windows pytest çalıştırıyor
+    tw_steps = jobs["test-windows"]["steps"]
+    tw_run = "\n".join(s.get("run", "") for s in tw_steps if s.get("run"))
+    assert "pytest" in tw_run
