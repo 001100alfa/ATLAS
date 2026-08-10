@@ -1520,6 +1520,83 @@ def _cmd_archive(args: argparse.Namespace) -> int:
             else:
                 print("\n".join(ar_lines))
             return 0
+        # SPEC 171: --format json-lines → NDJSON stream (SPEC 087/126/166 kalıbı)
+        if getattr(args, "format", None) == "json-lines":
+            jl_lines: list[str] = []
+
+            def _jl_emit_a(obj: dict[str, Any]) -> None:
+                jl_lines.append(_json.dumps(obj, ensure_ascii=False))
+
+            for f in archive_schema["top_level"]:
+                _jl_emit_a({
+                    "type": "top_level",
+                    "name": f["name"],
+                    "field_type": f["type"],
+                    "desc": f.get("desc", ""),
+                })
+            for code in sorted(archive_schema["exit_codes"].keys()):
+                _jl_emit_a({
+                    "type": "exit_code",
+                    "code": code,
+                    "desc": archive_schema["exit_codes"][code],
+                })
+            for f in archive_schema["formats"]:
+                _jl_emit_a({
+                    "type": "format",
+                    "name": f["name"],
+                    "spec": f.get("spec", ""),
+                    "desc": f.get("desc", ""),
+                })
+            sub_cmds = archive_schema.get("sub_commands", {})
+            for sc_name in sorted(sub_cmds.keys()):
+                sc = sub_cmds[sc_name]
+                _jl_emit_a({
+                    "type": "sub_command",
+                    "name": sc_name,
+                    "exit_codes": sc.get("exit_codes", []),
+                    "spec": sc.get("spec", ""),
+                    "desc": sc.get("desc", ""),
+                })
+            _jl_emit_a({
+                "type": "summary",
+                "schema_version": archive_schema["schema_version"],
+                "top_level_count": len(archive_schema["top_level"]),
+                "exit_codes_count": len(archive_schema["exit_codes"]),
+                "formats_count": len(archive_schema["formats"]),
+                "sub_commands_count": len(sub_cmds),
+            })
+            # SPEC 155/166 kalıbı: --out PATH [--gzip]
+            jl_out = getattr(args, "out", None)
+            jl_gzip = bool(getattr(args, "gzip", False))
+            if jl_gzip and jl_out is None:
+                print(
+                    "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+                    file=sys.stderr,
+                )
+                return 2
+            if jl_out is not None:
+                try:
+                    op = Path(jl_out)
+                    if jl_gzip and op.suffix != ".gz":
+                        op = op.with_suffix(op.suffix + ".gz")
+                    op.parent.mkdir(parents=True, exist_ok=True)
+                    jl_text = "\n".join(jl_lines) + "\n"
+                    if jl_gzip:
+                        import gzip as _gzip_ajl
+                        with _gzip_ajl.open(op, "wt", encoding="utf-8") as fh:
+                            fh.write(jl_text)
+                    else:
+                        op.write_text(jl_text, encoding="utf-8")
+                except OSError as exc:
+                    print(
+                        f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            else:
+                for line in jl_lines:
+                    print(line)
+            return 0
         print(_json.dumps(archive_schema, ensure_ascii=False, indent=indent_s))
         return 0
 
@@ -1528,6 +1605,15 @@ def _cmd_archive(args: argparse.Namespace) -> int:
         print(
             "SPEC HATASI: --format prometheus yalnız --schema ile "
             "birlikte kullanılır (SPEC 151)",
+            file=sys.stderr,
+        )
+        return 2
+
+    # SPEC 171: --format json-lines yalnız --schema ile (normal archive modda REDDEDER)
+    if getattr(args, "format", None) == "json-lines":
+        print(
+            "SPEC HATASI: --format json-lines yalnız --schema ile "
+            "birlikte kullanılır (SPEC 171)",
             file=sys.stderr,
         )
         return 2
@@ -7594,11 +7680,15 @@ def main(argv: list[str] | None = None) -> int:
                             "(SPEC 040/136/146 kalıbı). --pretty ile indent=2.")
     p_arc.add_argument("--pretty", action="store_true",
                        help="SPEC 149: --schema ile birlikte indent=2 JSON")
-    p_arc.add_argument("--format", default=None, choices=["prometheus"],
-                       help="SPEC 151: --schema ile birlikte "
+    p_arc.add_argument("--format", default=None,
+                       choices=["prometheus", "json-lines"],
+                       help="SPEC 151/171: --schema ile birlikte "
                             "'prometheus' = 4 info-metric ailesi "
-                            "(version+top_level+exit_code+format). "
-                            "Normal archive komutlarında REDDEDİLİR (exit 2).")
+                            "(version+top_level+exit_code+format); "
+                            "'json-lines' = NDJSON stream (SPEC 087/126/166 "
+                            "kalıbı; top_level/exit_code/format/sub_command "
+                            "başına 1 satır + summary). Normal archive "
+                            "komutlarında REDDEDİLİR (exit 2).")
     p_arc.set_defaults(func=_cmd_archive)
 
     p_dash = sub.add_parser("dashboard", help="Son N run özeti (SPEC 024)")
