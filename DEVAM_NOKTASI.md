@@ -12,11 +12,11 @@
 >    tur kapanış rutini — onaylandı.
 > 5. Zorunlu Döngü'ye (`CLAUDE.md` §Zorunlu Döngü) gir.
 
-**Son çalışma:** 2026-08-07 (41. tur — 144 + 145 + 148 + 146 + 149 + 147 KAPANIŞ)
-**Branch:** `main` = `f0b687c` local (6 feat lineer ff-merge, PUSH edilecek)
-**Working tree:** temiz (CONTEXT.md + tools/ai-cli/package* untracked/M — dokunulmadı)
-**Durum:** 41. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
-**1602/1602 test yeşil** (+12 skip), cov ~%91.44, mypy strict + ruff +
+**Son çalışma:** 2026-08-10 (42. tur — 150 + 151 + 152 + 153 + 154 + 155 KAPANIŞ)
+**Branch:** `main` = `d098c80` local (6 feat lineer ff-merge, PUSH edilecek)
+**Working tree:** temiz (tools/ai-cli/package* M drift + CONTEXT.md untracked — dokunulmadı)
+**Durum:** 42. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
+**1682/1682 test yeşil** (+12 skip), cov %91.61, mypy strict + ruff +
 scan temiz.
 
 ---
@@ -27,45 +27,44 @@ Yeni oturumda tek cümle yeter: **"devam et"**
 
 ---
 
-## Bu turda yapılan (2026-08-06 — 40. tur)
+## Bu turda yapılan (2026-08-10 — 42. tur)
 
-Kullanıcı "hepsini sıra ile uygula, emirler atomiktir
-(atomic-order-doctrine)" → 39. tur adayları (138-143) tümü zincirleme.
+Kullanıcı "Hepsi sıra ile (atomik) — 150→151→152→153→154→155" seçti
+(atomic-order-doctrine). 41. tur adayları (150-155) tümü zincirleme.
 
-1. **Görev 139** — metrics --alert-history-show --json --out PATH (`32a14fe`)
-   - `--out` yalnız `--json` ile; parent auto-mkdir; IO exit 2.
-   - Dosya içeriği stdout `--json` modu ile BİT-UYUMLU.
-   - +6 test.
-
-2. **Görev 138** — archive --restore <id> --json-lines --out PATH (`473e5bc`)
-   - `_restore_emit_lines(records)` helper (stdout|PATH DRY).
-   - Hata → dosya YAZILMAZ (early return).
+1. **Görev 150** — ai-cli status --schema --format prometheus (`8143b9b`)
+   - 4 info-metric (version+top_level+exit_code+format), SPEC 140 kalıbı.
+   - Parser: `--format` choices=["prometheus"]; MUTEX yalnız --schema ile.
    - +8 test.
 
-3. **Görev 141** — atlas-ci-status.yml alert-webhook gate (`6fe1e78`)
-   - SPEC 131/135 kalıp simetrik.
-   - Env `ALERT_WEBHOOK_URL`; payload `{alert:"ci-status", rc, run_id, sha, event}`.
-   - `continue-on-error: true`.
-   - +4 test.
+2. **Görev 151** — archive --schema --format prometheus (`4f1ec23`)
+   - 4 info-metric (SPEC 140/150 kalıbı); parser --format choices=["prometheus"].
+   - MUTEX: normal archive modda REDDEDİR (exit 2).
+   - +8 test.
 
-4. **Görev 143** — metrics --alert-history-show --format prometheus (`77061e9`)
-   - 3 counter metric: `history_total`, `history_recent`, `channel_total`.
-   - Kanallar alfabetik lex; boş `channels=[]` → `channel="-"` bucket.
+3. **Görev 152** — atlas-ci-status.yml archive schema prometheus gzip artifact (`06a494a`)
+   - SPEC 147 kalıbı; shell gzip (SPEC 155 --out --gzip gelene kadar).
+   - Yeni step: Generate archive schema prometheus artifact + Upload
+     atlas-ci-status-schema (if: always).
+   - Setup uv + Install ATLAS eklendi (mevcut Python setup korundu).
+   - +5 workflow test.
+
+4. **Görev 153** — atlas metrics --schema (`3ef951b`)
+   - 7 top_level (SPEC 023: ts/in/out/cache_c/cache_r/cost/inflight).
+   - exit_codes 0/2/4/8; formats human/json/prometheus.
+   - Parser: --schema + --pretty.
    - +7 test.
 
-5. **Görev 142** — doctor --schema metric ailesi genişletme (`614d562`)
-   - `_doctor_schema_descriptor()` 3 yeni alan (backend_options +
-     retry_pricing_envs + storage_envs).
-   - 2 yeni Prometheus metric (backend_option + env).
-   - Toplam metric ailesi 4 → 6 (BİT-UYUMLU ekleme).
-   - +6 yeni + 1 test update (SPEC 128 sayı 4→6).
+5. **Görev 154** — atlas vault backup --schema (`2f4efb7`)
+   - 6 top_level (backup_path/vault_root/action/split_parts/pruned_count/encrypted).
+   - exit_codes 0/2/6; formats yalnız human (SPEC 041 YAGNI).
+   - Parser: --schema + --pretty.
+   - +7 test.
 
-6. **Görev 140** — vault verify --schema --format prometheus (`3c508e1`)
-   - Parser `--format` choices'a `prometheus` eklendi.
-   - Semantik MUTEX: yalnız `--schema` ile (aksi exit 2).
-   - 4 info-metric ailesi: version + top_level + exit_code + format.
-   - `schema: dict[str, Any]` (mypy narrow).
-   - +8 test.
+6. **Görev 155** — archive --schema --format prometheus --out --gzip (`d098c80`)
+   - SPEC 145 kalıbı; --out + auto-suffix .gz + gzip.open("wt") + parent auto-mkdir.
+   - MUTEX --gzip yalnız --out ile; IO hatası exit 2.
+   - +7 test.
 
 7. **Kalite kapıları:** her görev branch → kod → test → tam
    pytest/mypy/ruff/scan → main'e ff-merge. 6 lineer commit.
@@ -74,63 +73,70 @@ Kullanıcı "hepsini sıra ile uygula, emirler atomiktir
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-40. tur adayları tamamlandı. Yeni 6 aday üretildi:
+42. tur adayları tamamlandı. Yeni 6 aday üretildi:
 
-- **Görev 144 — `atlas metrics --alert-history-show --format prometheus
-  --out PATH`:** SPEC 143 stream'i dosyaya (SPEC 096 kalıbı). Küçük.
-- **Görev 145 — `atlas vault verify --schema --format prometheus --out`:**
-  SPEC 140 dosyaya (SPEC 134 kalıbı). Küçük.
-- **Görev 146 — `atlas ai-cli status --schema`:** SPEC 040/136 kalıbı
-  ai-cli için (JSON şema tanımı). Küçük.
-- **Görev 147 — `.github/workflows/atlas-doctor.yml` schema artifact:**
-  `atlas doctor --schema --format prometheus > doctor-schema.prom.gz`
-  → upload. Küçük.
-- **Görev 148 — `atlas metrics --alert-history-show --strict`:** log
-  var mı yok mu → strict + exit 4 (SPEC 094 kalıbı). Küçük-orta.
-- **Görev 149 — `atlas archive --schema`:** SPEC 136 kalıbı archive
-  --list şema tanımı (fields + exit codes + formats). Küçük.
+- **Görev 156 — `atlas ai-cli status --schema --format prometheus
+  --out --gzip`:** SPEC 145/155 kalıbı ai-cli status için (--out --gzip
+  desteği). Küçük.
+- **Görev 157 — `atlas metrics --schema --format prometheus`:** SPEC 140
+  kalıbı metrics için (info-metric ailesi: version+top_level+exit_code+format).
+  Küçük-orta.
+- **Görev 158 — `atlas vault backup --schema --format prometheus`:**
+  SPEC 140 kalıbı vault backup için (info-metric ailesi). Küçük.
+- **Görev 159 — `atlas doctor --schema --format prometheus --out --gzip`:**
+  SPEC 147 zaten workflow'da kullanılıyor ama CLI için `--out --gzip`
+  ayrı dal olarak eksik olabilir; kontrol + tamamla. Küçük.
+- **Görev 160 — `atlas-metrics.yml` schema artifact:** SPEC 152 kalıbı
+  metrics workflow'una da schema artifact adımı (metrics --schema
+  --format prometheus → 157 çıktısı üstüne). Küçük.
+- **Görev 161 — `atlas-vault.yml` schema artifact:** SPEC 152 kalıbı
+  vault workflow'una schema artifact adımı (vault verify --schema
+  --format prometheus --out --gzip mevcut). Küçük.
 
 ---
 
 ## Hızlı Bağlam
 
-**main'e giren 6 feat (2026-08-06 40. tur):**
+**main'e giren 6 feat (2026-08-10 42. tur):**
 ```
-3c508e1 feat(140): atlas vault verify --schema --format prometheus (info-metric)
-614d562 feat(142): doctor --schema metric ailesi genisletme (SPEC 128 uzerine)
-77061e9 feat(143): atlas metrics --alert-history-show --format prometheus
-6fe1e78 feat(141): atlas-ci-status.yml alert-webhook gate (SPEC 131/135 kalibi)
-473e5bc feat(138): atlas archive --restore <id> --json-lines --out PATH
-32a14fe feat(139): atlas metrics --alert-history-show --json --out PATH
+d098c80 feat(155): archive --schema --format prometheus --out PATH [--gzip]
+2f4efb7 feat(154): atlas vault backup --schema (SPEC 040/136/146/149 kalibi)
+3ef951b feat(153): atlas metrics --schema (SPEC 040/136/146/149 kalibi)
+06a494a feat(152): atlas-ci-status.yml archive schema prometheus gzip artifact
+4f1ec23 feat(151): atlas archive --schema --format prometheus (info-metric)
+8143b9b feat(150): atlas ai-cli status --schema --format prometheus (info-metric)
 ```
 
 **Kalite kapıları:**
 ```bash
 uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
-# 1602 passed, 12 skipped; cov 91.44%
+# 1682 passed, 12 skipped; cov 91.61%
 uv run mypy src                # temiz (31 kaynak dosya)
 uv run ruff check src tests    # temiz
 uv run atlas scan src          # sır bulunamadı
 ```
 
 **Yeni CLI davranışları (bu turda):**
-- `atlas archive --restore <id> --json-lines --out PATH` (SPEC 138)
-- `atlas metrics --alert-history-show --json --out PATH` (SPEC 139)
-- `atlas metrics --alert-history-show --format prometheus` (SPEC 143)
-- `atlas doctor --schema` 3 yeni alan + 2 yeni Prometheus metric (SPEC 142)
-- `atlas vault verify --schema --format prometheus` (SPEC 140)
+- `atlas ai-cli status --schema --format prometheus` (SPEC 150)
+- `atlas archive --schema --format prometheus` (SPEC 151)
+- `atlas metrics --schema [--pretty]` (SPEC 153)
+- `atlas vault backup --schema [--pretty]` (SPEC 154)
+- `atlas archive --schema --format prometheus --out PATH [--gzip]` (SPEC 155)
 
 **Yeni workflow adımı:**
-- `atlas-ci-status.yml` `Post ci-status alert webhook` (SPEC 141)
+- `atlas-ci-status.yml` `Generate archive schema prometheus artifact`
+  + `Upload atlas-ci-status-schema` (SPEC 152)
+- `Setup uv` + `Install ATLAS` eklendi (aynı workflow, aynı tur)
 
 **Kritik sözleşme değişmezlikleri:**
-- SPEC 133: archive --restore --json-lines stdout AYNI (--out yeni yol).
-- SPEC 132: metrics --alert-history-show stdout AYNI (--out/--format yeni).
-- SPEC 128: doctor --schema JSON şeması AYNI (yeni alan eklendi;
-  SPEC 032.4 alan-ekleme kuralı = bit-uyumlu).
-- SPEC 136: vault verify --schema JSON AYNI (--format prometheus yeni).
-- SPEC 087: vault verify normal --format seçenekleri AYNI (`prometheus`
-  yalnız --schema modu; normal modda exit 2).
+- SPEC 146: ai-cli status --schema JSON AYNI (--format yoksa).
+- SPEC 149: archive --schema JSON AYNI (--format yoksa).
+- SPEC 037.4 normal ai-cli status: --format prometheus REDDEDİR (exit 2).
+- SPEC 007/012/033/065/071/075 normal archive: --format prometheus REDDEDİR.
+- SPEC 023 normal metrics: --schema kısa devre eklendi, mevcut modlar AYNI.
+- SPEC 041 normal vault backup: --schema kısa devre eklendi, mevcut modlar AYNI.
+- SPEC 151 archive schema prometheus stdout AYNI (--out yeni yol).
+- SPEC 089/125/141 atlas-ci-status.yml drift-scan davranışı AYNI.
 
 **Docker YASAK:** hâlâ yürürlükte + otomatik gate.
 
@@ -144,24 +150,23 @@ uv run atlas scan src          # sır bulunamadı
 
 ## Kapanış Notları
 
-- **1602 test yeşil** (1563 → 1602; bu tur +39)
+- **1682 test yeşil** (1640 → 1682; bu tur +42)
 - 6 lineer feat commit
-- Yeni CLI bayrakları: 4 (archive --restore --out, metrics
-  --alert-history-show --out, --format prometheus, vault verify
-  --schema --format prometheus)
-- Yeni workflow adımı: atlas-ci-status alert-webhook
-- Yeni metric aileleri: 5 (SPEC 142 backend_option+env, SPEC 143
-  history_total+recent+channel_total, SPEC 140 4× vault_verify_schema)
-- Sıradaki tur için 6 aday (144–149).
+- Yeni CLI bayrakları: 5 (ai-cli status --format prom, archive --format
+  prom, metrics --schema, vault backup --schema, archive schema prom
+  --out --gzip)
+- Yeni workflow adımı: atlas-ci-status archive schema artifact +
+  Setup uv/Install ATLAS
+- Yeni metric aileleri: 8 (SPEC 150 4× ai-cli status schema,
+  SPEC 151 4× archive schema)
+- Sıradaki tur için 6 aday (156–161).
 
 ---
 
-## 15 Turluk Toplu İstatistik (2026-08-05 → 2026-08-06)
+## 15 Turluk Toplu İstatistik (2026-08-05 → 2026-08-10)
 
 | Tur | Test toplam | Delta |
 |---|---:|---:|
-| 26 | 995 | +83 |
-| 27 | 1061 | +66 |
 | 28 | 1110 | +49 |
 | 29 | 1163 | +53 |
 | 30 | 1221 | +58 |
@@ -174,8 +179,11 @@ uv run atlas scan src          # sır bulunamadı
 | 37 | 1503 | +24 |
 | 38 | 1533 | +30 |
 | 39 | 1563 | +30 |
-| **40** | **1602** | **+39** |
+| 40 | 1602 | +39 |
+| 41 | 1640 | +38 |
+| **42** | **1682** | **+42** |
 
-Toplam **~80 feat/test-tur** commit + 15 docs commit; **+690 test**
-(912 → 1602). Cov `%91.18 → %91.44`. 8 GHA workflow; 3 sözleşme
-rollback (SPEC 081→090, SPEC 091→104, SPEC 047→128).
+Toplam **~86 feat/test-tur** commit + 16 docs commit; **+732 test**
+(950 → 1682). Cov `%91.18 → %91.61`. 8 GHA workflow (atlas-ci-status
+schema artifact eklendi). 3 sözleşme rollback (SPEC 081→090,
+SPEC 091→104, SPEC 047→128).
