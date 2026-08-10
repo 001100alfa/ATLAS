@@ -12,11 +12,10 @@
 >    tur kapanış rutini — onaylandı.
 > 5. Zorunlu Döngü'ye (`CLAUDE.md` §Zorunlu Döngü) gir.
 
-**Son çalışma:** 2026-08-06 (40. tur — 139 + 138 + 141 + 143 + 142 + 140)
-**Branch:** `main` (6 feat + docs, PUSH edilecek)
-**Working tree:** temiz (CONTEXT.md untracked, dokunulmadı; tools/ai-cli
-lock unrelated M)
-**Durum:** 40. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
+**Son çalışma:** 2026-08-07 (41. tur — 144 + 145 + 148 + 146 + 149 + 147 KAPANIŞ)
+**Branch:** `main` = `f0b687c` local (6 feat lineer ff-merge, PUSH edilecek)
+**Working tree:** temiz (CONTEXT.md + tools/ai-cli/package* untracked/M — dokunulmadı)
+**Durum:** 41. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
 **1602/1602 test yeşil** (+12 skip), cov ~%91.44, mypy strict + ruff +
 scan temiz.
 

@@ -1,6 +1,41 @@
 # ATLAS Karar Günlüğü
 Format: `## TARİH` altında madde; her madde [KARAR]/[VARSAYIM]/[HATA] etiketi taşır.
 
+## 2026-08-07 (41. tur — 144 + 145 + 148 + 146 + 149 + 147 KAPANIŞ)
+
+Kullanıcı "hepsini sıra ile uygula, emirler atomiktir
+(atomic-order-doctrine)" → 40. tur adayları (144-149) tümü zincirleme,
+küçükten büyüğe: `144 → 145 → 148 → 146 → 149 → 147`.
+
+**Push edilen 6 commit:**
+- `2189cab` feat(144): metrics --alert-history-show --format prometheus --out --gzip
+- `997d846` feat(145): vault verify --schema --format prometheus --out --gzip
+- `80b4115` feat(148): metrics --alert-history-show --strict (log varsa exit 4)
+- `16eecff` feat(146): ai-cli status --schema
+- `bfa4733` feat(149): archive --schema
+- `f0b687c` feat(147): atlas-doctor.yml schema prometheus gzip artifact
+
+- [KARAR] 144 metrics `--alert-history-show --format prometheus --out
+  --gzip` — SPEC 143 üstüne SPEC 096/103/134 kalıp (5. gzip pattern
+  tekrarı). `ah_out`/`ah_use_gzip` lokal, auto-suffix `.gz`.
+- [KARAR] 145 vault verify `--schema --format prometheus --out --gzip`
+  — SPEC 140 üstüne (SPEC 144 kalıbı).
+- [KARAR] 148 metrics `--alert-history-show --strict` — log dosyasında
+  >=1 kayıt → exit 4 (SPEC 094 kalıbı). 3 dal (pretty/JSON/prom) tek
+  `show_exit_rc` değişkeni ile ortak. `SAĞLIK BAŞARISIZ` stderr.
+- [KARAR] 146 ai-cli status `--schema` — SPEC 040/136 kalıbı ai-cli
+  için. 8 top_level alan (SPEC 037.4 report anahtarları AYNI). `name`
+  `nargs="?"` — --schema ile opsiyonel.
+- [KARAR] 149 archive `--schema` — SPEC 040/136/146 kalıp simetrik.
+  7 top_level alan. Dispatcher sırası: `--schema` (0) → `--list` (1)
+  → ... (--schema en önde çünkü dizin dokunmaz).
+- [KARAR] 147 atlas-doctor.yml `Generate schema prometheus artifact`
+  step — SPEC 128/134 CLI'yi CI'ye bağlar. Conditional YOK (schema
+  kısa devre her zaman çalışır). `|| echo` fallback fail-safe.
+
+**Test/kalite:** 1602 → **1640 yeşil** (+38), 12 skip, cov ~%91.4x,
+mypy strict + ruff + scan temiz.
+
 ## 2026-08-06 (40. tur — 139 + 138 + 141 + 143 + 142 + 140)
 
 Kullanıcı "hepsini sıra ile uygula, emirler atomiktir
