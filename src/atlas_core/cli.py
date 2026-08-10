@@ -5625,6 +5625,7 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
                 "SPEC 052: --dump-report PATH (markdown yan etki).",
                 "SPEC 136: bu şema `atlas vault verify --schema` ile yayımlanır.",
                 "SPEC 140: --format prometheus info-metric ailesi.",
+                "SPEC 172: --schema --format json-lines NDJSON şema stream.",
             ],
         }
         if getattr(args, "format", None) == "prometheus":
@@ -5703,6 +5704,74 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
                     return 2
             else:
                 print("\n".join(vs_lines))
+            return 0
+        # SPEC 172: --schema --format json-lines → NDJSON stream
+        # (SPEC 087/126/166/171 kalıbı). SPEC 087 normal `--format
+        # json-lines` (bulgu NDJSON) --schema flag'i ile ayrılır.
+        if getattr(args, "format", None) == "json-lines":
+            jl_lines: list[str] = []
+
+            def _jl_emit_v(obj: dict[str, Any]) -> None:
+                jl_lines.append(_json.dumps(obj, ensure_ascii=False))
+
+            for f in schema["top_level"]:
+                _jl_emit_v({
+                    "type": "top_level",
+                    "name": f["name"],
+                    "field_type": f["type"],
+                    "desc": f.get("desc", ""),
+                })
+            for code in sorted(schema["exit_codes"].keys()):
+                _jl_emit_v({
+                    "type": "exit_code",
+                    "code": code,
+                    "desc": schema["exit_codes"][code],
+                })
+            for f in schema["formats"]:
+                _jl_emit_v({
+                    "type": "format",
+                    "name": f["name"],
+                    "spec": f.get("spec", ""),
+                    "desc": f.get("desc", ""),
+                })
+            _jl_emit_v({
+                "type": "summary",
+                "schema_version": schema["schema_version"],
+                "top_level_count": len(schema["top_level"]),
+                "exit_codes_count": len(schema["exit_codes"]),
+                "formats_count": len(schema["formats"]),
+            })
+            # SPEC 145/166/171 kalıbı: --out PATH [--gzip]
+            jl_out = getattr(args, "out", None)
+            jl_gzip = bool(getattr(args, "gzip", False))
+            if jl_gzip and jl_out is None:
+                print(
+                    "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+                    file=sys.stderr,
+                )
+                return 2
+            if jl_out is not None:
+                try:
+                    op = Path(jl_out)
+                    if jl_gzip and op.suffix != ".gz":
+                        op = op.with_suffix(op.suffix + ".gz")
+                    op.parent.mkdir(parents=True, exist_ok=True)
+                    jl_text = "\n".join(jl_lines) + "\n"
+                    if jl_gzip:
+                        import gzip as _gzip_vjl
+                        with _gzip_vjl.open(op, "wt", encoding="utf-8") as fh:
+                            fh.write(jl_text)
+                    else:
+                        op.write_text(jl_text, encoding="utf-8")
+                except OSError as exc:
+                    print(
+                        f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            else:
+                for line in jl_lines:
+                    print(line)
             return 0
         print(_json.dumps(schema, ensure_ascii=False, indent=indent))
         return 0
