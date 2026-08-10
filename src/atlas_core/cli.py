@@ -4403,6 +4403,8 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                     records.append(obj)
         except OSError:
             pass
+    # SPEC 169: alert değerlendirmesi için ayrı window'a orjinal liste gerek
+    records_raw: list[dict[str, Any]] = list(records)
     # SPEC 076: --window MINUTES filtresi (limit ile ORTOGONAL — önce
     # window, sonra son N limit slice).
     window_min = getattr(args, "window", None)
@@ -4415,6 +4417,16 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
             return 2
         records = _filter_records_by_window(records, window_min)
     tail = records[-limit:]
+
+    # SPEC 169: --alert-window MINUTES → alert değerlendirmesi için
+    # AYRI window (tail bağımsız). Doğrulama önden — geçersiz -> exit 2.
+    alert_window_min = getattr(args, "alert_window", None)
+    if alert_window_min is not None and alert_window_min <= 0:
+        print(
+            f"SPEC HATASI: --alert-window > 0 olmalı: {alert_window_min}",
+            file=sys.stderr,
+        )
+        return 2
 
     total_in = sum(int(r.get("in", 0) or 0) for r in tail)
     total_out = sum(int(r.get("out", 0) or 0) for r in tail)
@@ -4671,10 +4683,34 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
         else:
             print("  tahmini cost:   (fiyat env'i yok)")
 
+    # SPEC 169: --alert-window MINUTES → alert için ayrı zaman-pencereli
+    # değerlendirme. records_raw (orjinal, --window uygulanmamış) üzerinden
+    # filtrele; --alert-window YOKSA mevcut tail üzerinden davran.
+    if alert_window_min is not None:
+        alert_recs = _filter_records_by_window(records_raw, alert_window_min)
+        a_in = sum(int(r.get("in", 0) or 0) for r in alert_recs)
+        a_cc = sum(int(r.get("cache_c", 0) or 0) for r in alert_recs)
+        a_cr = sum(int(r.get("cache_r", 0) or 0) for r in alert_recs)
+        a_denom = a_in + a_cc + a_cr
+        alert_hit_ratio = (a_cr / a_denom * 100) if a_denom else 0.0
+        alert_records_count = len(alert_recs)
+        alert_tokens_in = a_in
+        alert_tokens_out = sum(int(r.get("out", 0) or 0) for r in alert_recs)
+        alert_cache_c = a_cc
+        alert_cache_r = a_cr
+    else:
+        alert_hit_ratio = hit_ratio
+        alert_records_count = len(tail)
+        alert_tokens_in = total_in
+        alert_tokens_out = total_out
+        alert_cache_c = total_cc
+        alert_cache_r = total_cr
+
     # SPEC 029: alarm — eşik altı → stderr UYARI + exit 8
     # --alert 0 alarmı kapatır (0 < 0 asla doğru değil).
-    if alert is not None and alert > 0.0 and hit_ratio < alert:
-        msg = f"UYARI: cache-hit %{hit_ratio:.1f} < eşik %{alert:.1f}"
+    # SPEC 169: --alert-window verildiğinde alert_hit_ratio ayrı hesaplanır.
+    if alert is not None and alert > 0.0 and alert_hit_ratio < alert:
+        msg = f"UYARI: cache-hit %{alert_hit_ratio:.1f} < eşik %{alert:.1f}"
         print(msg, file=sys.stderr)
         # SPEC 126: --alert-history [PATH] → NDJSON append log
         alert_history_arg = getattr(args, "alert_history", None)
@@ -4691,18 +4727,24 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                 channels.append("webhook")
             if getattr(args, "alert_slack", None):
                 channels.append("slack")
-            record_line = _json.dumps({
+            history_payload: dict[str, Any] = {
                 "ts": _dt.now().isoformat(timespec="seconds"),
                 "alert": "cache-hit",
-                "hit_ratio_pct": round(hit_ratio, 2),
+                "hit_ratio_pct": round(alert_hit_ratio, 2),
                 "threshold_pct": alert,
-                "records": len(tail),
-                "tokens_in": total_in,
-                "tokens_out": total_out,
-                "cache_creation": total_cc,
-                "cache_read": total_cr,
+                "records": alert_records_count,
+                "tokens_in": alert_tokens_in,
+                "tokens_out": alert_tokens_out,
+                "cache_creation": alert_cache_c,
+                "cache_read": alert_cache_r,
                 "channels": channels,
-            }, ensure_ascii=False)
+            }
+            # SPEC 169: --alert-window kullanıldıysa payload'a alan-ekleme
+            # (SPEC 032.4 bit-uyumlu; --alert-window yoksa alan yazılmaz).
+            if alert_window_min is not None:
+                history_payload["alert_window_minutes"] = alert_window_min
+                history_payload["alert_window_records"] = alert_records_count
+            record_line = _json.dumps(history_payload, ensure_ascii=False)
             try:
                 history_path.parent.mkdir(parents=True, exist_ok=True)
                 with history_path.open("a", encoding="utf-8") as fh:
@@ -4713,20 +4755,23 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
         # SPEC 059: --alert-email → SMTP notify (env ile config)
+        # SPEC 169: --alert-window verildiğinde alert_* değişkenleri
+        # window-scope'a göre; verilmediğinde mevcut tail-scope AYNI.
         if getattr(args, "alert_email", False):
             subject = (
                 f"[ATLAS] metrics alert: cache-hit "
-                f"{hit_ratio:.1f}% < {alert:.1f}%"
+                f"{alert_hit_ratio:.1f}% < {alert:.1f}%"
             )
             body = (
                 f"{msg}\n\n"
-                f"toplam: {len(tail)} çağrı\n"
-                f"input tokens:   {total_in}\n"
-                f"output tokens:  {total_out}\n"
-                f"cache creation: {total_cc}\n"
-                f"cache read:     {total_cr}\n"
-                f"denominator:    {denom}\n"
+                f"toplam: {alert_records_count} çağrı\n"
+                f"input tokens:   {alert_tokens_in}\n"
+                f"output tokens:  {alert_tokens_out}\n"
+                f"cache creation: {alert_cache_c}\n"
+                f"cache read:     {alert_cache_r}\n"
             )
+            if alert_window_min is not None:
+                body += f"window:         {alert_window_min} dakika\n"
             ok, err = _send_alert_email(subject, body)
             if ok:
                 print("[alert-email] gönderildi", file=sys.stderr)
@@ -4736,19 +4781,22 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
         # SPEC 064: --alert-webhook URL → POST JSON webhook (SMTP kardeşi)
+        # SPEC 169: window-scope alert_* + payload'a alan-ekleme.
         webhook_url = getattr(args, "alert_webhook", None)
         if webhook_url:
             payload = {
                 "alert": "cache-hit",
-                "hit_ratio_pct": round(hit_ratio, 2),
+                "hit_ratio_pct": round(alert_hit_ratio, 2),
                 "threshold_pct": alert,
-                "records": len(tail),
-                "tokens_in": total_in,
-                "tokens_out": total_out,
-                "cache_creation": total_cc,
-                "cache_read": total_cr,
+                "records": alert_records_count,
+                "tokens_in": alert_tokens_in,
+                "tokens_out": alert_tokens_out,
+                "cache_creation": alert_cache_c,
+                "cache_read": alert_cache_r,
                 "message": msg,
             }
+            if alert_window_min is not None:
+                payload["alert_window_minutes"] = alert_window_min
             ok, err = _post_alert_webhook(webhook_url, payload)
             if ok:
                 print("[alert-webhook] POST başarılı", file=sys.stderr)
@@ -4758,16 +4806,21 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
         # SPEC 068: --alert-slack URL → Slack incoming webhook özel format
+        # SPEC 169: window-scope alert_*.
         slack_url = getattr(args, "alert_slack", None)
         if slack_url:
             # Slack incoming webhook `{text}` bekler (attachments/blocks
             # opsiyonel; MVP `text`). ATLAS özel formatı: markdown-benzeri.
+            win_suffix = (
+                f" · window: `{alert_window_min}m`"
+                if alert_window_min is not None else ""
+            )
             text = (
                 f":warning: *ATLAS cache-hit alert*\n"
                 f"> {msg}\n"
-                f"> records: `{len(tail)}` · "
-                f"in: `{total_in}` · out: `{total_out}` · "
-                f"cache_r: `{total_cr}`"
+                f"> records: `{alert_records_count}` · "
+                f"in: `{alert_tokens_in}` · out: `{alert_tokens_out}` · "
+                f"cache_r: `{alert_cache_r}`{win_suffix}"
             )
             payload_slack = {"text": text}
             ok, err = _post_alert_webhook(slack_url, payload_slack)
@@ -7587,6 +7640,14 @@ def main(argv: list[str] | None = None) -> int:
     p_met.add_argument("--alert", type=float, default=None,
                        help="SPEC 029: cache-hit oranı bu %'den düşükse "
                             "stderr UYARI + exit 8 (0 kapatır)")
+    p_met.add_argument("--alert-window", type=float, default=None,
+                       metavar="MINUTES",
+                       help="SPEC 169: --alert değerlendirmesi için AYRI "
+                            "zaman penceresi (dakika). --window ve tail'den "
+                            "bağımsız — orjinal records üzerinden window "
+                            "filtresi. Alert-history NDJSON + webhook + "
+                            "email + slack payload'larına ek alan olarak "
+                            "yansır. Geçersiz (<=0) → SPEC HATASI exit 2.")
     p_met.add_argument("--alert-email", action="store_true",
                        help="SPEC 059: --alert eşiği aşıldığında SMTP "
                             "email at (env: ATLAS_SMTP_HOST/PORT/USER/"
