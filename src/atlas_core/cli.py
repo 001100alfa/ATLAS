@@ -2908,6 +2908,33 @@ def _doctor_schema_descriptor() -> dict[str, Any]:
             "SPEC 040: bu şema tanımı `atlas doctor --schema` ile yayımlanır.",
             "SPEC 142: backend_options + retry_pricing_envs + storage_envs "
             "info-metric ailesi (--format prometheus).",
+            "SPEC 168: --alert-webhook URL quality warning varsa POST.",
+            "SPEC 177: --alert-webhook payload'a strict alanı yansır.",
+            "SPEC 181: alert_options + alert_payload alanları JSON şemada.",
+        ],
+        # SPEC 181: doctor alert kanalları CLI seçenekleri (SPEC 175 kalıbı).
+        # Prometheus çıktısına EKLENMEDİ (YAGNI — mevcut 6 metric aile korunur).
+        "alert_options": [
+            {"name": "--alert-webhook URL", "spec": "168",
+             "desc": "quality warning varsa URL'ye POST JSON webhook "
+                     "(Slack/Discord/Teams uyumlu). --strict ile ORTOGONAL."},
+        ],
+        # SPEC 181: SPEC 168 + SPEC 177 payload alanları (4 alan).
+        # `when` = alanın hangi koşulda yazıldığı; SPEC 032.4 alan-ekleme
+        # (mevcut alıcılar yeni alanlarla kırılmaz).
+        "alert_payload": [
+            {"name": "alert", "type": "str",
+             "when": "always", "spec": "168",
+             "desc": "sabit 'doctor' — kanal ayırıcı"},
+            {"name": "warnings", "type": "list[str]",
+             "when": "always", "spec": "168",
+             "desc": "report.warnings üst düzey liste"},
+            {"name": "quality_warnings", "type": "dict[str, str]",
+             "when": "always", "spec": "168",
+             "desc": "quality.<field> -> warning mesajı sözlüğü"},
+            {"name": "strict", "type": "bool",
+             "when": "always", "spec": "177",
+             "desc": "--strict verildi mi (CI-gate exit 9 tetiği)"},
         ],
     }
 
