@@ -3652,6 +3652,31 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         if scan_info.get("warning"):
             print(f"  [!] {scan_info['warning']}")
 
+    # SPEC 168: --alert-webhook URL → quality warning varsa POST
+    # (SPEC 064 metrics kalıbı; SPEC 165 vault verify kardeşi).
+    # --strict ile ORTOGONAL (exit code 9'u etkilemez).
+    webhook_url = getattr(args, "alert_webhook", None)
+    if webhook_url and _has_quality_warning(report):
+        quality = report.get("quality", {})
+        quality_warnings: dict[str, str] = {}
+        if isinstance(quality, dict):
+            for k, v in quality.items():
+                if isinstance(v, dict) and v.get("warning"):
+                    quality_warnings[str(k)] = str(v["warning"])
+        doc_payload = {
+            "alert": "doctor",
+            "warnings": list(report.get("warnings", []) or []),
+            "quality_warnings": quality_warnings,
+        }
+        ok, err = _post_alert_webhook(webhook_url, doc_payload)
+        if ok:
+            print("[alert-webhook] POST başarılı", file=sys.stderr)
+        else:
+            print(
+                f"[alert-webhook] POST başarısız: {err}",
+                file=sys.stderr,
+            )
+
     # SPEC 032 + 032.1 + 032.2: --strict → herhangi bir quality.* uyarısı varsa exit 9
     if getattr(args, "strict", False) and _has_quality_warning(report):
         return 9
@@ -7797,6 +7822,13 @@ def main(argv: list[str] | None = None) -> int:
                             "(varsayılan yol: src)")
     p_doc.add_argument("--pretty", action="store_true",
                        help="SPEC 032.5: --json ile birlikte, girintili JSON")
+    p_doc.add_argument("--alert-webhook", default=None, metavar="URL",
+                       help="SPEC 168: quality.* uyarısı varsa URL'ye POST "
+                            "JSON webhook at (SPEC 064/165 kalıbı; Slack/"
+                            "Discord/Teams uyumlu). Başarısız POST → stderr "
+                            "uyarı; exit code KORUR. --strict ile ORTOGONAL. "
+                            "Yalnız ana doctor raporu için (diff/history/"
+                            "ping kapsam dışı).")
     p_doc.set_defaults(func=_cmd_doctor)
 
     args = parser.parse_args(argv)
