@@ -861,7 +861,7 @@ def _read_ship_summary(task_dir: Path) -> str:
 
 
 def _cmd_archive_restore(args: argparse.Namespace) -> int:
-    """SPEC 033 + 071 + 176: `atlas archive --restore <id>` — arşivi geri aç.
+    """SPEC 033 + 071 + 176 + 182: `atlas archive --restore <id>` — arşivi geri aç.
 
     Dry-run varsayılan (yıkıcı: mevcut task klasörü olabilir → yazma
     yok, --apply zorunlu).
@@ -873,12 +873,90 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
     SPEC 176: `--alert-webhook URL` verilirse hata durumlarında
     (exit 2/3/6) URL'ye POST JSON. Başarı/dry-run → POST yok.
 
+    SPEC 182: `--restore --schema` verildiyse kısa devre — TASK_ID
+    ve arşiv gerekmez; restore payload biçimi için ayrı JSON şeması
+    basılır (SPEC 179 kalıbı).
+
     Exit kodları:
       - 0: başarılı (veya dry-run)
       - 2: SPEC HATASI (task_id yok / --search belirsiz / regex hata)
       - 3: çakışma (hedef zaten var)
       - 6: extract hatası (RestoreError, path traversal, I/O)
     """
+    # SPEC 182: --schema kısa devre — TASK_ID/arşiv gerekmez, JSON şema
+    if getattr(args, "schema", False):
+        import json as _json_rs
+        pretty_rs = getattr(args, "pretty", False)
+        indent_rs = 2 if pretty_rs else None
+        restore_schema: dict[str, Any] = {
+            "schema_version": "1",
+            "dry_run_json_fields": [
+                {"name": "mode", "type": "str (sabit 'dry-run')", "spec": "127"},
+                {"name": "task_id", "type": "str", "spec": "127"},
+                {"name": "archive", "type": "str",
+                 "spec": "127", "desc": "arşiv yolu"},
+                {"name": "target", "type": "str",
+                 "spec": "127", "desc": "restore hedef dizini"},
+                {"name": "conflict", "type": "bool",
+                 "spec": "127", "desc": "target zaten var mı"},
+            ],
+            "apply_json_fields": [
+                {"name": "mode", "type": "str (sabit 'apply')", "spec": "127"},
+                {"name": "task_id", "type": "str", "spec": "127"},
+                {"name": "archive", "type": "str", "spec": "127"},
+                {"name": "target", "type": "str", "spec": "127"},
+                {"name": "restored", "type": "bool", "spec": "127"},
+            ],
+            "jsonl_record_types": [
+                {"name": "plan", "spec": "133",
+                 "fields": ["type", "task_id", "archive", "target", "conflict"],
+                 "when": "her zaman (dry-run + apply)"},
+                {"name": "restored", "spec": "133",
+                 "fields": ["type", "task_id", "target", "archive"],
+                 "when": "yalnız --apply"},
+                {"name": "summary", "spec": "133",
+                 "fields": ["type", "task_id", "mode", "restored"],
+                 "when": "her zaman (son satır)"},
+            ],
+            "alert_payload_fields": [
+                {"name": "alert", "type": "str (sabit 'archive-restore')",
+                 "when": "always", "spec": "176"},
+                {"name": "task_id", "type": "str|null",
+                 "when": "always", "spec": "176",
+                 "desc": "--search belirsizlik/eşleşme yok → null"},
+                {"name": "search_pattern", "type": "str|null",
+                 "when": "always", "spec": "176",
+                 "desc": "--search verilmediyse null"},
+                {"name": "archive_root", "type": "str",
+                 "when": "always", "spec": "176"},
+                {"name": "error", "type": "str",
+                 "when": "always", "spec": "176",
+                 "desc": "kısa hata mesajı"},
+                {"name": "exit_code", "type": "int",
+                 "when": "always", "spec": "176",
+                 "desc": "2 (SPEC HATASI) | 3 (çakışma) | 6 (extract/bulunamadı)"},
+            ],
+            "exit_codes": {
+                "0": "başarılı (veya dry-run)",
+                "2": "SPEC HATASI (task_id yok / --search belirsiz / regex hata)",
+                "3": "çakışma (RestoreError 'zaten var')",
+                "6": "extract hatası (RestoreError, path traversal, I/O) VEYA "
+                     "arşiv bulunamadı VEYA --search eşleşme yok",
+            },
+            "notes": [
+                "SPEC 033: temel --restore <id> dry-run + --apply.",
+                "SPEC 065: --search PATTERN arşiv içi regex ad araması.",
+                "SPEC 071: --restore --search PATTERN tek eşleşme otomatik.",
+                "SPEC 127: --restore --json (dry-run + apply).",
+                "SPEC 133: --restore --json-lines NDJSON stream.",
+                "SPEC 138: --restore --json-lines --out PATH.",
+                "SPEC 176: --restore --alert-webhook URL (hata POST).",
+                "SPEC 182: bu şema `archive --restore --schema` ile yayımlanır.",
+            ],
+        }
+        print(_json_rs.dumps(restore_schema, ensure_ascii=False, indent=indent_rs))
+        return 0
+
     from atlas_core.memory.archive import (
         RestoreError,
         _find_archive_for_task,
@@ -1403,8 +1481,12 @@ def _cmd_archive(args: argparse.Namespace) -> int:
       5. tekil task (SPEC 007)
     """
     import json as _json
-    # SPEC 149: --schema kısa devre — dizin gerekmez, JSON şema
-    if getattr(args, "schema", False):
+    # SPEC 149: --schema kısa devre — dizin gerekmez, JSON şema.
+    # SPEC 182: `--restore --schema` verildiyse SPEC 182 dalına (restore
+    # payload biçimi ayrı şema) bırak (SPEC 179 alert-history-show
+    # dallanma kalıbı).
+    if getattr(args, "schema", False) and \
+            getattr(args, "restore", None) is None:
         pretty_s = getattr(args, "pretty", False)
         indent_s = 2 if pretty_s else None
         archive_schema: dict[str, Any] = {
