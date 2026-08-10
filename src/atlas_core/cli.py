@@ -3961,6 +3961,7 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                 "SPEC 148: --alert-history-show --strict exit 4.",
                 "SPEC 153: bu şema `atlas metrics --schema` ile yayımlanır.",
                 "SPEC 157: --format prometheus info-metric ailesi.",
+                "SPEC 162: --format prometheus --out PATH [--gzip] artifact.",
             ],
         }
         if getattr(args, "format", None) == "prometheus":
@@ -4009,7 +4010,36 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                     f'spec="{_lbl_ms(str(f["spec"]))}"'
                     f'}} 1'
                 )
-            print("\n".join(ms_lines))
+            # SPEC 162: --out PATH [--gzip] → stdout yerine dosyaya (SPEC 145/155/156 kalıbı)
+            ms_out = getattr(args, "out", None)
+            ms_use_gzip = bool(getattr(args, "gzip", False))
+            if ms_use_gzip and ms_out is None:
+                print(
+                    "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+                    file=sys.stderr,
+                )
+                return 2
+            if ms_out is not None:
+                try:
+                    op = Path(ms_out)
+                    if ms_use_gzip and op.suffix != ".gz":
+                        op = op.with_suffix(op.suffix + ".gz")
+                    op.parent.mkdir(parents=True, exist_ok=True)
+                    ms_text = "\n".join(ms_lines) + "\n"
+                    if ms_use_gzip:
+                        import gzip as _gzip_ms
+                        with _gzip_ms.open(op, "wt", encoding="utf-8") as fh:
+                            fh.write(ms_text)
+                    else:
+                        op.write_text(ms_text, encoding="utf-8")
+                except OSError as exc:
+                    print(
+                        f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            else:
+                print("\n".join(ms_lines))
             return 0
         print(_json.dumps(metrics_schema, ensure_ascii=False, indent=indent_s))
         return 0
@@ -7310,11 +7340,12 @@ def main(argv: list[str] | None = None) -> int:
                             "cost_usd alanı ekle "
                             "(ATLAS_LLM_PRICE_IN/_OUT env; env yok → 0.0).")
     p_met.add_argument("--out", default=None, metavar="PATH",
-                       help="SPEC 096: --group-by + --format prometheus ile "
-                            "birlikte; stdout yerine PATH'e yaz.")
+                       help="SPEC 096/162: --group-by + --format prometheus "
+                            "VEYA --schema + --format prometheus ile birlikte; "
+                            "stdout yerine PATH'e yaz.")
     p_met.add_argument("--gzip", action="store_true",
-                       help="SPEC 103: --out ile birlikte; gzip sıkıştırma "
-                            "(PATH sonuna .gz eklenir eğer yoksa).")
+                       help="SPEC 103/162: --out ile birlikte; gzip "
+                            "sıkıştırma (PATH sonuna .gz eklenir eğer yoksa).")
     p_met_out = p_met.add_mutually_exclusive_group()
     p_met_out.add_argument("--json", action="store_true",
                            help="JSON liste çıktısı (ham kayıtlar)")
