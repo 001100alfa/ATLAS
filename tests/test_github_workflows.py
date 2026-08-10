@@ -1743,10 +1743,10 @@ def test_173_atlas_vault_backup_fallback_korunur() -> None:
     assert "||" in step.get("run", "")
 
 
-def test_173_atlas_ci_status_hala_shell_gzip_kullanir_todo() -> None:
-    """SPEC 152 atlas-ci-status.yml archive schema HÂLÂ shell gzip
-    kullanır (SPEC 155 native mevcut ama bu turda değil; sonraki tur
-    adayı). Kalıp: shell gzip'ler artık YALNIZ ci-status'ta."""
+def test_174_atlas_ci_status_archive_schema_native_out_gzip() -> None:
+    """SPEC 152 atlas-ci-status.yml archive schema artık native
+    `--out --gzip` (SPEC 155 sayesinde). SPEC 174 shell gzip → native
+    taşıma tamamlandı; shell `gzip -f` KULLANMAZ."""
     data = _load("atlas-ci-status.yml")
     steps = data["jobs"]["drift-scan"]["steps"]
     step = next(
@@ -1756,6 +1756,37 @@ def test_173_atlas_ci_status_hala_shell_gzip_kullanir_todo() -> None:
     )
     assert step is not None
     run = step.get("run", "")
-    # ci-status hâlâ shell gzip (SPEC 173 kapsam dışı).
-    assert ("gzip -f archive-schema.prom" in run
-            or "--gzip" in run)  # ya shell ya native — ikisi de kabul
+    # Native --out --gzip mevcut:
+    assert "--out archive-schema.prom" in run
+    assert "--gzip" in run
+    # Shell gzip YOK (fallback echo `.gz` uzantısı hariç):
+    assert "gzip -f archive-schema.prom" not in run
+    assert "> archive-schema.prom\n" not in run  # stdout redirection yok
+
+
+def test_174_atlas_ci_status_fallback_korunur() -> None:
+    """`||` fallback KORUNUR (fail-safe SPEC 095/147/152 kalıbı)."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "archive schema prometheus artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "||" in step.get("run", "")
+
+
+def test_174_atlas_ci_status_upload_path_degismedi() -> None:
+    """Upload artifact adı + path SPEC 152 ile AYNI."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if "atlas-ci-status schema artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert upload_step is not None
+    with_block = upload_step.get("with", {})
+    assert with_block.get("name") == "atlas-ci-status-schema"
+    assert "archive-schema.prom.gz" in str(with_block.get("path", ""))
