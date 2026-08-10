@@ -1348,21 +1348,75 @@ def _cmd_archive_search(args: argparse.Namespace) -> int:
 
 
 def _cmd_archive(args: argparse.Namespace) -> int:
-    """SPEC 007+012+033+065+071: `atlas archive [<task>|--all|--restore
-    <id>|--search P|--restore --search P]`.
+    """SPEC 007+012+033+065+071+149: `atlas archive [<task>|--all|--restore
+    <id>|--search P|--restore --search P|--list|--schema]`.
 
     Dry-run varsayılan (yıkıcı işlem). Tekil: `--apply` yeter. Toplu:
     `--all --apply --yes` (çift onay). Geri yükleme: `--restore <id>
     [--apply]`. Arama: `--search PATTERN [--json]` (SPEC 065).
     SPEC 071: `--restore --search PATTERN` → arama sonucu tek arşivse
     otomatik geri yükle.
+    SPEC 149: `--schema` → kısa devre, JSON şema tanımı bas
+    (SPEC 040/136/146 kalıbı).
 
     Dispatcher sırası:
-      1. `--restore` (SPEC 033/071) — --search ile birlikte olabilir
-      2. `--search` (SPEC 065) — list-only mod
-      3. `--all` (SPEC 012)
-      4. tekil task (SPEC 007)
+      0. `--schema` (SPEC 149) — kısa devre (dizin gerekmez)
+      1. `--list` (SPEC 075) — read-only bilgi
+      2. `--restore` (SPEC 033/071) — --search ile birlikte olabilir
+      3. `--search` (SPEC 065) — list-only mod
+      4. `--all` (SPEC 012)
+      5. tekil task (SPEC 007)
     """
+    import json as _json
+    # SPEC 149: --schema kısa devre — dizin gerekmez, JSON şema
+    if getattr(args, "schema", False):
+        pretty_s = getattr(args, "pretty", False)
+        indent_s = 2 if pretty_s else None
+        archive_schema: dict[str, Any] = {
+            "schema_version": "1",
+            "top_level": [
+                {"name": "archive", "type": "str",
+                 "desc": "arşiv dosya adı (<task>-YYYY-MM-DD.tar.gz)"},
+                {"name": "task_id", "type": "str",
+                 "desc": "arşiv adından çıkarılan task_id"},
+                {"name": "date", "type": "str",
+                 "desc": "YYYY-MM-DD (arşiv adından); boşsa mtime'a düş"},
+                {"name": "size_bytes", "type": "int",
+                 "desc": "arşiv boyutu (bytes)"},
+                {"name": "size_human", "type": "str",
+                 "desc": "boyut insan-okunur (KB/MB)"},
+                {"name": "member_count", "type": "int",
+                 "desc": "tar.gz içindeki dosya sayısı (-1 = okuma hatası)"},
+                {"name": "mtime", "type": "str",
+                 "desc": "dosya mtime ISO 8601"},
+            ],
+            "exit_codes": {
+                "0": "başarılı (bilgi komutları için her zaman)",
+                "2": "SPEC HATASI (task/argüman/regex/mutex)",
+                "3": "çakışma (restore hedef zaten var)",
+                "6": "arşiv/extract hatası (RestoreError/YEDEK HATASI)",
+            },
+            "formats": [
+                {"name": "human", "spec": "075", "desc": "İnsan-okunur özet tablosu"},
+                {"name": "json", "spec": "075", "desc": "Tek JSON dizi"},
+                {"name": "json-lines", "spec": "098",
+                 "desc": "NDJSON stream + son satır summary"},
+            ],
+            "notes": [
+                "SPEC 079: --sort-by {name,size,date,members} + --desc.",
+                "SPEC 085: --limit N top-N (sort sonrası).",
+                "SPEC 093: --name-match PATTERN regex ad filtresi.",
+                "SPEC 105: --out PATH (yalnız --json/--json-lines).",
+                "SPEC 108: --out --gzip (auto-suffix .gz).",
+                "SPEC 127: --restore --json (dry-run + apply).",
+                "SPEC 133: --restore --json-lines NDJSON stream.",
+                "SPEC 138: --restore --json-lines --out PATH.",
+                "SPEC 149: bu şema `atlas archive --schema` ile yayımlanır.",
+            ],
+        }
+        print(_json.dumps(archive_schema, ensure_ascii=False, indent=indent_s))
+        return 0
+
     # SPEC 075: --list (bilgi komutu, en önde çünkü read-only)
     if getattr(args, "list", False):
         return _cmd_archive_list(args)
@@ -6807,6 +6861,11 @@ def main(argv: list[str] | None = None) -> int:
                        help="görevlerin bulunduğu kök dizin")
     p_arc.add_argument("--archive-root", default="archive",
                        help="tar.gz'lerin yazılacağı kök dizin")
+    p_arc.add_argument("--schema", action="store_true",
+                       help="SPEC 149: kısa devre, JSON şema tanımı "
+                            "(SPEC 040/136/146 kalıbı). --pretty ile indent=2.")
+    p_arc.add_argument("--pretty", action="store_true",
+                       help="SPEC 149: --schema ile birlikte indent=2 JSON")
     p_arc.set_defaults(func=_cmd_archive)
 
     p_dash = sub.add_parser("dashboard", help="Son N run özeti (SPEC 024)")
