@@ -1414,7 +1414,34 @@ def _cmd_archive(args: argparse.Namespace) -> int:
                 "SPEC 149: bu şema `atlas archive --schema` ile yayımlanır.",
                 "SPEC 151: --format prometheus info-metric ailesi.",
                 "SPEC 155: --format prometheus --out PATH [--gzip] artifact.",
+                "SPEC 164: sub_commands alt komut başına exit_codes/spec.",
             ],
+            # SPEC 164: alt komut başına özel exit_codes + kaynak SPEC.
+            # `archive --list --schema` bu bilgiyi görmek için çağrılır
+            # (mevcut top_level exit_codes tüm alt komutları kapsar).
+            # Prometheus çıktısına EKLENMEZ (YAGNI).
+            "sub_commands": {
+                "list": {
+                    "exit_codes": ["0", "2"],
+                    "spec": "075",
+                    "desc": "archive/*.tar.gz metadata listele (read-only)",
+                },
+                "restore": {
+                    "exit_codes": ["0", "2", "3", "6"],
+                    "spec": "033",
+                    "desc": "TASK_ID arşivini pipeline/tasks/ altına geri aç",
+                },
+                "search": {
+                    "exit_codes": ["0", "2"],
+                    "spec": "065",
+                    "desc": "archive/*.tar.gz içinde regex ad ara",
+                },
+                "all": {
+                    "exit_codes": ["0", "2"],
+                    "spec": "012",
+                    "desc": "toplu arşivleme (--all --apply --yes)",
+                },
+            },
         }
         if getattr(args, "format", None) == "prometheus":
             def _lbl_ar(k: str) -> str:
