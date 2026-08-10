@@ -96,6 +96,14 @@ jobs:
               echo "rc_hist=0" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Generate schema prometheus artifact (SPEC 147)
+        run: |
+          # SPEC 128/134: --schema --format prometheus info-metric,
+          # --out --gzip artifact boyutu için. Kısa devre — her zaman çalışır.
+          uv run atlas doctor --schema --format prometheus \
+            --out doctor-schema.prom --gzip \
+            || echo "(doctor schema uretilemedi)" > doctor-schema.prom.gz
+
       - name: Upload doctor artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -106,6 +114,7 @@ jobs:
             doctor-diff.txt
             doctor-diff-history-all.json
             doctor-history-strict.txt
+            doctor-schema.prom.gz
           retention-days: 30
 
       - name: Comment PR on failure

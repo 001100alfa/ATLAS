@@ -725,6 +725,72 @@ def test_135_atlas_doctor_alert_webhook_continue_on_error() -> None:
     assert step.get("continue-on-error") is True
 
 
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 147 — atlas-doctor.yml schema prometheus artifact
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_147_atlas_doctor_schema_artifact_step() -> None:
+    """`Generate schema prometheus artifact (SPEC 147)` step var."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "schema prometheus artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "--schema" in run
+    assert "--format prometheus" in run
+    assert "--out doctor-schema.prom" in run
+    assert "--gzip" in run
+
+
+def test_147_atlas_doctor_schema_artifact_fallback() -> None:
+    """`||` fallback (fail-safe)."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "schema prometheus artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "||" in step.get("run", "")
+
+
+def test_147_atlas_doctor_schema_artifact_uploaded() -> None:
+    """Upload artifact listesinde `doctor-schema.prom.gz`."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    path_str = str(upload_step.get("with", {}).get("path", ""))
+    assert "doctor-schema.prom.gz" in path_str
+
+
+def test_147_atlas_doctor_mevcut_4_artifact_dokunulmadi() -> None:
+    """SPEC 100/130 mevcut 4 artifact listede AYNI."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")),
+        None,
+    )
+    assert upload_step is not None
+    path_str = str(upload_step.get("with", {}).get("path", ""))
+    for name in ("doctor-report.json", "doctor-diff.txt",
+                 "doctor-diff-history-all.json",
+                 "doctor-history-strict.txt"):
+        assert name in path_str
+
+
 def test_130_atlas_doctor_history_gate_step() -> None:
     """`Doctor history regression gate (SPEC 097/130)` step var."""
     data = _load("atlas-doctor.yml")
