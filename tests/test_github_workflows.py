@@ -536,6 +536,81 @@ def test_125_atlas_ci_status_drift_artifact_path() -> None:
     assert "drift-issue.md" in path_str
 
 
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 152 — atlas-ci-status.yml archive schema prometheus artifact
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_152_atlas_ci_status_schema_artifact_step() -> None:
+    """`Generate archive schema prometheus artifact (SPEC 152)` step var."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "archive schema prometheus artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "atlas archive --schema" in run
+    assert "--format prometheus" in run
+    assert "archive-schema.prom" in run
+    assert "gzip" in run
+
+
+def test_152_atlas_ci_status_schema_artifact_fallback() -> None:
+    """`||` fallback (fail-safe SPEC 095/147 kalıbı)."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "archive schema prometheus artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "||" in step.get("run", "")
+
+
+def test_152_atlas_ci_status_schema_artifact_uploaded() -> None:
+    """`Upload atlas-ci-status schema artifact (SPEC 152)` step var."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if "atlas-ci-status schema artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert upload_step is not None
+    assert upload_step.get("uses", "").startswith("actions/upload-artifact")
+    with_block = upload_step.get("with", {})
+    assert with_block.get("name") == "atlas-ci-status-schema"
+    assert "archive-schema.prom.gz" in str(with_block.get("path", ""))
+
+
+def test_152_atlas_ci_status_schema_artifact_always() -> None:
+    """Schema upload adımı `if: always()` (koşulsuz)."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if "atlas-ci-status schema artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert upload_step is not None
+    assert upload_step.get("if") == "always()"
+
+
+def test_152_atlas_ci_status_uv_setup_var() -> None:
+    """`Setup uv` + `Install ATLAS` adımları eklendi (mevcut Python
+    setup DOKUNULMADI — gen_ci_badges.py için gerekli)."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step_names = [s.get("name", "").lower() for s in steps]
+    assert any("setup python" in n for n in step_names)
+    assert any("setup uv" in n for n in step_names)
+    assert any("install atlas" in n for n in step_names)
+
+
 def test_089_atlas_ci_status_readme_badge_row() -> None:
     """README ci-status bloğunda `atlas-ci-status` satırı var."""
     readme = (_REPO / "README.md").read_text(encoding="utf-8")

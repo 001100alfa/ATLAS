@@ -33,6 +33,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install ATLAS
+        run: uv sync --frozen --extra dev
+
       - name: Run gen_ci_badges.py --check
         id: check
         continue-on-error: true
@@ -100,6 +108,25 @@ jobs:
           )
           curl -sS -X POST -H 'Content-Type: application/json' \
             -d "$payload" "$ALERT_WEBHOOK_URL" || true
+
+      - name: Generate archive schema prometheus artifact (SPEC 152)
+        run: |
+          # SPEC 149/151: --schema --format prometheus info-metric,
+          # shell gzip artifact boyutu için (SPEC 155 --out --gzip
+          # gelene kadar shell tabanlı). Kısa devre — her zaman çalışır.
+          uv run atlas archive --schema --format prometheus \
+            > archive-schema.prom \
+            && gzip -f archive-schema.prom \
+            || echo "(archive schema uretilemedi)" > archive-schema.prom.gz
+
+      - name: Upload atlas-ci-status schema artifact (SPEC 152)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-ci-status-schema
+          path: archive-schema.prom.gz
+          retention-days: 30
+          if-no-files-found: ignore
 
       - name: Fail on drift
         if: steps.check.outputs.rc != '0'
