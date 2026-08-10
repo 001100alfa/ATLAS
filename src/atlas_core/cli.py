@@ -6803,6 +6803,28 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # SPEC 170: --alert-webhook URL → up_to_date=False ise POST
+    # (SPEC 064/165/168 kalıbı). Başarısız POST → stderr uyarı; exit
+    # code KORUR. Çıktı üretim yolundan bağımsız (stdout'a dokunmaz).
+    webhook_url = getattr(args, "alert_webhook", None)
+    if webhook_url and not up_to_date:
+        ai_payload = {
+            "alert": "ai-cli-status",
+            "name": name,
+            "installed_version": installed,
+            "declared_version": declared,
+            "up_to_date": up_to_date,
+            "install_dir": str(install_dir),
+        }
+        ok, err = _post_alert_webhook(webhook_url, ai_payload)
+        if ok:
+            print("[alert-webhook] POST başarılı", file=sys.stderr)
+        else:
+            print(
+                f"[alert-webhook] POST başarısız: {err}",
+                file=sys.stderr,
+            )
+
     if jsonl_mode:
         # Her alan bir satır + son satır summary
         field_order = [
@@ -7785,6 +7807,12 @@ def main(argv: list[str] | None = None) -> int:
                               "'prometheus' = 4 info-metric ailesi "
                               "(version+top_level+exit_code+format). "
                               "Normal status modunda REDDEDİLİR (exit 2).")
+    p_ai_st.add_argument("--alert-webhook", default=None, metavar="URL",
+                         help="SPEC 170: paket up_to_date=False ise URL'ye "
+                              "POST JSON webhook at (SPEC 064/165/168 kalıbı; "
+                              "Slack/Discord/Teams uyumlu). Başarısız POST "
+                              "→ stderr uyarı; exit code KORUR. Çıktı "
+                              "üretim yolundan bağımsız.")
     p_ai_st.set_defaults(func=_cmd_ai_cli_status)
 
     p_hooks = sub.add_parser("hooks", help="Git pre-commit hook yönetimi (SPEC 034)")
