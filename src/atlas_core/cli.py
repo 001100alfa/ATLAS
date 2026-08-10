@@ -861,7 +861,7 @@ def _read_ship_summary(task_dir: Path) -> str:
 
 
 def _cmd_archive_restore(args: argparse.Namespace) -> int:
-    """SPEC 033 + 071: `atlas archive --restore <id>` — arşivi geri aç.
+    """SPEC 033 + 071 + 176: `atlas archive --restore <id>` — arşivi geri aç.
 
     Dry-run varsayılan (yıkıcı: mevcut task klasörü olabilir → yazma
     yok, --apply zorunlu).
@@ -869,6 +869,9 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
     SPEC 071: `--restore --search PATTERN` verilirse `<id>` yerine
     pattern'e uyan tek arşiv otomatik bulunur. 0 eşleşme → exit 6;
     2+ eşleşme → exit 2 (belirsizlik; kullanıcı `--search` daraltmalı).
+
+    SPEC 176: `--alert-webhook URL` verilirse hata durumlarında
+    (exit 2/3/6) URL'ye POST JSON. Başarı/dry-run → POST yok.
 
     Exit kodları:
       - 0: başarılı (veya dry-run)
@@ -884,6 +887,33 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
     tasks_root = Path(args.tasks_root)
     archive_root = Path(args.archive_root)
 
+    # SPEC 176: hata durumlarında alert-webhook POST helper
+    def _emit_restore_alert(
+        task_id: str | None,
+        search_pattern: str | None,
+        error: str,
+        exit_code: int,
+    ) -> None:
+        webhook_url = getattr(args, "alert_webhook", None)
+        if not webhook_url:
+            return
+        payload = {
+            "alert": "archive-restore",
+            "task_id": task_id,
+            "search_pattern": search_pattern,
+            "archive_root": str(archive_root),
+            "error": error,
+            "exit_code": exit_code,
+        }
+        ok, err = _post_alert_webhook(webhook_url, payload)
+        if ok:
+            print("[alert-webhook] POST başarılı", file=sys.stderr)
+        else:
+            print(
+                f"[alert-webhook] POST başarısız: {err}",
+                file=sys.stderr,
+            )
+
     # SPEC 071: --restore boş (`--restore --search P`) veya --restore
     # <id> + --search her ikisi de arama-tabanlı seçim yapar.
     restore_arg = args.restore  # "" (bayraksız) veya <id> string
@@ -894,15 +924,21 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
             hits = _search_archive_contents(archive_root, search_pattern)
         except ValueError as exc:
             print(f"SPEC HATASI: {exc}", file=sys.stderr)
+            _emit_restore_alert(None, search_pattern, str(exc), 2)
             return 2
         if not hits:
-            print(
-                f"ARŞİV HATASI: --search '{search_pattern}' hiç eşleşme "
-                f"vermedi: {archive_root}",
-                file=sys.stderr,
+            err_msg = (
+                f"--search '{search_pattern}' hiç eşleşme vermedi: "
+                f"{archive_root}"
             )
+            print(f"ARŞİV HATASI: {err_msg}", file=sys.stderr)
+            _emit_restore_alert(None, search_pattern, err_msg, 6)
             return 6
         if len(hits) > 1:
+            err_msg = (
+                f"--search '{search_pattern}' {len(hits)} arşive uyuyor; "
+                f"belirsiz, daralt"
+            )
             print(
                 f"SPEC HATASI: --search '{search_pattern}' {len(hits)} "
                 f"arşive uyuyor; belirsiz, daralt:",
@@ -910,6 +946,7 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
             )
             for h in hits:
                 print(f"  - {h['archive']}", file=sys.stderr)
+            _emit_restore_alert(None, search_pattern, err_msg, 2)
             return 2
         # Tek eşleşme: <task_id>-YYYY-MM-DD.tar.gz → task_id çıkar
         archive_name = hits[0]["archive"]
@@ -931,11 +968,9 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
 
     tar_path = _find_archive_for_task(archive_root, task_id)
     if tar_path is None:
-        print(
-            f"ARŞİV HATASI: arşiv bulunamadı: "
-            f"{archive_root}/{task_id}-*.tar.gz",
-            file=sys.stderr,
-        )
+        err_msg = f"arşiv bulunamadı: {archive_root}/{task_id}-*.tar.gz"
+        print(f"ARŞİV HATASI: {err_msg}", file=sys.stderr)
+        _emit_restore_alert(task_id, search_pattern, err_msg, 6)
         return 6
     restored_dir = tasks_root / task_id
     json_mode = bool(getattr(args, "json", False))
@@ -1017,9 +1052,9 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
         audit.record("atlas-archive", "restore-error", f"{task_id}: {msg[:180]}")
         print(f"ARŞİV HATASI: {msg}", file=sys.stderr)
         # Çakışma → exit 3; diğerleri → exit 6
-        if "zaten var" in msg:
-            return 3
-        return 6
+        rc = 3 if "zaten var" in msg else 6
+        _emit_restore_alert(task_id, search_pattern, msg, rc)
+        return rc
 
     audit.record("atlas-archive", "restore", task_id)
     if jsonl_mode:
@@ -7811,6 +7846,12 @@ def main(argv: list[str] | None = None) -> int:
                             "kalıbı; top_level/exit_code/format/sub_command "
                             "başına 1 satır + summary). Normal archive "
                             "komutlarında REDDEDİLİR (exit 2).")
+    p_arc.add_argument("--alert-webhook", default=None, metavar="URL",
+                       help="SPEC 176: --restore hata durumlarında "
+                            "(exit 2/3/6) URL'ye POST JSON webhook at "
+                            "(SPEC 064/165/168/170 kalıbı). Başarısız "
+                            "POST → stderr uyarı; exit code KORUR. "
+                            "Yalnız --restore için (dry-run'da etkisiz).")
     p_arc.set_defaults(func=_cmd_archive)
 
     p_dash = sub.add_parser("dashboard", help="Son N run özeti (SPEC 024)")
