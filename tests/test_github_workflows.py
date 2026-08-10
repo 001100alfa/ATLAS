@@ -1653,3 +1653,109 @@ def test_167_ci_quality_test_windows_dokunulmadi() -> None:
     tw_steps = jobs["test-windows"]["steps"]
     tw_run = "\n".join(s.get("run", "") for s in tw_steps if s.get("run"))
     assert "pytest" in tw_run
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 173 — workflow shell gzip → native --out --gzip taşıma
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_173_atlas_metrics_schema_native_out_gzip() -> None:
+    """SPEC 160 metrics schema step native --out --gzip kullanır
+    (SPEC 162 sayesinde). Shell `gzip -f` KULLANMAZ."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "metrics schema prometheus artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    # Native --out --gzip mevcut:
+    assert "--out metrics-schema.prom" in run
+    assert "--gzip" in run
+    # Shell gzip YOK (fallback echo `.gz` uzantısı hariç):
+    assert "gzip -f metrics-schema.prom" not in run
+    assert "> metrics-schema.prom\n" not in run  # stdout redirection yok
+
+
+def test_173_atlas_vault_backup_schema_native_out_gzip() -> None:
+    """SPEC 161 vault backup schema step native --out --gzip kullanır
+    (SPEC 163 sayesinde). Shell `gzip -f` KULLANMAZ."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps
+         if "vault backup schema prometheus artifact"
+         in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "--out vault-backup-schema.prom" in run
+    assert "--gzip" in run
+    assert "gzip -f vault-backup-schema.prom" not in run
+    assert "> vault-backup-schema.prom\n" not in run
+
+
+def test_173_atlas_vault_verify_schema_native_gzip_zaten_var() -> None:
+    """SPEC 145 vault verify schema step zaten native --out --gzip
+    kullanır (SPEC 173 için değişmedi)."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps
+         if "vault verify schema prometheus artifact"
+         in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "--out vault-verify-schema.prom" in run
+    assert "--gzip" in run
+
+
+def test_173_atlas_metrics_fallback_korunur() -> None:
+    """`||` fallback KORUNUR (fail-safe SPEC 095/147 kalıbı)."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "metrics schema prometheus artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "||" in step.get("run", "")
+
+
+def test_173_atlas_vault_backup_fallback_korunur() -> None:
+    """vault backup schema `||` fallback KORUNUR."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps
+         if "vault backup schema prometheus artifact"
+         in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "||" in step.get("run", "")
+
+
+def test_173_atlas_ci_status_hala_shell_gzip_kullanir_todo() -> None:
+    """SPEC 152 atlas-ci-status.yml archive schema HÂLÂ shell gzip
+    kullanır (SPEC 155 native mevcut ama bu turda değil; sonraki tur
+    adayı). Kalıp: shell gzip'ler artık YALNIZ ci-status'ta."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "archive schema prometheus artifact" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    # ci-status hâlâ shell gzip (SPEC 173 kapsam dışı).
+    assert ("gzip -f archive-schema.prom" in run
+            or "--gzip" in run)  # ya shell ya native — ikisi de kabul

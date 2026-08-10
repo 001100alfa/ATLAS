@@ -73,14 +73,13 @@ jobs:
             --out metrics-group-day.prom --gzip \
             || echo "(group prometheus üretilemedi)" > metrics-group-day.prom.gz
 
-      - name: Generate metrics schema prometheus artifact (SPEC 160)
+      - name: Generate metrics schema prometheus artifact (SPEC 160/162/173)
         run: |
-          # SPEC 153/157: --schema --format prometheus info-metric,
-          # shell gzip artifact boyutu için (metrics --out --gzip henüz
-          # yok). Kısa devre — her zaman çalışır.
+          # SPEC 153/157/162: --schema --format prometheus info-metric,
+          # NATIVE --out --gzip (SPEC 173 shell gzip → native taşıma).
+          # Kısa devre — her zaman çalışır.
           uv run atlas metrics --schema --format prometheus \
-            > metrics-schema.prom \
-            && gzip -f metrics-schema.prom \
+            --out metrics-schema.prom --gzip \
             || echo "(metrics schema uretilemedi)" > metrics-schema.prom.gz
 
       - name: Upload metrics artifacts

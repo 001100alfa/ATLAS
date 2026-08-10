@@ -123,14 +123,13 @@ jobs:
             --out vault-verify-schema.prom --gzip \
             || echo "(vault verify schema uretilemedi)" > vault-verify-schema.prom.gz
 
-      - name: Generate vault backup schema prometheus artifact (SPEC 161)
+      - name: Generate vault backup schema prometheus artifact (SPEC 161/163/173)
         run: |
-          # SPEC 154/158: --schema --format prometheus info-metric,
-          # shell gzip artifact boyutu için (vault backup --out --gzip
-          # henüz yok). Kısa devre — her zaman çalışır.
+          # SPEC 154/158/163: --schema --format prometheus info-metric,
+          # NATIVE --out --gzip (SPEC 173 shell gzip → native taşıma).
+          # Kısa devre — her zaman çalışır.
           uv run atlas vault backup --schema --format prometheus \
-            > vault-backup-schema.prom \
-            && gzip -f vault-backup-schema.prom \
+            --out vault-backup-schema.prom --gzip \
             || echo "(vault backup schema uretilemedi)" > vault-backup-schema.prom.gz
 
       - name: Upload atlas-vault schema artifacts (SPEC 161)
