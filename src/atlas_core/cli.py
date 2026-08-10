@@ -4793,6 +4793,7 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
                 "SPEC 101: --split SIZE_MB parçalı arşiv (encrypt ile MUTEX).",
                 "SPEC 154: bu şema `atlas vault backup --schema` ile yayımlanır.",
                 "SPEC 158: --format prometheus info-metric ailesi.",
+                "SPEC 163: --format prometheus --out PATH [--gzip] artifact.",
             ],
         }
         if getattr(args, "format", None) == "prometheus":
@@ -4841,7 +4842,38 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
                     f'spec="{_lbl_vbs(str(f["spec"]))}"'
                     f'}} 1'
                 )
-            print("\n".join(vbs_lines))
+            # SPEC 163: --out PATH [--gzip] → stdout yerine dosyaya
+            # (SPEC 145/155/156/162 kalıbı). Normal SPEC 041 --out
+            # (backup dosya yolu) BURAYA GİRMEZ — schema kısa devre önce.
+            vbs_out = getattr(args, "out", None)
+            vbs_use_gzip = bool(getattr(args, "gzip", False))
+            if vbs_use_gzip and vbs_out is None:
+                print(
+                    "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+                    file=sys.stderr,
+                )
+                return 2
+            if vbs_out is not None:
+                try:
+                    op = Path(vbs_out)
+                    if vbs_use_gzip and op.suffix != ".gz":
+                        op = op.with_suffix(op.suffix + ".gz")
+                    op.parent.mkdir(parents=True, exist_ok=True)
+                    vbs_text = "\n".join(vbs_lines) + "\n"
+                    if vbs_use_gzip:
+                        import gzip as _gzip_vbs
+                        with _gzip_vbs.open(op, "wt", encoding="utf-8") as fh:
+                            fh.write(vbs_text)
+                    else:
+                        op.write_text(vbs_text, encoding="utf-8")
+                except OSError as exc:
+                    print(
+                        f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            else:
+                print("\n".join(vbs_lines))
             return 0
         print(_json.dumps(backup_schema, ensure_ascii=False, indent=indent_s))
         return 0
@@ -4851,6 +4883,16 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
         print(
             "SPEC HATASI: --format prometheus yalnız --schema ile "
             "birlikte kullanılır (SPEC 158)",
+            file=sys.stderr,
+        )
+        return 2
+
+    # SPEC 163: --gzip normal backup modunda YOK; yalnız --schema
+    # --format prometheus --out ile birlikte anlamlı.
+    if bool(getattr(args, "gzip", False)):
+        print(
+            "SPEC HATASI: --gzip yalnız --schema --format prometheus "
+            "--out ile birlikte kullanılır (SPEC 163)",
             file=sys.stderr,
         )
         return 2
@@ -7093,8 +7135,14 @@ def main(argv: list[str] | None = None) -> int:
     vault_sub = p_vault.add_subparsers(dest="vault_cmd", required=True)
     p_vb = vault_sub.add_parser("backup", help="vault/'ı .tar.gz sarmalar")
     p_vb.add_argument("--out", default=None,
-                      help="Yedek dosya yolu (yoksa <archive_root>/"
-                           "vault-YYYY-MM-DD-HHMM.tar.gz)")
+                      help="SPEC 041/163: normal modda yedek dosya yolu "
+                           "(yoksa <archive_root>/vault-YYYY-MM-DD-HHMM.tar.gz); "
+                           "--schema --format prometheus ile birlikte "
+                           "Prometheus artifact PATH'i.")
+    p_vb.add_argument("--gzip", action="store_true",
+                      help="SPEC 163: --schema --format prometheus --out "
+                           "ile birlikte; gzip sıkıştırma (PATH sonuna .gz "
+                           "eklenir eğer yoksa). Normal backup modunda YOK.")
     p_vb.add_argument("--vault-root", default=None,
                       help="Vault kökü (env: ATLAS_VAULT; varsayılan vault)")
     p_vb.add_argument("--archive-root", default="archive",
