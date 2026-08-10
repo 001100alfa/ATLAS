@@ -4187,7 +4187,10 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
     from atlas_core.orchestrator.planner import _metrics_path
 
     # SPEC 153: --schema kısa devre — dizin gerekmez, JSON şema
-    if getattr(args, "schema", False):
+    # SPEC 179: `--alert-history-show --schema` ayrı dala düşmesi için
+    # bu kısa devre --alert-history-show verilmediğinde çalışır.
+    if getattr(args, "schema", False) and \
+            getattr(args, "alert_history_show", None) is None:
         pretty_s = getattr(args, "pretty", False)
         indent_s = 2 if pretty_s else None
         metrics_schema: dict[str, Any] = {
@@ -4375,6 +4378,89 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
     # yerine alert-history NDJSON log okur (SPEC 126 kalıbı).
     show_path = getattr(args, "alert_history_show", None)
     if show_path is not None:
+        # SPEC 179: --alert-history-show --schema → kısa devre, JSON şema
+        # tanımı bas (SPEC 040/136/146/149/153/154 kalıbı). Log dosyası
+        # gerekmez; --out/--format/--strict --schema modunda YOK sayılır.
+        if getattr(args, "schema", False):
+            pretty_ah = getattr(args, "pretty", False)
+            indent_ah = 2 if pretty_ah else None
+            ah_schema: dict[str, Any] = {
+                "schema_version": "1",
+                "record_fields": [
+                    {"name": "ts", "type": "str (ISO 8601)",
+                     "when": "always", "spec": "126",
+                     "desc": "kaydın yazılma zamanı"},
+                    {"name": "alert", "type": "str",
+                     "when": "always", "spec": "126",
+                     "desc": "alert türü (şu an sabit: 'cache-hit')"},
+                    {"name": "hit_ratio_pct", "type": "float",
+                     "when": "always", "spec": "126",
+                     "desc": "hesaplanan cache-hit yüzdesi (round 2)"},
+                    {"name": "threshold_pct", "type": "float",
+                     "when": "always", "spec": "126",
+                     "desc": "--alert PCT eşik değeri"},
+                    {"name": "records", "type": "int",
+                     "when": "always", "spec": "126",
+                     "desc": "değerlendirmede kullanılan kayıt sayısı"},
+                    {"name": "tokens_in", "type": "int",
+                     "when": "always", "spec": "126", "desc": "input tokens toplamı"},
+                    {"name": "tokens_out", "type": "int",
+                     "when": "always", "spec": "126", "desc": "output tokens toplamı"},
+                    {"name": "cache_creation", "type": "int",
+                     "when": "always", "spec": "126",
+                     "desc": "cache_creation_input_tokens toplamı"},
+                    {"name": "cache_read", "type": "int",
+                     "when": "always", "spec": "126",
+                     "desc": "cache_read_input_tokens toplamı"},
+                    {"name": "channels", "type": "list[str]",
+                     "when": "always (boş liste dahil)", "spec": "126",
+                     "desc": "aktif alert kanalları (email/webhook/slack)"},
+                    {"name": "alert_window_minutes", "type": "float",
+                     "when": "yalnız --alert-window verildiğinde",
+                     "spec": "169",
+                     "desc": "SPEC 169: alert değerlendirme zaman penceresi"},
+                    {"name": "alert_window_records", "type": "int",
+                     "when": "yalnız --alert-window verildiğinde",
+                     "spec": "169",
+                     "desc": "SPEC 169: pencere içindeki kayıt sayısı"},
+                ],
+                "summary_fields": [
+                    {"name": "type", "type": "str (sabit 'summary')",
+                     "spec": "132"},
+                    {"name": "path", "type": "str",
+                     "spec": "132", "desc": "log dosya yolu"},
+                    {"name": "count", "type": "int",
+                     "spec": "132", "desc": "--limit tail penceresi"},
+                    {"name": "total", "type": "int",
+                     "spec": "132", "desc": "log toplam kayıt sayısı"},
+                ],
+                "exit_codes": {
+                    "0": "başarılı (bilgi komutu — log boş veya kayıtlı)",
+                    "2": "SPEC HATASI (--out yalnız --json/--format prometheus ile)",
+                    "4": "SPEC 148: --strict + log >=1 kayıt",
+                },
+                "formats": [
+                    {"name": "human", "spec": "132",
+                     "desc": "insan-okunur özet tablosu (default)"},
+                    {"name": "json", "spec": "132",
+                     "desc": "NDJSON stream (kayıt/satır + summary/satır)"},
+                    {"name": "prometheus", "spec": "143",
+                     "desc": "3 counter aile: history_total + history_recent + channel_total"},
+                ],
+                "notes": [
+                    "SPEC 126: alert-history NDJSON append log.",
+                    "SPEC 132: alert-history-show OKUMA modu (metrics özet yerine).",
+                    "SPEC 139: --json --out PATH (NDJSON dosyaya).",
+                    "SPEC 143: --format prometheus 3 counter aile.",
+                    "SPEC 144: --format prometheus --out --gzip artifact.",
+                    "SPEC 148: --strict + log >=1 → exit 4 (CI gate).",
+                    "SPEC 179: bu şema `--alert-history-show --schema` ile yayımlanır.",
+                ],
+            }
+            print(
+                _json.dumps(ah_schema, ensure_ascii=False, indent=indent_ah)
+            )
+            return 0
         show_limit: int = getattr(args, "limit", 10) or 10
         # SPEC 148: --strict → >=1 kayıt varsa exit 4 (CI kararı)
         show_strict = bool(getattr(args, "strict", False))
