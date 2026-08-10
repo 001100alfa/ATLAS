@@ -127,7 +127,7 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           body-path: doctor-diff.txt
 
-      - name: Post doctor alert webhook (SPEC 131/135)
+      - name: Post doctor alert webhook (SPEC 131/135/185)
         if: >-
           env.ALERT_WEBHOOK_URL != ''
           && (steps.doctor.outputs.rc_strict != '0'
@@ -139,13 +139,17 @@ jobs:
         run: |
           # SPEC 131 kalibi: doctor gate FAIL ise env webhook'a POST.
           # Env yok/boşsa step conditional ile atlar.
+          # SPEC 185: payload'a strict alanı (CLI SPEC 177 kardeşi);
+          # workflow atlas doctor --strict --scan-src çağırıyor,
+          # dolayısıyla sabit true. Receiver CLI vs workflow ayırmasın.
           payload=$(cat <<EOF
           {"alert":"doctor",
            "rc_strict":"${{ steps.doctor.outputs.rc_strict }}",
            "rc_diff":"${{ steps.doctor.outputs.rc_diff }}",
            "rc_hist":"${{ steps.history_gate.outputs.rc_hist }}",
            "run_id":"${{ github.run_id }}",
-           "sha":"${{ github.sha }}"}
+           "sha":"${{ github.sha }}",
+           "strict": true}
           EOF
           )
           curl -sS -X POST -H 'Content-Type: application/json' \

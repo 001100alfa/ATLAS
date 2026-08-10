@@ -880,6 +880,55 @@ def test_135_atlas_doctor_alert_webhook_continue_on_error() -> None:
 
 
 # ═════════════════════════════════════════════════════════════════════
+# SPEC 185 — atlas-doctor.yml webhook payload strict alanı
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_185_atlas_doctor_webhook_payload_strict_alani() -> None:
+    """SPEC 185: payload heredoc'unda `"strict": true` var (CLI SPEC 177 kardeşi)."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post doctor alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert '"strict": true' in run
+
+
+def test_185_atlas_doctor_webhook_mevcut_alanlar_dokunulmadi() -> None:
+    """SPEC 135 mevcut 6 alan (alert, rc_strict, rc_diff, rc_hist, run_id, sha)
+    payload'da AYNI."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post doctor alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    for fld in ('"alert":"doctor"', '"rc_strict":', '"rc_diff":',
+                '"rc_hist":', '"run_id":', '"sha":'):
+        assert fld in run, f"payload'da eksik alan: {fld}"
+
+
+def test_185_atlas_doctor_webhook_step_name_spec_referansi() -> None:
+    """Step adı SPEC 185 referansı içerir (kalıp)."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post doctor alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "185" in step.get("name", "")
+
+
+# ═════════════════════════════════════════════════════════════════════
 # SPEC 147 — atlas-doctor.yml schema prometheus artifact
 # ═════════════════════════════════════════════════════════════════════
 
