@@ -5291,6 +5291,31 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # SPEC 178: VaultBackupError hata noktalarında alert-webhook POST helper
+    # (SPEC 064/165/168/170/176 kalıbı). SPEC HATASI (exit 2) POST atmaz —
+    # kullanıcı yanlış argüman, monitoring alarmı değil.
+    def _emit_backup_alert(phase: str, error: str) -> None:
+        webhook_url = getattr(args, "alert_webhook", None)
+        if not webhook_url:
+            return
+        action = "backup-auto" if bool(getattr(args, "auto", False)) else "backup"
+        payload = {
+            "alert": "vault-backup",
+            "vault_root": str(vault_root),
+            "action": action,
+            "phase": phase,
+            "error": error,
+            "exit_code": 6,
+        }
+        ok, err = _post_alert_webhook(webhook_url, payload)
+        if ok:
+            print("[alert-webhook] POST başarılı", file=sys.stderr)
+        else:
+            print(
+                f"[alert-webhook] POST başarısız: {err}",
+                file=sys.stderr,
+            )
+
     auto = bool(getattr(args, "auto", False))
     out_arg = getattr(args, "out", None)
     if auto and out_arg:
@@ -5340,6 +5365,7 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
     except VaultBackupError as exc:
         audit.record("atlas-vault", "backup-error", str(exc)[:180])
         print(f"YEDEK HATASI: {exc}", file=sys.stderr)
+        _emit_backup_alert("backup", str(exc))
         return 6
 
     action = "backup-auto" if auto else "backup"
@@ -5360,6 +5386,7 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
             except VaultBackupError as exc:
                 audit.record("atlas-vault", "prune-error", str(exc)[:180])
                 print(f"PRUNE HATASI: {exc}", file=sys.stderr)
+                _emit_backup_alert("prune", str(exc))
                 return 6
             for p in deleted:
                 audit.record("atlas-vault", "prune", str(p))
@@ -5378,6 +5405,7 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
         except VaultBackupError as exc:
             audit.record("atlas-vault", "split-error", str(exc)[:180])
             print(f"SPLIT HATASI: {exc}", file=sys.stderr)
+            _emit_backup_alert("split", str(exc))
             return 6
         for p in parts:
             audit.record("atlas-vault", "split-part", str(p))
@@ -5421,6 +5449,7 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
         except VaultBackupError as exc:
             audit.record("atlas-vault", "encrypt-error", str(exc)[:180])
             print(f"SIFRELEME HATASI: {exc}", file=sys.stderr)
+            _emit_backup_alert("encrypt", str(exc))
             return 6
         # Plain dosyayı sil — encrypted çıktı yeni "yedek"
         try:
@@ -5441,6 +5470,7 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
         except VaultBackupError as exc:
             audit.record("atlas-vault", "encrypt-error", str(exc)[:180])
             print(f"SIFRELEME HATASI: {exc}", file=sys.stderr)
+            _emit_backup_alert("encrypt", str(exc))
             return 6
         try:
             result.unlink()
@@ -5476,6 +5506,7 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
             except VaultBackupError as exc:
                 audit.record("atlas-vault", "prune-enc-error", str(exc)[:180])
                 print(f"PRUNE HATASI: {exc}", file=sys.stderr)
+                _emit_backup_alert("prune", str(exc))
                 return 6
             for p in deleted_enc:
                 audit.record("atlas-vault", "prune-encrypted", str(p))
@@ -7685,6 +7716,12 @@ def main(argv: list[str] | None = None) -> int:
                            "'prometheus' = 4 info-metric ailesi "
                            "(version+top_level+exit_code+format). "
                            "Normal backup modunda REDDEDİLİR (exit 2).")
+    p_vb.add_argument("--alert-webhook", default=None, metavar="URL",
+                      help="SPEC 178: VaultBackupError (backup/prune/split/"
+                           "encrypt exit 6) durumunda URL'ye POST JSON "
+                           "(SPEC 064/165/168/170/176 kalıbı). SPEC HATASI "
+                           "(exit 2) POST atmaz. Başarısız POST → stderr "
+                           "uyarı; exit code KORUR.")
     p_vb.set_defaults(func=_cmd_vault_backup)
     p_vr = vault_sub.add_parser("restore", help=".tar.gz'i vault'a geri aç")
     p_vr.add_argument("tar", help="Yedek dosyası yolu (.tar.gz veya "
