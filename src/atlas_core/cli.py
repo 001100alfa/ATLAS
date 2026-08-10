@@ -5990,6 +5990,7 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
     import json as _json
 
     # SPEC 146: --schema kısa devre — bilgi mod, dizin gerekmez
+    # SPEC 150: --format prometheus → info-metric ailesi (SPEC 140 kalıbı).
     if getattr(args, "schema", False):
         pretty_s = getattr(args, "pretty", False)
         indent_s = 2 if pretty_s else None
@@ -6029,10 +6030,68 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
                 "SPEC 118: --json-lines NDJSON alan-satır formatı.",
                 "SPEC 120: --json-lines --out --gzip artifact.",
                 "SPEC 146: bu şema `atlas ai-cli status --schema` ile yayımlanır.",
+                "SPEC 150: --format prometheus info-metric ailesi.",
             ],
         }
+        if getattr(args, "format", None) == "prometheus":
+            def _lbl_as(k: str) -> str:
+                return (
+                    k.replace("\\", "\\\\").replace('"', '\\"')
+                    .replace("\n", "\\n")
+                )
+            as_lines: list[str] = [
+                "# HELP atlas_ai_cli_status_schema_version "
+                "ai-cli status JSON sema major surum etiketi",
+                "# TYPE atlas_ai_cli_status_schema_version gauge",
+                f'atlas_ai_cli_status_schema_version{{'
+                f'version="{_lbl_as(str(status_schema["schema_version"]))}"}} 1',
+                "# HELP atlas_ai_cli_status_schema_top_level "
+                "ai-cli status JSON top-level alanlari (SPEC 146)",
+                "# TYPE atlas_ai_cli_status_schema_top_level gauge",
+            ]
+            for f in status_schema["top_level"]:
+                as_lines.append(
+                    f'atlas_ai_cli_status_schema_top_level{{'
+                    f'name="{_lbl_as(str(f["name"]))}",'
+                    f'type="{_lbl_as(str(f["type"]))}"'
+                    f'}} 1'
+                )
+            as_lines += [
+                "# HELP atlas_ai_cli_status_schema_exit_code "
+                "ai-cli status exit code sozlesmesi (SPEC 146)",
+                "# TYPE atlas_ai_cli_status_schema_exit_code gauge",
+            ]
+            for code in sorted(status_schema["exit_codes"].keys()):
+                as_lines.append(
+                    f'atlas_ai_cli_status_schema_exit_code{{'
+                    f'code="{_lbl_as(str(code))}"'
+                    f'}} 1'
+                )
+            as_lines += [
+                "# HELP atlas_ai_cli_status_schema_format "
+                "ai-cli status --format secenekleri (SPEC 037.4/118/146)",
+                "# TYPE atlas_ai_cli_status_schema_format gauge",
+            ]
+            for f in status_schema["formats"]:
+                as_lines.append(
+                    f'atlas_ai_cli_status_schema_format{{'
+                    f'name="{_lbl_as(str(f["name"]))}",'
+                    f'spec="{_lbl_as(str(f["spec"]))}"'
+                    f'}} 1'
+                )
+            print("\n".join(as_lines))
+            return 0
         print(_json.dumps(status_schema, ensure_ascii=False, indent=indent_s))
         return 0
+
+    # SPEC 150: --format prometheus yalnız --schema ile (normal status modda REDDEDER)
+    if getattr(args, "format", None) == "prometheus":
+        print(
+            "SPEC HATASI: --format prometheus yalnız --schema ile "
+            "birlikte kullanılır (SPEC 150)",
+            file=sys.stderr,
+        )
+        return 2
 
     if not _AI_CLI_DIR.is_dir():
         print(
@@ -7053,6 +7112,11 @@ def main(argv: list[str] | None = None) -> int:
                               "ile indent=2.")
     p_ai_st.add_argument("--pretty", action="store_true",
                          help="SPEC 146: --schema ile birlikte indent=2 JSON")
+    p_ai_st.add_argument("--format", default=None, choices=["prometheus"],
+                         help="SPEC 150: --schema ile birlikte "
+                              "'prometheus' = 4 info-metric ailesi "
+                              "(version+top_level+exit_code+format). "
+                              "Normal status modunda REDDEDİLİR (exit 2).")
     p_ai_st.set_defaults(func=_cmd_ai_cli_status)
 
     p_hooks = sub.add_parser("hooks", help="Git pre-commit hook yönetimi (SPEC 034)")
