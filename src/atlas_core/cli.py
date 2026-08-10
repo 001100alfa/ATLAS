@@ -4642,7 +4642,52 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
         içindeki `vault-*.tar.gz` yedekleri mtime desc sırayla ilk N
         tutulup geri kalanı silinir. `--out` verilmişse retention YOK
         sayılır (stderr uyarısı). Prune hatası → exit 6.
+
+    SPEC 154: `--schema` → kısa devre, JSON şema tanımı bas
+    (SPEC 040/136/146/149 kalıbı). Vault dizini gerekmez.
     """
+    import json as _json
+
+    # SPEC 154: --schema kısa devre — vault dizini gerekmez, JSON şema
+    if getattr(args, "schema", False):
+        pretty_s = getattr(args, "pretty", False)
+        indent_s = 2 if pretty_s else None
+        backup_schema: dict[str, Any] = {
+            "schema_version": "1",
+            "top_level": [
+                {"name": "backup_path", "type": "str",
+                 "desc": "SPEC 041: yazılan .tar.gz yolu"},
+                {"name": "vault_root", "type": "str",
+                 "desc": "kaynak vault dizini"},
+                {"name": "action", "type": "str",
+                 "desc": "audit action: backup | backup-auto (SPEC 041.1)"},
+                {"name": "split_parts", "type": "list[str] (opsiyonel)",
+                 "desc": "SPEC 101: --split SIZE_MB ile birden çok parça"},
+                {"name": "pruned_count", "type": "int (opsiyonel)",
+                 "desc": "SPEC 041.1: --keep N ile silinen eski yedek sayısı"},
+                {"name": "encrypted", "type": "bool (opsiyonel)",
+                 "desc": "SPEC 041.2: --encrypt/--recipient ile şifreli"},
+            ],
+            "exit_codes": {
+                "0": "başarılı (dry-run YOK — backup her zaman uygular)",
+                "2": "SPEC HATASI (argüman/aralık/mutex/dizin yok)",
+                "6": "YEDEK/PRUNE HATASI (VaultBackupError; SPEC 041.1)",
+            },
+            "formats": [
+                {"name": "human", "spec": "041",
+                 "desc": "İnsan-okunur `vault yedeği yazıldı: <path>` çıktısı"},
+            ],
+            "notes": [
+                "SPEC 041: temel `vault backup [--out PATH]` .tar.gz.",
+                "SPEC 041.1: --auto + --keep N retention (mtime desc).",
+                "SPEC 041.2: --encrypt [PUBKEY] / --recipient KEY_ID.",
+                "SPEC 101: --split SIZE_MB parçalı arşiv (encrypt ile MUTEX).",
+                "SPEC 154: bu şema `atlas vault backup --schema` ile yayımlanır.",
+            ],
+        }
+        print(_json.dumps(backup_schema, ensure_ascii=False, indent=indent_s))
+        return 0
+
     from atlas_core.memory.vault_backup import (
         VaultBackupError,
         backup_vault,
@@ -6889,6 +6934,12 @@ def main(argv: list[str] | None = None) -> int:
                            "sil (N>=1). SPEC 041.1 --keep'in kardeşi; "
                            "ayrı glob (plain .tar.gz'e dokunmaz). "
                            "--out ile birlikte YOK sayılır.")
+    p_vb.add_argument("--schema", action="store_true",
+                      help="SPEC 154: kısa devre, JSON şema tanımı "
+                           "(SPEC 040/136/146/149 kalıbı). Vault dizini "
+                           "gerekmez. --pretty ile indent=2.")
+    p_vb.add_argument("--pretty", action="store_true",
+                      help="SPEC 154: --schema ile birlikte indent=2 JSON")
     p_vb.set_defaults(func=_cmd_vault_backup)
     p_vr = vault_sub.add_parser("restore", help=".tar.gz'i vault'a geri aç")
     p_vr.add_argument("tar", help="Yedek dosyası yolu (.tar.gz veya "
