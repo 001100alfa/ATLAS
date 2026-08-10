@@ -4553,6 +4553,8 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                      "desc": "insan-okunur özet tablosu (default)"},
                     {"name": "json", "spec": "132",
                      "desc": "NDJSON stream (kayıt/satır + summary/satır)"},
+                    {"name": "json-lines", "spec": "184",
+                     "desc": "--json bit-uyumlu alias (SPEC 087/166/171/172 tutarlılık)"},
                     {"name": "prometheus", "spec": "143",
                      "desc": "3 counter aile: history_total + history_recent + channel_total"},
                 ],
@@ -4564,6 +4566,7 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                     "SPEC 144: --format prometheus --out --gzip artifact.",
                     "SPEC 148: --strict + log >=1 → exit 4 (CI gate).",
                     "SPEC 179: bu şema `--alert-history-show --schema` ile yayımlanır.",
+                    "SPEC 184: --format json-lines = --json bit-uyumlu alias.",
                 ],
             }
             print(
@@ -4666,17 +4669,30 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
             return show_exit_rc
-        # SPEC 139: --out yalnız --json ile anlamlı (alert-history-show
-        # bilgi modu; --format prometheus dalında SPEC 144 zaten ele aldı).
-        show_out = getattr(args, "out", None)
-        if show_out is not None and not getattr(args, "json", False):
+        # SPEC 184: `--format json-lines` = `--json` NDJSON bit-uyumlu
+        # alias. İki bayrak birlikte anlamsız → MUTEX.
+        fmt_ah = getattr(args, "format", None)
+        ah_jsonl = fmt_ah == "json-lines"
+        if ah_jsonl and getattr(args, "json", False):
             print(
-                "SPEC HATASI: --out yalnız --json veya --format prometheus "
-                "ile birlikte kullanılır (--alert-history-show)",
+                "SPEC HATASI: --json ile --format json-lines birlikte "
+                "kullanılamaz (MUTEX — aynı çıktı)",
                 file=sys.stderr,
             )
             return 2
-        if getattr(args, "json", False):
+        # SPEC 139/184: --out yalnız --json, --format prometheus veya
+        # --format json-lines ile anlamlı.
+        show_out = getattr(args, "out", None)
+        show_json_mode = bool(getattr(args, "json", False)) or ah_jsonl
+        if show_out is not None and not show_json_mode:
+            print(
+                "SPEC HATASI: --out yalnız --json, --format json-lines "
+                "veya --format prometheus ile birlikte kullanılır "
+                "(--alert-history-show)",
+                file=sys.stderr,
+            )
+            return 2
+        if show_json_mode:
             summary = {
                 "type": "summary",
                 "path": str(history_path),
@@ -4730,6 +4746,17 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
         return show_exit_rc
+
+    # SPEC 184: `--format json-lines` yalnız `--alert-history-show`
+    # ile birlikte anlamlı; normal metrics özet modunda REDDEDER
+    # (SPEC 158/166/171 kalıbı).
+    if getattr(args, "format", None) == "json-lines":
+        print(
+            "SPEC HATASI: --format json-lines yalnız --alert-history-show "
+            "ile birlikte kullanılır (SPEC 184)",
+            file=sys.stderr,
+        )
+        return 2
 
     # SPEC 029: sınır kontrolü — geçersiz eşik = SPEC HATASI
     alert: float | None = getattr(args, "alert", None)
@@ -8147,9 +8174,12 @@ def main(argv: list[str] | None = None) -> int:
     p_met_out.add_argument("--json", action="store_true",
                            help="JSON liste çıktısı (ham kayıtlar)")
     p_met_out.add_argument("--format", default=None,
-                           choices=["human", "prometheus"],
+                           choices=["human", "prometheus", "json-lines"],
                            help="SPEC 043: 'prometheus' = Prometheus text "
-                                "v0.0.4 export; 'human' = default insan çıktısı")
+                                "v0.0.4 export; 'human' = default insan çıktısı. "
+                                "SPEC 184: 'json-lines' yalnız --alert-history-show "
+                                "ile birlikte (--json bit-uyumlu alias, "
+                                "SPEC 087/166/171/172 kalıbı).")
     p_met_out.add_argument("--serve", default=None, metavar="HOST:PORT",
                            help="SPEC 051: Prometheus text HTTP scrape "
                                 "endpoint başlat (blocking; Ctrl+C ile durdur). "
