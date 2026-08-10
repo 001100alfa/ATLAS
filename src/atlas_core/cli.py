@@ -3874,10 +3874,66 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
 
     SPEC 029: `--alert PCT` verilmişse cache-hit oranı PCT altında
     kalırsa stderr'e `UYARI` basılır ve exit 8 döner.
+
+    SPEC 153: `--schema` → kısa devre, JSON şema tanımı bas
+    (SPEC 040/136/146/149 kalıbı).
     """
     import json as _json
 
     from atlas_core.orchestrator.planner import _metrics_path
+
+    # SPEC 153: --schema kısa devre — dizin gerekmez, JSON şema
+    if getattr(args, "schema", False):
+        pretty_s = getattr(args, "pretty", False)
+        indent_s = 2 if pretty_s else None
+        metrics_schema: dict[str, Any] = {
+            "schema_version": "1",
+            "top_level": [
+                {"name": "ts", "type": "str (ISO 8601)",
+                 "desc": "SPEC 023: kaydın zaman damgası (timespec=seconds)"},
+                {"name": "in", "type": "int",
+                 "desc": "SPEC 023: input_tokens (Anthropic usage)"},
+                {"name": "out", "type": "int",
+                 "desc": "SPEC 023: output_tokens (Anthropic usage)"},
+                {"name": "cache_c", "type": "int",
+                 "desc": "SPEC 015.1: cache_creation_input_tokens"},
+                {"name": "cache_r", "type": "int",
+                 "desc": "SPEC 015.1: cache_read_input_tokens"},
+                {"name": "cost", "type": "float (USD)",
+                 "desc": "SPEC 023: hesaplanmış toplam maliyet"},
+                {"name": "inflight", "type": "int (opsiyonel)",
+                 "desc": "SPEC 039: eşzamanlı çağrı snapshot (opt-in)"},
+            ],
+            "exit_codes": {
+                "0": "başarılı (bilgi komutları için her zaman)",
+                "2": "SPEC HATASI (argüman/aralık/mutex/IO)",
+                "4": "SPEC 148: --alert-history-show --strict tetiklendi",
+                "8": "SPEC 029: --alert eşiği aşıldı (cache-hit düşük)",
+            },
+            "formats": [
+                {"name": "human", "spec": "023",
+                 "desc": "İnsan-okunur özet (default)"},
+                {"name": "json", "spec": "023",
+                 "desc": "JSON liste (ham kayıtlar)"},
+                {"name": "prometheus", "spec": "043",
+                 "desc": "Prometheus text v0.0.4 export"},
+            ],
+            "notes": [
+                "SPEC 023: temel metrics --limit N özet.",
+                "SPEC 029: --alert PCT eşik + exit 8.",
+                "SPEC 043: --format prometheus scrape endpoint.",
+                "SPEC 051: --serve HOST:PORT blocking scrape.",
+                "SPEC 059/064/068: --alert-email/-webhook/-slack.",
+                "SPEC 076: --window MINUTES filtresi.",
+                "SPEC 081/084: --group-by hour/day + --with-cost.",
+                "SPEC 096/103: --out + --gzip (yalnız group + prom).",
+                "SPEC 126/132/143/144: --alert-history-* alt-ailesi.",
+                "SPEC 148: --alert-history-show --strict exit 4.",
+                "SPEC 153: bu şema `atlas metrics --schema` ile yayımlanır.",
+            ],
+        }
+        print(_json.dumps(metrics_schema, ensure_ascii=False, indent=indent_s))
+        return 0
 
     # SPEC 132: --alert-history-show → yalın bilgi komutu, metrics özet
     # yerine alert-history NDJSON log okur (SPEC 126 kalıbı).
@@ -7082,6 +7138,12 @@ def main(argv: list[str] | None = None) -> int:
                        help="SPEC 148: --alert-history-show ile birlikte; "
                             "log dosyasında >=1 kayıt varsa exit 4 "
                             "(CI/pre-commit uyumlu).")
+    p_met.add_argument("--schema", action="store_true",
+                       help="SPEC 153: kısa devre, JSON şema tanımı "
+                            "(SPEC 040/136/146/149 kalıbı). "
+                            "metrics.jsonl gerekmez. --pretty ile indent=2.")
+    p_met.add_argument("--pretty", action="store_true",
+                       help="SPEC 153: --schema ile birlikte indent=2 JSON")
     p_met.set_defaults(func=_cmd_metrics)
 
     p_ai = sub.add_parser(
