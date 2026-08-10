@@ -1097,6 +1097,123 @@ def test_107_atlas_vault_readme_badge_row() -> None:
 
 
 # ═════════════════════════════════════════════════════════════════════
+# SPEC 161 — atlas-vault.yml verify + backup schema artifacts
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_161_atlas_vault_verify_schema_step() -> None:
+    """`Generate vault verify schema prometheus artifact (SPEC 161)` step var."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps
+         if "vault verify schema prometheus artifact"
+         in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "atlas vault verify --schema" in run
+    assert "--format prometheus" in run
+    assert "vault-verify-schema.prom" in run
+    assert "--gzip" in run
+
+
+def test_161_atlas_vault_backup_schema_step() -> None:
+    """`Generate vault backup schema prometheus artifact (SPEC 161)` step var."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps
+         if "vault backup schema prometheus artifact"
+         in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "atlas vault backup --schema" in run
+    assert "--format prometheus" in run
+    assert "vault-backup-schema.prom" in run
+    assert "gzip" in run
+
+
+def test_161_atlas_vault_schema_steps_fallback() -> None:
+    """`||` fallback her iki schema step için."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    for keyword in ("vault verify schema prometheus artifact",
+                    "vault backup schema prometheus artifact"):
+        step = next(
+            (s for s in steps
+             if keyword in s.get("name", "").lower()),
+            None,
+        )
+        assert step is not None
+        assert "||" in step.get("run", ""), f"|| fallback yok: {keyword}"
+
+
+def test_161_atlas_vault_schema_steps_conditional_yok() -> None:
+    """Schema step'leri conditional YOK (has_vault check'e bağlı değil)."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    for keyword in ("vault verify schema prometheus artifact",
+                    "vault backup schema prometheus artifact"):
+        step = next(
+            (s for s in steps
+             if keyword in s.get("name", "").lower()),
+            None,
+        )
+        assert step is not None
+        assert step.get("if") is None, f"conditional var: {keyword}"
+
+
+def test_161_atlas_vault_schema_upload_step() -> None:
+    """`Upload atlas-vault schema artifacts (SPEC 161)` step var."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if "atlas-vault schema artifacts" in s.get("name", "").lower()),
+        None,
+    )
+    assert upload_step is not None
+    assert upload_step.get("uses", "").startswith("actions/upload-artifact")
+    with_block = upload_step.get("with", {})
+    assert with_block.get("name") == "atlas-vault-schema"
+    path_str = str(with_block.get("path", ""))
+    assert "vault-verify-schema.prom.gz" in path_str
+    assert "vault-backup-schema.prom.gz" in path_str
+
+
+def test_161_atlas_vault_schema_upload_always() -> None:
+    """Schema upload `if: always()` — has_vault'a bağlı değil."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    upload_step = next(
+        (s for s in steps
+         if "atlas-vault schema artifacts" in s.get("name", "").lower()),
+        None,
+    )
+    assert upload_step is not None
+    assert upload_step.get("if") == "always()"
+
+
+def test_161_atlas_vault_mevcut_upload_dokunulmadi() -> None:
+    """vault-backup-parts upload adı + conditional AYNI."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    # `vault-backup-parts` upload'u değişmeden kalmalı
+    upload_parts = next(
+        (s for s in steps
+         if s.get("uses", "").startswith("actions/upload-artifact")
+         and s.get("with", {}).get("name") == "vault-backup-parts"),
+        None,
+    )
+    assert upload_parts is not None
+    assert "has_vault" in upload_parts.get("if", "")
+
+
+# ═════════════════════════════════════════════════════════════════════
 # SPEC 112 — atlas-vault.yml restore-verify step
 # ═════════════════════════════════════════════════════════════════════
 

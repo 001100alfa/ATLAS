@@ -114,3 +114,32 @@ jobs:
           path: |
             archive/vault-*.tar.gz.*
           retention-days: 30
+
+      - name: Generate vault verify schema prometheus artifact (SPEC 161)
+        run: |
+          # SPEC 136/140/145: --schema --format prometheus --out --gzip
+          # Kısa devre — vault gerekmez, her zaman çalışır.
+          uv run atlas vault verify --schema --format prometheus \
+            --out vault-verify-schema.prom --gzip \
+            || echo "(vault verify schema uretilemedi)" > vault-verify-schema.prom.gz
+
+      - name: Generate vault backup schema prometheus artifact (SPEC 161)
+        run: |
+          # SPEC 154/158: --schema --format prometheus info-metric,
+          # shell gzip artifact boyutu için (vault backup --out --gzip
+          # henüz yok). Kısa devre — her zaman çalışır.
+          uv run atlas vault backup --schema --format prometheus \
+            > vault-backup-schema.prom \
+            && gzip -f vault-backup-schema.prom \
+            || echo "(vault backup schema uretilemedi)" > vault-backup-schema.prom.gz
+
+      - name: Upload atlas-vault schema artifacts (SPEC 161)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-vault-schema
+          path: |
+            vault-verify-schema.prom.gz
+            vault-backup-schema.prom.gz
+          retention-days: 30
+          if-no-files-found: ignore
