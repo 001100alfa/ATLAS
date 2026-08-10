@@ -6220,6 +6220,7 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
                 "SPEC 120: --json-lines --out --gzip artifact.",
                 "SPEC 146: bu şema `atlas ai-cli status --schema` ile yayımlanır.",
                 "SPEC 150: --format prometheus info-metric ailesi.",
+                "SPEC 156: --format prometheus --out PATH [--gzip] artifact.",
             ],
         }
         if getattr(args, "format", None) == "prometheus":
@@ -6268,7 +6269,36 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
                     f'spec="{_lbl_as(str(f["spec"]))}"'
                     f'}} 1'
                 )
-            print("\n".join(as_lines))
+            # SPEC 156: --out PATH [--gzip] → stdout yerine dosyaya (SPEC 145/155 kalıbı)
+            as_out = getattr(args, "out", None)
+            as_use_gzip = bool(getattr(args, "gzip", False))
+            if as_use_gzip and as_out is None:
+                print(
+                    "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+                    file=sys.stderr,
+                )
+                return 2
+            if as_out is not None:
+                try:
+                    op = Path(as_out)
+                    if as_use_gzip and op.suffix != ".gz":
+                        op = op.with_suffix(op.suffix + ".gz")
+                    op.parent.mkdir(parents=True, exist_ok=True)
+                    as_text = "\n".join(as_lines) + "\n"
+                    if as_use_gzip:
+                        import gzip as _gzip_as
+                        with _gzip_as.open(op, "wt", encoding="utf-8") as fh:
+                            fh.write(as_text)
+                    else:
+                        op.write_text(as_text, encoding="utf-8")
+                except OSError as exc:
+                    print(
+                        f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            else:
+                print("\n".join(as_lines))
             return 0
         print(_json.dumps(status_schema, ensure_ascii=False, indent=indent_s))
         return 0
@@ -7307,11 +7337,12 @@ def main(argv: list[str] | None = None) -> int:
                          help="SPEC 118: NDJSON stream (alan başına satır + "
                               "son satır summary). --json ile MUTEX.")
     p_ai_st.add_argument("--out", default=None, metavar="PATH",
-                         help="SPEC 118: --json-lines ile birlikte; stdout "
-                              "yerine PATH'e stream.")
+                         help="SPEC 118/156: --json-lines VEYA --schema "
+                              "--format prometheus ile birlikte; stdout "
+                              "yerine PATH'e yaz.")
     p_ai_st.add_argument("--gzip", action="store_true",
-                         help="SPEC 120: --out ile birlikte; gzip sıkıştırma "
-                              "(PATH sonuna .gz eklenir eğer yoksa).")
+                         help="SPEC 120/156: --out ile birlikte; gzip "
+                              "sıkıştırma (PATH sonuna .gz eklenir eğer yoksa).")
     p_ai_st.add_argument("--schema", action="store_true",
                          help="SPEC 146: paket dokunmaz, yalnız JSON şema "
                               "tanımını bas (SPEC 040/136 kalıbı). --pretty "
