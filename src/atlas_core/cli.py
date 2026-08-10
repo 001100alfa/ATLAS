@@ -3788,6 +3788,10 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             "alert": "doctor",
             "warnings": list(report.get("warnings", []) or []),
             "quality_warnings": quality_warnings,
+            # SPEC 177: --strict modunu payload'a yansıt (alan-ekleme
+            # SPEC 032.4 bit-uyumlu). Webhook alıcısı CI-gate bulgusu
+            # (exit 9 tetikleyen) ile bilgi bulgusu (exit 0) ayırt eder.
+            "strict": bool(getattr(args, "strict", False)),
         }
         ok, err = _post_alert_webhook(webhook_url, doc_payload)
         if ok:
