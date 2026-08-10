@@ -2916,11 +2916,98 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             else:
                 print("\n".join(schema_lines))
             return 0
-        # SPEC 134: --schema + --out yalnız --format prometheus ile anlamlı
+        # SPEC 166: --format json-lines → NDJSON stream (SPEC 087/126 kalıbı)
+        if getattr(args, "format", None) == "json-lines":
+            jl_lines: list[str] = []
+
+            def _jl_emit(obj: dict[str, Any]) -> None:
+                jl_lines.append(_json.dumps(obj, ensure_ascii=False))
+
+            for f in schema["top_level"]:
+                _jl_emit({
+                    "type": "top_level",
+                    "name": f["name"],
+                    "field_type": f["type"],
+                    "desc": f.get("desc", ""),
+                })
+            for f in schema["quality_fields"]:
+                _jl_emit({
+                    "type": "quality_field",
+                    "name": f["name"],
+                    "spec": f.get("spec", ""),
+                })
+            for b in schema.get("backend_options", []):
+                _jl_emit({
+                    "type": "backend_option",
+                    "name": b["name"],
+                    "value": b["value"],
+                })
+            for e in schema.get("retry_pricing_envs", []):
+                _jl_emit({
+                    "type": "env",
+                    "group": "retry_pricing",
+                    "name": e["name"],
+                })
+            for e in schema.get("storage_envs", []):
+                _jl_emit({
+                    "type": "env",
+                    "group": "storage",
+                    "name": e["name"],
+                })
+            for code in sorted(schema["exit_codes"].keys()):
+                _jl_emit({
+                    "type": "exit_code",
+                    "code": code,
+                    "desc": schema["exit_codes"][code],
+                })
+            _jl_emit({
+                "type": "summary",
+                "schema_version": schema["schema_version"],
+                "top_level_count": len(schema["top_level"]),
+                "quality_fields_count": len(schema["quality_fields"]),
+                "exit_codes_count": len(schema["exit_codes"]),
+                "backend_options_count": len(schema.get("backend_options", [])),
+                "retry_pricing_envs_count": len(schema.get("retry_pricing_envs", [])),
+                "storage_envs_count": len(schema.get("storage_envs", [])),
+            })
+            # SPEC 166: --out PATH [--gzip] (SPEC 145/155/156/162 kalıbı)
+            jl_out = getattr(args, "out", None)
+            jl_gzip = bool(getattr(args, "gzip", False))
+            if jl_gzip and jl_out is None:
+                print(
+                    "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+                    file=sys.stderr,
+                )
+                return 2
+            if jl_out is not None:
+                try:
+                    op = Path(jl_out)
+                    if jl_gzip and op.suffix != ".gz":
+                        op = op.with_suffix(op.suffix + ".gz")
+                    op.parent.mkdir(parents=True, exist_ok=True)
+                    jl_text = "\n".join(jl_lines) + "\n"
+                    if jl_gzip:
+                        import gzip as _gzip_jl
+                        with _gzip_jl.open(op, "wt", encoding="utf-8") as fh:
+                            fh.write(jl_text)
+                    else:
+                        op.write_text(jl_text, encoding="utf-8")
+                except OSError as exc:
+                    print(
+                        f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            else:
+                for line in jl_lines:
+                    print(line)
+            return 0
+        # SPEC 134/166: --schema + --out yalnız --format prometheus VEYA
+        # json-lines ile anlamlı (JSON default → --out reddedilir).
         if getattr(args, "out", None) is not None:
             print(
                 "SPEC HATASI: --schema --out yalnız --format prometheus "
-                "ile birlikte kullanılır",
+                "veya --format json-lines ile birlikte kullanılır",
                 file=sys.stderr,
             )
             return 2
@@ -2935,6 +3022,16 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         indent = 2 if pretty else None
         print(_json.dumps(schema, ensure_ascii=False, indent=indent))
         return 0
+
+    # SPEC 166: --format json-lines yalnız --schema ile birlikte
+    # (normal doctor modunda REDDEDİR — SPEC 158 vault backup kalıbı).
+    if getattr(args, "format", None) == "json-lines":
+        print(
+            "SPEC HATASI: --format json-lines yalnız --schema ile "
+            "birlikte kullanılır (SPEC 166)",
+            file=sys.stderr,
+        )
+        return 2
 
     # SPEC 110: --out yalnız --diff-history-all + --format prometheus ile
     if getattr(args, "out", None) is not None and (
@@ -7625,12 +7722,14 @@ def main(argv: list[str] | None = None) -> int:
     p_doc_out.add_argument("--json", action="store_true",
                            help="JSON çıktı (CI/pre-flight uyumlu) — SPEC 021.1")
     p_doc_out.add_argument("--format", default=None,
-                           choices=["human", "prometheus"],
+                           choices=["human", "prometheus", "json-lines"],
                            help="SPEC 047: 'prometheus' = Prometheus text v0.0.4 "
                                 "export (up + warnings_total + quality_healthy "
                                 "labels); 'human' = default insan çıktısı. "
                                 "SPEC 128: --schema ile birlikte kullanıldığında "
-                                "info-metric ailesi yayımlar.")
+                                "info-metric ailesi yayımlar. "
+                                "SPEC 166: 'json-lines' yalnız --schema ile "
+                                "birlikte — NDJSON stream (SPEC 087/126 kalıbı).")
     p_doc_out.add_argument("--serve", default=None, metavar="HOST:PORT",
                            help="SPEC 051: Prometheus scrape HTTP endpoint "
                                 "başlat (blocking; Ctrl+C ile durdur). "
