@@ -4762,10 +4762,68 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
                 "SPEC 041.2: --encrypt [PUBKEY] / --recipient KEY_ID.",
                 "SPEC 101: --split SIZE_MB parçalı arşiv (encrypt ile MUTEX).",
                 "SPEC 154: bu şema `atlas vault backup --schema` ile yayımlanır.",
+                "SPEC 158: --format prometheus info-metric ailesi.",
             ],
         }
+        if getattr(args, "format", None) == "prometheus":
+            def _lbl_vbs(k: str) -> str:
+                return (
+                    k.replace("\\", "\\\\").replace('"', '\\"')
+                    .replace("\n", "\\n")
+                )
+            vbs_lines: list[str] = [
+                "# HELP atlas_vault_backup_schema_version "
+                "vault backup JSON sema major surum etiketi",
+                "# TYPE atlas_vault_backup_schema_version gauge",
+                f'atlas_vault_backup_schema_version{{'
+                f'version="{_lbl_vbs(str(backup_schema["schema_version"]))}"}} 1',
+                "# HELP atlas_vault_backup_schema_top_level "
+                "vault backup JSON top-level alanlari (SPEC 154)",
+                "# TYPE atlas_vault_backup_schema_top_level gauge",
+            ]
+            for f in backup_schema["top_level"]:
+                vbs_lines.append(
+                    f'atlas_vault_backup_schema_top_level{{'
+                    f'name="{_lbl_vbs(str(f["name"]))}",'
+                    f'type="{_lbl_vbs(str(f["type"]))}"'
+                    f'}} 1'
+                )
+            vbs_lines += [
+                "# HELP atlas_vault_backup_schema_exit_code "
+                "vault backup exit code sozlesmesi (SPEC 041/041.1)",
+                "# TYPE atlas_vault_backup_schema_exit_code gauge",
+            ]
+            for code in sorted(backup_schema["exit_codes"].keys()):
+                vbs_lines.append(
+                    f'atlas_vault_backup_schema_exit_code{{'
+                    f'code="{_lbl_vbs(str(code))}"'
+                    f'}} 1'
+                )
+            vbs_lines += [
+                "# HELP atlas_vault_backup_schema_format "
+                "vault backup --format secenekleri (SPEC 041)",
+                "# TYPE atlas_vault_backup_schema_format gauge",
+            ]
+            for f in backup_schema["formats"]:
+                vbs_lines.append(
+                    f'atlas_vault_backup_schema_format{{'
+                    f'name="{_lbl_vbs(str(f["name"]))}",'
+                    f'spec="{_lbl_vbs(str(f["spec"]))}"'
+                    f'}} 1'
+                )
+            print("\n".join(vbs_lines))
+            return 0
         print(_json.dumps(backup_schema, ensure_ascii=False, indent=indent_s))
         return 0
+
+    # SPEC 158: --format prometheus yalnız --schema ile (normal backup modda REDDEDER)
+    if getattr(args, "format", None) == "prometheus":
+        print(
+            "SPEC HATASI: --format prometheus yalnız --schema ile "
+            "birlikte kullanılır (SPEC 158)",
+            file=sys.stderr,
+        )
+        return 2
 
     from atlas_core.memory.vault_backup import (
         VaultBackupError,
@@ -7049,6 +7107,11 @@ def main(argv: list[str] | None = None) -> int:
                            "gerekmez. --pretty ile indent=2.")
     p_vb.add_argument("--pretty", action="store_true",
                       help="SPEC 154: --schema ile birlikte indent=2 JSON")
+    p_vb.add_argument("--format", default=None, choices=["prometheus"],
+                      help="SPEC 158: --schema ile birlikte "
+                           "'prometheus' = 4 info-metric ailesi "
+                           "(version+top_level+exit_code+format). "
+                           "Normal backup modunda REDDEDİLİR (exit 2).")
     p_vb.set_defaults(func=_cmd_vault_backup)
     p_vr = vault_sub.add_parser("restore", help=".tar.gz'i vault'a geri aç")
     p_vr.add_argument("tar", help="Yedek dosyası yolu (.tar.gz veya "
