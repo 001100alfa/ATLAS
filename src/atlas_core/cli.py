@@ -1413,6 +1413,7 @@ def _cmd_archive(args: argparse.Namespace) -> int:
                 "SPEC 138: --restore --json-lines --out PATH.",
                 "SPEC 149: bu şema `atlas archive --schema` ile yayımlanır.",
                 "SPEC 151: --format prometheus info-metric ailesi.",
+                "SPEC 155: --format prometheus --out PATH [--gzip] artifact.",
             ],
         }
         if getattr(args, "format", None) == "prometheus":
@@ -1461,7 +1462,36 @@ def _cmd_archive(args: argparse.Namespace) -> int:
                     f'spec="{_lbl_ar(str(f["spec"]))}"'
                     f'}} 1'
                 )
-            print("\n".join(ar_lines))
+            # SPEC 155: --out PATH [--gzip] → stdout yerine dosyaya (SPEC 145 kalıbı)
+            ar_out = getattr(args, "out", None)
+            ar_use_gzip = bool(getattr(args, "gzip", False))
+            if ar_use_gzip and ar_out is None:
+                print(
+                    "SPEC HATASI: --gzip yalnız --out ile birlikte kullanılır",
+                    file=sys.stderr,
+                )
+                return 2
+            if ar_out is not None:
+                try:
+                    op = Path(ar_out)
+                    if ar_use_gzip and op.suffix != ".gz":
+                        op = op.with_suffix(op.suffix + ".gz")
+                    op.parent.mkdir(parents=True, exist_ok=True)
+                    ar_text = "\n".join(ar_lines) + "\n"
+                    if ar_use_gzip:
+                        import gzip as _gzip_ar
+                        with _gzip_ar.open(op, "wt", encoding="utf-8") as fh:
+                            fh.write(ar_text)
+                    else:
+                        op.write_text(ar_text, encoding="utf-8")
+                except OSError as exc:
+                    print(
+                        f"SPEC HATASI: --out PATH yazılamadı: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 2
+            else:
+                print("\n".join(ar_lines))
             return 0
         print(_json.dumps(archive_schema, ensure_ascii=False, indent=indent_s))
         return 0
