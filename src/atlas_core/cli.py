@@ -5593,6 +5593,30 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
         if report.is_clean:
             print("\n  ✔ temiz")
 
+    # SPEC 165: --alert-webhook URL → bulgu (is_clean False) varsa POST
+    # (SPEC 064 metrics kalıbı; SPEC 131/135 doctor kardeşi).
+    # Başarısız POST → stderr uyarı; exit code KORUR (SPEC 064 kalıbı).
+    webhook_url = getattr(args, "alert_webhook", None)
+    if webhook_url and not report.is_clean:
+        vv_payload = {
+            "alert": "vault-verify",
+            "vault_root": str(vault_root),
+            "notes_total": report.notes_total,
+            "links_total": report.links_total,
+            "tags_total": report.tags_total,
+            "broken_links": len(report.broken_links),
+            "orphan_notes": len(report.orphan_notes),
+            "orphan_tags": len(report.orphan_tags),
+        }
+        ok, err = _post_alert_webhook(webhook_url, vv_payload)
+        if ok:
+            print("[alert-webhook] POST başarılı", file=sys.stderr)
+        else:
+            print(
+                f"[alert-webhook] POST başarısız: {err}",
+                file=sys.stderr,
+            )
+
     if getattr(args, "strict", False) and not report.is_clean:
         print(
             "SAĞLIK BAŞARISIZ: --strict verildi, bulgular var",
@@ -7275,6 +7299,12 @@ def main(argv: list[str] | None = None) -> int:
                       help="SPEC 136: vault dizini gerekmez; yalnız verify "
                            "JSON çıktı şema tanımını bas. --pretty ile "
                            "indent=2.")
+    p_vv.add_argument("--alert-webhook", default=None, metavar="URL",
+                      help="SPEC 165: bulgu (broken_links/orphan_notes/"
+                           "orphan_tags) varsa URL'ye POST JSON webhook at "
+                           "(SPEC 064 kalıbı; Slack/Discord/Teams uyumlu). "
+                           "Başarısız POST → stderr uyarı; exit code KORUR. "
+                           "--strict ile ORTOGONAL.")
     p_vv.set_defaults(func=_cmd_vault_verify)
     # SPEC 046: vault fix-orphans (orfan notları arşivle — YIKICI)
     p_vfo = vault_sub.add_parser(
