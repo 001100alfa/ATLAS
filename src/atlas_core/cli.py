@@ -7172,6 +7172,10 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
     # code KORUR. Çıktı üretim yolundan bağımsız (stdout'a dokunmaz).
     webhook_url = getattr(args, "alert_webhook", None)
     if webhook_url and not up_to_date:
+        # SPEC 180: size_bytes + timestamp alan-ekleme (SPEC 032.4
+        # bit-uyumlu). Alıcı "büyük drift" ile "ne zamandır düşük"
+        # ayırt edebilsin.
+        from datetime import datetime as _dt_aw
         ai_payload = {
             "alert": "ai-cli-status",
             "name": name,
@@ -7179,6 +7183,8 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
             "declared_version": declared,
             "up_to_date": up_to_date,
             "install_dir": str(install_dir),
+            "size_bytes": size_bytes,
+            "timestamp": _dt_aw.now().isoformat(timespec="seconds"),
         }
         ok, err = _post_alert_webhook(webhook_url, ai_payload)
         if ok:
