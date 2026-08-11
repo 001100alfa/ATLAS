@@ -2002,3 +2002,51 @@ def test_196_atlas_metrics_webhook_continue_on_error() -> None:
     )
     assert step is not None
     assert step.get("continue-on-error") is True
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 201 — atlas-doctor.yml webhook payload event
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_201_atlas_doctor_webhook_event_alani() -> None:
+    """Payload heredoc'unda `"event"` alanı."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post doctor alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert '"event"' in run
+    assert "github.event_name" in run
+
+
+def test_201_atlas_doctor_webhook_mevcut_alanlar() -> None:
+    """SPEC 135 + SPEC 185 mevcut 7 alan AYNI."""
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post doctor alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    for f in ('"alert":"doctor"', '"rc_strict":', '"rc_diff":',
+              '"rc_hist":', '"run_id":', '"sha":', '"strict": true'):
+        assert f in run
+
+
+def test_201_atlas_doctor_webhook_step_spec_referansi() -> None:
+    data = _load("atlas-doctor.yml")
+    steps = data["jobs"]["doctor"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post doctor alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "201" in step.get("name", "")

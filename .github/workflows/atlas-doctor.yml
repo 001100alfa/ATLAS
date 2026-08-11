@@ -127,7 +127,7 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           body-path: doctor-diff.txt
 
-      - name: Post doctor alert webhook (SPEC 131/135/185)
+      - name: Post doctor alert webhook (SPEC 131/135/185/201)
         if: >-
           env.ALERT_WEBHOOK_URL != ''
           && (steps.doctor.outputs.rc_strict != '0'
@@ -142,6 +142,8 @@ jobs:
           # SPEC 185: payload'a strict alanı (CLI SPEC 177 kardeşi);
           # workflow atlas doctor --strict --scan-src çağırıyor,
           # dolayısıyla sabit true. Receiver CLI vs workflow ayırmasın.
+          # SPEC 201: event alanı (push/pull_request/schedule ayırıcı;
+          # SPEC 141 atlas-ci-status kardeşi).
           payload=$(cat <<EOF
           {"alert":"doctor",
            "rc_strict":"${{ steps.doctor.outputs.rc_strict }}",
@@ -149,7 +151,8 @@ jobs:
            "rc_hist":"${{ steps.history_gate.outputs.rc_hist }}",
            "run_id":"${{ github.run_id }}",
            "sha":"${{ github.sha }}",
-           "strict": true}
+           "strict": true,
+           "event":"${{ github.event_name }}"}
           EOF
           )
           curl -sS -X POST -H 'Content-Type: application/json' \
