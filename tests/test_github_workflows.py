@@ -1890,3 +1890,68 @@ def test_191_atlas_ci_status_webhook_step_spec_referansi() -> None:
     )
     assert step is not None
     assert "191" in step.get("name", "")
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 193 — atlas-vault.yml webhook step
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_193_atlas_vault_backup_step_id_ve_continue() -> None:
+    """Backup step id=backup + continue-on-error=true + rc output."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps
+         if "run atlas vault backup" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert step.get("id") == "backup"
+    assert step.get("continue-on-error") is True
+    assert "rc=$?" in step.get("run", "")
+
+
+def test_193_atlas_vault_webhook_step_var() -> None:
+    """`Post vault-backup alert webhook` step var."""
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post vault-backup alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert '"alert":"vault-backup"' in run
+    assert '"timestamp"' in run
+    assert "curl" in run
+
+
+def test_193_atlas_vault_webhook_env_conditional() -> None:
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post vault-backup alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    env = step.get("env", {})
+    assert "ATLAS_ALERT_WEBHOOK_URL" in str(env.get("ALERT_WEBHOOK_URL", ""))
+    cond = step.get("if", "")
+    assert "ALERT_WEBHOOK_URL" in cond
+    assert "backup" in cond and "rc" in cond
+    assert step.get("continue-on-error") is True
+
+
+def test_193_atlas_vault_webhook_step_spec_referansi() -> None:
+    data = _load("atlas-vault.yml")
+    steps = data["jobs"]["backup"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post vault-backup alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "193" in step.get("name", "")

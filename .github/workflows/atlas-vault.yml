@@ -43,11 +43,40 @@ jobs:
           fi
 
       - name: Run atlas vault backup --auto --split 50 --keep 7
+        id: backup
         if: steps.vault_check.outputs.has_vault == 'true'
+        continue-on-error: true
         run: |
           # SPEC 041/101: --auto scheduled explicit; --split 50 MB parça;
           # --keep 7 retention (7 gün eski yedek).
+          # SPEC 193: continue-on-error ile ki fail durumunda webhook step
+          # çalışabilsin (SPEC 178 CLI --alert-webhook workflow kardeşi).
+          set +e
           uv run atlas vault backup --auto --split 50 --keep 7
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Post vault-backup alert webhook (SPEC 135/141/185/191/193)
+        if: >-
+          env.ALERT_WEBHOOK_URL != ''
+          && steps.backup.outputs.rc != '0'
+          && steps.backup.outputs.rc != ''
+        env:
+          ALERT_WEBHOOK_URL: ${{ secrets.ATLAS_ALERT_WEBHOOK_URL }}
+        continue-on-error: true
+        run: |
+          # SPEC 131/135/141/185 kalibi: vault backup fail (rc != 0) ise
+          # env webhook'a POST. Env yoksa step atlar. SPEC 191 timestamp.
+          ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          payload=$(cat <<EOF
+          {"alert":"vault-backup",
+           "rc":"${{ steps.backup.outputs.rc }}",
+           "run_id":"${{ github.run_id }}",
+           "sha":"${{ github.sha }}",
+           "timestamp":"$ts"}
+          EOF
+          )
+          curl -sS -X POST -H 'Content-Type: application/json' \
+            -d "$payload" "$ALERT_WEBHOOK_URL" || true
 
       - name: Restore + verify (integrity check, SPEC 112)
         if: steps.vault_check.outputs.has_vault == 'true'
