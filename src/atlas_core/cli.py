@@ -5974,7 +5974,38 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
                 "SPEC 052: --dump-report PATH (markdown yan etki).",
                 "SPEC 136: bu şema `atlas vault verify --schema` ile yayımlanır.",
                 "SPEC 140: --format prometheus info-metric ailesi.",
+                "SPEC 165: --alert-webhook URL bulgu varsa POST.",
                 "SPEC 172: --schema --format json-lines NDJSON şema stream.",
+                "SPEC 186: --alert-webhook payload timestamp alanı.",
+                "SPEC 188: alert_options + alert_payload JSON şemada.",
+            ],
+            # SPEC 188: alert kanalları (SPEC 175/181 kalıbı).
+            # Prometheus'a EKLENMEDİ (YAGNI — 4 metric aile korunur).
+            "alert_options": [
+                {"name": "--alert-webhook URL", "spec": "165",
+                 "desc": "bulgu (is_clean False) varsa URL'ye POST"},
+            ],
+            # SPEC 188: SPEC 165 8 alan + SPEC 186 1 alan = 9 alan.
+            "alert_payload": [
+                {"name": "alert", "type": "str",
+                 "when": "always", "spec": "165",
+                 "desc": "sabit 'vault-verify'"},
+                {"name": "vault_root", "type": "str",
+                 "when": "always", "spec": "165"},
+                {"name": "notes_total", "type": "int",
+                 "when": "always", "spec": "165"},
+                {"name": "links_total", "type": "int",
+                 "when": "always", "spec": "165"},
+                {"name": "tags_total", "type": "int",
+                 "when": "always", "spec": "165"},
+                {"name": "broken_links", "type": "int",
+                 "when": "always", "spec": "165"},
+                {"name": "orphan_notes", "type": "int",
+                 "when": "always", "spec": "165"},
+                {"name": "orphan_tags", "type": "int",
+                 "when": "always", "spec": "165"},
+                {"name": "timestamp", "type": "str (ISO 8601)",
+                 "when": "always", "spec": "186"},
             ],
         }
         if getattr(args, "format", None) == "prometheus":
