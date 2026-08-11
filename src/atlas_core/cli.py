@@ -1540,6 +1540,8 @@ def _cmd_archive(args: argparse.Namespace) -> int:
                 "SPEC 164: sub_commands alt komut başına exit_codes/spec.",
                 "SPEC 176: --restore --alert-webhook URL hata POST.",
                 "SPEC 189: alert_options + alert_payload JSON şemada.",
+                "SPEC 198: --restore --alert-webhook payload timestamp alanı.",
+                "SPEC 200: alert_payload timestamp belgeleme.",
             ],
             # SPEC 189: alert kanalları (SPEC 175/181/188 kalıbı).
             # Prometheus'a EKLENMEDİ (YAGNI; 4 metric aile korunur).
@@ -5455,6 +5457,8 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
                 "SPEC 163: --format prometheus --out PATH [--gzip] artifact.",
                 "SPEC 178: --alert-webhook URL VaultBackupError POST.",
                 "SPEC 190: alert_options + alert_payload JSON şemada.",
+                "SPEC 199: --alert-webhook payload timestamp alanı.",
+                "SPEC 200: alert_payload timestamp belgeleme.",
             ],
             # SPEC 190: alert kanalları (SPEC 175/181/188/189 kalıbı).
             # Prometheus'a EKLENMEDİ (YAGNI; 4 metric aile korunur).
@@ -6064,6 +6068,7 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
                 "SPEC 172: --schema --format json-lines NDJSON şema stream.",
                 "SPEC 186: --alert-webhook payload timestamp alanı.",
                 "SPEC 188: alert_options + alert_payload JSON şemada.",
+                "SPEC 200: notes'da timestamp yayma tutarlılığı.",
             ],
             # SPEC 188: alert kanalları (SPEC 175/181 kalıbı).
             # Prometheus'a EKLENMEDİ (YAGNI — 4 metric aile korunur).
