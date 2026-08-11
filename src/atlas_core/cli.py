@@ -5480,6 +5480,9 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
                 {"name": "exit_code", "type": "int",
                  "when": "always", "spec": "178",
                  "desc": "6 (VaultBackupError)"},
+                {"name": "timestamp", "type": "str (ISO 8601)",
+                 "when": "always", "spec": "199",
+                 "desc": "SPEC 199: webhook POST zamanı"},
             ],
         }
         if getattr(args, "format", None) == "prometheus":
@@ -5605,6 +5608,8 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
         if not webhook_url:
             return
         action = "backup-auto" if bool(getattr(args, "auto", False)) else "backup"
+        # SPEC 199: timestamp alan-ekleme (SPEC 180/186/187/191/192/198 kardeşi).
+        from datetime import datetime as _dt_vb
         payload = {
             "alert": "vault-backup",
             "vault_root": str(vault_root),
@@ -5612,6 +5617,7 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
             "phase": phase,
             "error": error,
             "exit_code": 6,
+            "timestamp": _dt_vb.now().isoformat(timespec="seconds"),
         }
         ok, err = _post_alert_webhook(webhook_url, payload)
         if ok:

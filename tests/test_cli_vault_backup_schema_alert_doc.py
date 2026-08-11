@@ -22,12 +22,15 @@ def test_190_alert_options(monkeypatch, tmp_path, capsys):
 
 
 def test_190_alert_payload_6_alan(monkeypatch, tmp_path, capsys):
+    """SPEC 178 6 + SPEC 199 timestamp = 7."""
     d = _schema(monkeypatch, tmp_path, capsys)
     names = {f["name"] for f in d["alert_payload"]}
     assert names == {"alert", "vault_root", "action", "phase",
-                     "error", "exit_code"}
-    for f in d["alert_payload"]:
-        assert f["spec"] == "178"
+                     "error", "exit_code", "timestamp"}
+    by = {f["name"]: f for f in d["alert_payload"]}
+    for k in ("alert", "vault_root", "action", "phase", "error", "exit_code"):
+        assert by[k]["spec"] == "178"
+    assert by["timestamp"]["spec"] == "199"
 
 
 def test_190_phase_alani(monkeypatch, tmp_path, capsys):
