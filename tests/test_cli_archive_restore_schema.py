@@ -55,16 +55,18 @@ def test_182_jsonl_record_types(monkeypatch, tmp_path, capsys):
 
 
 def test_182_alert_payload_6_alan(monkeypatch, tmp_path, capsys):
-    """SPEC 176 payload 6 alan (alert + task_id + search_pattern + ...)."""
+    """SPEC 176 payload 6 + SPEC 198 timestamp = 7 alan."""
     data = _schema(monkeypatch, tmp_path, capsys)
     names = {f["name"] for f in data["alert_payload_fields"]}
     assert names == {
         "alert", "task_id", "search_pattern",
-        "archive_root", "error", "exit_code",
+        "archive_root", "error", "exit_code", "timestamp",
     }
-    # Hepsi SPEC 176'ya bağlı
-    for f in data["alert_payload_fields"]:
-        assert f["spec"] == "176"
+    by = {f["name"]: f for f in data["alert_payload_fields"]}
+    for k in ("alert", "task_id", "search_pattern",
+              "archive_root", "error", "exit_code"):
+        assert by[k]["spec"] == "176"
+    assert by["timestamp"]["spec"] == "198"
 
 
 def test_182_exit_codes(monkeypatch, tmp_path, capsys):

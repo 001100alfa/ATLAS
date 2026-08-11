@@ -935,6 +935,9 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
                 {"name": "exit_code", "type": "int",
                  "when": "always", "spec": "176",
                  "desc": "2 (SPEC HATASI) | 3 (çakışma) | 6 (extract/bulunamadı)"},
+                {"name": "timestamp", "type": "str (ISO 8601)",
+                 "when": "always", "spec": "198",
+                 "desc": "SPEC 198: webhook POST zamanı"},
             ],
             "exit_codes": {
                 "0": "başarılı (veya dry-run)",
@@ -975,6 +978,8 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
         webhook_url = getattr(args, "alert_webhook", None)
         if not webhook_url:
             return
+        # SPEC 198: timestamp alan-ekleme (SPEC 180/186/187/191/192 kardeşi).
+        from datetime import datetime as _dt_ar
         payload = {
             "alert": "archive-restore",
             "task_id": task_id,
@@ -982,6 +987,7 @@ def _cmd_archive_restore(args: argparse.Namespace) -> int:
             "archive_root": str(archive_root),
             "error": error,
             "exit_code": exit_code,
+            "timestamp": _dt_ar.now().isoformat(timespec="seconds"),
         }
         ok, err = _post_alert_webhook(webhook_url, payload)
         if ok:
@@ -1559,6 +1565,9 @@ def _cmd_archive(args: argparse.Namespace) -> int:
                 {"name": "exit_code", "type": "int",
                  "when": "always", "spec": "176",
                  "desc": "2 | 3 | 6"},
+                {"name": "timestamp", "type": "str (ISO 8601)",
+                 "when": "always", "spec": "198",
+                 "desc": "SPEC 198: webhook POST zamanı"},
             ],
             # SPEC 164: alt komut başına özel exit_codes + kaynak SPEC.
             # `archive --list --schema` bu bilgiyi görmek için çağrılır

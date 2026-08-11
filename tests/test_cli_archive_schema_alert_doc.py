@@ -23,13 +23,17 @@ def test_189_alert_options(monkeypatch, tmp_path, capsys):
 
 
 def test_189_alert_payload_6_alan(monkeypatch, tmp_path, capsys):
+    """SPEC 176 6 + SPEC 198 timestamp = 7 alan."""
     d = _schema(monkeypatch, tmp_path, capsys)
     assert "alert_payload" in d
     names = {f["name"] for f in d["alert_payload"]}
     assert names == {"alert", "task_id", "search_pattern",
-                     "archive_root", "error", "exit_code"}
-    for f in d["alert_payload"]:
-        assert f["spec"] == "176"
+                     "archive_root", "error", "exit_code", "timestamp"}
+    by = {f["name"]: f for f in d["alert_payload"]}
+    for k in ("alert", "task_id", "search_pattern",
+              "archive_root", "error", "exit_code"):
+        assert by[k]["spec"] == "176"
+    assert by["timestamp"]["spec"] == "198"
 
 
 def test_189_notes_referanslari(monkeypatch, tmp_path, capsys):
