@@ -1955,3 +1955,50 @@ def test_193_atlas_vault_webhook_step_spec_referansi() -> None:
     )
     assert step is not None
     assert "193" in step.get("name", "")
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 196 — atlas-metrics.yml webhook step SPEC 187 belge
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_196_atlas_metrics_webhook_step_spec_referansi() -> None:
+    """Step adı SPEC 196 + SPEC 187 referansı."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    name = step.get("name", "")
+    assert "187" in name
+    assert "196" in name
+
+
+def test_196_atlas_metrics_webhook_cli_cagirir() -> None:
+    """CLI çağrısı korunur (heredoc yok; timestamp CLI'da SPEC 187)."""
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert "atlas metrics" in run
+    assert "--alert-webhook" in run
+
+
+def test_196_atlas_metrics_webhook_continue_on_error() -> None:
+    data = _load("atlas-metrics.yml")
+    steps = data["jobs"]["metrics"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert step.get("continue-on-error") is True

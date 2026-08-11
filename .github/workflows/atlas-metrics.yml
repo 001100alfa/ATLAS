@@ -107,7 +107,7 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           body-path: metrics-human.txt
 
-      - name: Post alert webhook (SPEC 064/131)
+      - name: Post alert webhook (SPEC 064/131/187/196)
         if: >-
           steps.metrics.outputs.has_data == 'true'
           && env.ALERT_WEBHOOK_URL != ''
@@ -118,5 +118,8 @@ jobs:
           # SPEC 064: cache-hit oranı %30 altına düşerse env webhook'a POST.
           # Env yok/boşsa step conditional ile atlar (SPEC 095 fail-safe).
           # continue-on-error: true — POST başarısız olursa job kırılmasın.
+          # SPEC 187/196: payload'a timestamp CLI tarafından otomatik eklenir
+          # (atlas-doctor/vault/ci-status heredoc kalibindan farkli olarak,
+          # metrics workflow CLI'yi cagirir — timestamp SPEC 187'de CLI'da).
           uv run atlas metrics --limit 100 --alert 30 \
             --alert-webhook "$ALERT_WEBHOOK_URL"
