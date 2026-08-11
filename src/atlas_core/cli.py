@@ -4431,8 +4431,17 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                 {"name": "alert_window_records", "type": "int",
                  "when": "yalnız --alert-window verildiğinde (history)",
                  "spec": "169"},
+                {"name": "timestamp", "type": "str (ISO 8601)",
+                 "when": "webhook only (SPEC 187)", "spec": "187"},
             ],
         }
+        # SPEC 195: notes'a SPEC 187 satırı eklendi (SPEC 175 sonrası).
+        metrics_schema["notes"].append(
+            "SPEC 187: --alert-webhook payload timestamp alanı.",
+        )
+        metrics_schema["notes"].append(
+            "SPEC 195: alert_payload timestamp belgeleme.",
+        )
         if getattr(args, "format", None) == "prometheus":
             def _lbl_ms(k: str) -> str:
                 return (
