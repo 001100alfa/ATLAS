@@ -34,11 +34,12 @@ def test_181_alert_options_alani_var(monkeypatch, tmp_path, capsys):
 
 
 def test_181_alert_payload_4_alan(monkeypatch, tmp_path, capsys):
-    """SPEC 181: alert_payload alanı 4 alan (SPEC 168 3 + SPEC 177 1)."""
+    """SPEC 181: alert_payload alanı (SPEC 168 3 + SPEC 177 1 + SPEC 197 1 = 5)."""
     data = _schema(monkeypatch, tmp_path, capsys)
     assert "alert_payload" in data
     names = {f["name"] for f in data["alert_payload"]}
-    assert names == {"alert", "warnings", "quality_warnings", "strict"}
+    assert names == {"alert", "warnings", "quality_warnings",
+                     "strict", "timestamp"}
 
 
 def test_181_alert_payload_spec_referanslari(monkeypatch, tmp_path, capsys):

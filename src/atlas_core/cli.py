@@ -3020,6 +3020,8 @@ def _doctor_schema_descriptor() -> dict[str, Any]:
             "SPEC 168: --alert-webhook URL quality warning varsa POST.",
             "SPEC 177: --alert-webhook payload'a strict alanı yansır.",
             "SPEC 181: alert_options + alert_payload alanları JSON şemada.",
+            "SPEC 192: --alert-webhook payload timestamp alanı.",
+            "SPEC 197: alert_payload timestamp belgeleme.",
         ],
         # SPEC 181: doctor alert kanalları CLI seçenekleri (SPEC 175 kalıbı).
         # Prometheus çıktısına EKLENMEDİ (YAGNI — mevcut 6 metric aile korunur).
@@ -3044,6 +3046,9 @@ def _doctor_schema_descriptor() -> dict[str, Any]:
             {"name": "strict", "type": "bool",
              "when": "always", "spec": "177",
              "desc": "--strict verildi mi (CI-gate exit 9 tetiği)"},
+            {"name": "timestamp", "type": "str (ISO 8601)",
+             "when": "always", "spec": "192",
+             "desc": "SPEC 192: webhook POST zamanı (SPEC 187 kardeşi)"},
         ],
     }
 
