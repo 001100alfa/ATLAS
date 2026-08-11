@@ -7222,6 +7222,34 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
                 "SPEC 146: bu şema `atlas ai-cli status --schema` ile yayımlanır.",
                 "SPEC 150: --format prometheus info-metric ailesi.",
                 "SPEC 156: --format prometheus --out PATH [--gzip] artifact.",
+                "SPEC 170: --alert-webhook up_to_date=False POST.",
+                "SPEC 180: --alert-webhook payload size_bytes + timestamp.",
+                "SPEC 194: alert_options + alert_payload JSON şemada.",
+            ],
+            # SPEC 194: alert kanalları (SPEC 175/181/188/189/190 kalıbı).
+            "alert_options": [
+                {"name": "--alert-webhook URL", "spec": "170",
+                 "desc": "up_to_date=False ise URL'ye POST"},
+            ],
+            # SPEC 194: SPEC 170 6 alan + SPEC 180 2 alan = 8.
+            "alert_payload": [
+                {"name": "alert", "type": "str",
+                 "when": "always", "spec": "170",
+                 "desc": "sabit 'ai-cli-status'"},
+                {"name": "name", "type": "str",
+                 "when": "always", "spec": "170"},
+                {"name": "installed_version", "type": "str|null",
+                 "when": "always", "spec": "170"},
+                {"name": "declared_version", "type": "str",
+                 "when": "always", "spec": "170"},
+                {"name": "up_to_date", "type": "bool",
+                 "when": "always (False)", "spec": "170"},
+                {"name": "install_dir", "type": "str",
+                 "when": "always", "spec": "170"},
+                {"name": "size_bytes", "type": "int",
+                 "when": "always", "spec": "180"},
+                {"name": "timestamp", "type": "str (ISO 8601)",
+                 "when": "always", "spec": "180"},
             ],
         }
         if getattr(args, "format", None) == "prometheus":
