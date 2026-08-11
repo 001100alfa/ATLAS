@@ -1839,3 +1839,54 @@ def test_174_atlas_ci_status_upload_path_degismedi() -> None:
     with_block = upload_step.get("with", {})
     assert with_block.get("name") == "atlas-ci-status-schema"
     assert "archive-schema.prom.gz" in str(with_block.get("path", ""))
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 191 — atlas-ci-status.yml webhook payload timestamp
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_191_atlas_ci_status_webhook_payload_timestamp() -> None:
+    """SPEC 191: payload heredoc'unda `"timestamp":"$ts"` (SPEC 180 kardesi)."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post ci-status alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert '"timestamp"' in run
+    assert "$ts" in run
+    # ISO 8601 UTC seed
+    assert "date -u" in run
+    assert "+%Y-%m-%dT%H:%M:%SZ" in run
+
+
+def test_191_atlas_ci_status_webhook_mevcut_alanlar() -> None:
+    """SPEC 141 mevcut 5 alan (alert, rc, run_id, sha, event) AYNI."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post ci-status alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    for fld in ('"alert":"ci-status"', '"rc":', '"run_id":',
+                '"sha":', '"event":'):
+        assert fld in run
+
+
+def test_191_atlas_ci_status_webhook_step_spec_referansi() -> None:
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post ci-status alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "191" in step.get("name", "")
