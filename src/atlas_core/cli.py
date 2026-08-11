@@ -3920,6 +3920,8 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             for k, v in quality.items():
                 if isinstance(v, dict) and v.get("warning"):
                     quality_warnings[str(k)] = str(v["warning"])
+        # SPEC 192: timestamp alan-ekleme (SPEC 180/186/187/191 kardeşi).
+        from datetime import datetime as _dt_dw
         doc_payload = {
             "alert": "doctor",
             "warnings": list(report.get("warnings", []) or []),
@@ -3928,6 +3930,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             # SPEC 032.4 bit-uyumlu). Webhook alıcısı CI-gate bulgusu
             # (exit 9 tetikleyen) ile bilgi bulgusu (exit 0) ayırt eder.
             "strict": bool(getattr(args, "strict", False)),
+            "timestamp": _dt_dw.now().isoformat(timespec="seconds"),
         }
         ok, err = _post_alert_webhook(webhook_url, doc_payload)
         if ok:

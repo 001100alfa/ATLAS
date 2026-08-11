@@ -111,8 +111,10 @@ def test_177_mevcut_alanlar_dokunulmadi(monkeypatch, tmp_path, capsys):
     assert "quality_warnings" in body
     # SPEC 177: yeni alan
     assert "strict" in body
-    # Alan sayısı: alert + warnings + quality_warnings + strict = 4
-    assert set(body.keys()) == {"alert", "warnings", "quality_warnings", "strict"}
+    # SPEC 168 3 + SPEC 177 1 + SPEC 192 1 = 5
+    assert set(body.keys()) == {
+        "alert", "warnings", "quality_warnings", "strict", "timestamp",
+    }
 
 
 def test_177_bulgu_yoksa_post_yok(monkeypatch, tmp_path, capsys):
