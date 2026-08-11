@@ -2050,3 +2050,50 @@ def test_201_atlas_doctor_webhook_step_spec_referansi() -> None:
     )
     assert step is not None
     assert "201" in step.get("name", "")
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SPEC 203 — atlas-ci-status.yml webhook payload check alanı
+# ═════════════════════════════════════════════════════════════════════
+
+
+def test_203_atlas_ci_status_webhook_check_alani() -> None:
+    """`"check":"readme-badge"` payload'da."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post ci-status alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    assert '"check":"readme-badge"' in run
+
+
+def test_203_atlas_ci_status_webhook_mevcut_alanlar() -> None:
+    """SPEC 141 + SPEC 191 mevcut 6 alan AYNI."""
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post ci-status alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    run = step.get("run", "")
+    for f in ('"alert":"ci-status"', '"rc":', '"run_id":',
+              '"sha":', '"event":', '"timestamp"'):
+        assert f in run
+
+
+def test_203_atlas_ci_status_webhook_step_spec_referansi() -> None:
+    data = _load("atlas-ci-status.yml")
+    steps = data["jobs"]["drift-scan"]["steps"]
+    step = next(
+        (s for s in steps
+         if "post ci-status alert webhook" in s.get("name", "").lower()),
+        None,
+    )
+    assert step is not None
+    assert "203" in step.get("name", "")
