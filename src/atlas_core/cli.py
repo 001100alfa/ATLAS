@@ -5184,6 +5184,9 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
         # SPEC 169: window-scope alert_* + payload'a alan-ekleme.
         webhook_url = getattr(args, "alert_webhook", None)
         if webhook_url:
+            # SPEC 187: timestamp alan-ekleme (SPEC 180/186 kardeşi;
+            # SPEC 032.4 bit-uyumlu).
+            from datetime import datetime as _dt_mw
             payload = {
                 "alert": "cache-hit",
                 "hit_ratio_pct": round(alert_hit_ratio, 2),
@@ -5194,6 +5197,7 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
                 "cache_creation": alert_cache_c,
                 "cache_read": alert_cache_r,
                 "message": msg,
+                "timestamp": _dt_mw.now().isoformat(timespec="seconds"),
             }
             if alert_window_min is not None:
                 payload["alert_window_minutes"] = alert_window_min
