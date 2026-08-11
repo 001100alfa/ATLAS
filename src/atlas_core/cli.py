@@ -6273,6 +6273,9 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
     # Başarısız POST → stderr uyarı; exit code KORUR (SPEC 064 kalıbı).
     webhook_url = getattr(args, "alert_webhook", None)
     if webhook_url and not report.is_clean:
+        # SPEC 186: timestamp alan-ekleme (SPEC 032.4 bit-uyumlu;
+        # SPEC 180 ai-cli status kardeşi). Monitoring "ne zaman broken".
+        from datetime import datetime as _dt_vv
         vv_payload = {
             "alert": "vault-verify",
             "vault_root": str(vault_root),
@@ -6282,6 +6285,7 @@ def _cmd_vault_verify(args: argparse.Namespace) -> int:
             "broken_links": len(report.broken_links),
             "orphan_notes": len(report.orphan_notes),
             "orphan_tags": len(report.orphan_tags),
+            "timestamp": _dt_vv.now().isoformat(timespec="seconds"),
         }
         ok, err = _post_alert_webhook(webhook_url, vv_payload)
         if ok:
