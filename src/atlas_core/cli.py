@@ -7282,6 +7282,8 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
                  "when": "always", "spec": "170"},
                 {"name": "size_bytes", "type": "int",
                  "when": "always", "spec": "180"},
+                {"name": "bin_path", "type": "str|null",
+                 "when": "always", "spec": "202"},
                 {"name": "timestamp", "type": "str (ISO 8601)",
                  "when": "always", "spec": "180"},
             ],
@@ -7470,6 +7472,8 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
         # bit-uyumlu). Alıcı "büyük drift" ile "ne zamandır düşük"
         # ayırt edebilsin.
         from datetime import datetime as _dt_aw
+        # SPEC 202: bin_path alan-ekleme (SPEC 037.4 report'ta var;
+        # payload'a yansıtılır — receiver "hangi binary?" görsün).
         ai_payload = {
             "alert": "ai-cli-status",
             "name": name,
@@ -7478,6 +7482,7 @@ def _cmd_ai_cli_status(args: argparse.Namespace) -> int:
             "up_to_date": up_to_date,
             "install_dir": str(install_dir),
             "size_bytes": size_bytes,
+            "bin_path": str(bin_path) if bin_path else None,
             "timestamp": _dt_aw.now().isoformat(timespec="seconds"),
         }
         ok, err = _post_alert_webhook(webhook_url, ai_payload)

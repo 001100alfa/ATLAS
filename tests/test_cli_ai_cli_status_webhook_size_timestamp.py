@@ -124,11 +124,11 @@ def test_180_mevcut_alanlar_dokunulmadi(monkeypatch, tmp_path, capsys):
         shutdown()
     assert rc == 0
     body = json.loads(capture[0]["body"])
-    # SPEC 170 mevcut 6 + SPEC 180 2 yeni = 8
+    # SPEC 170 6 + SPEC 180 2 + SPEC 202 1 = 9
     assert set(body.keys()) == {
         "alert", "name", "installed_version", "declared_version",
         "up_to_date", "install_dir",
-        "size_bytes", "timestamp",
+        "size_bytes", "timestamp", "bin_path",
     }
     assert body["alert"] == "ai-cli-status"
     assert body["name"] == "cline"

@@ -23,11 +23,12 @@ def test_194_alert_options(monkeypatch, tmp_path, capsys):
 
 
 def test_194_alert_payload_8_alan(monkeypatch, tmp_path, capsys):
+    """SPEC 170 6 + SPEC 180 2 + SPEC 202 1 = 9."""
     d = _schema(monkeypatch, tmp_path, capsys)
     names = {f["name"] for f in d["alert_payload"]}
     assert names == {"alert", "name", "installed_version",
                      "declared_version", "up_to_date", "install_dir",
-                     "size_bytes", "timestamp"}
+                     "size_bytes", "timestamp", "bin_path"}
 
 
 def test_194_spec_180_alanlari(monkeypatch, tmp_path, capsys):
