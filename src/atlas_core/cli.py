@@ -1532,6 +1532,33 @@ def _cmd_archive(args: argparse.Namespace) -> int:
                 "SPEC 151: --format prometheus info-metric ailesi.",
                 "SPEC 155: --format prometheus --out PATH [--gzip] artifact.",
                 "SPEC 164: sub_commands alt komut başına exit_codes/spec.",
+                "SPEC 176: --restore --alert-webhook URL hata POST.",
+                "SPEC 189: alert_options + alert_payload JSON şemada.",
+            ],
+            # SPEC 189: alert kanalları (SPEC 175/181/188 kalıbı).
+            # Prometheus'a EKLENMEDİ (YAGNI; 4 metric aile korunur).
+            # Yalnız --restore için (SPEC 176).
+            "alert_options": [
+                {"name": "--restore --alert-webhook URL", "spec": "176",
+                 "desc": "hata (exit 2/3/6) durumunda URL'ye POST"},
+            ],
+            # SPEC 189: SPEC 176 payload 6 alan (SPEC 182 alert_payload_fields
+            # ile paritel; parent şema için burada da tekrar edilir).
+            "alert_payload": [
+                {"name": "alert", "type": "str",
+                 "when": "always", "spec": "176",
+                 "desc": "sabit 'archive-restore'"},
+                {"name": "task_id", "type": "str|null",
+                 "when": "always", "spec": "176"},
+                {"name": "search_pattern", "type": "str|null",
+                 "when": "always", "spec": "176"},
+                {"name": "archive_root", "type": "str",
+                 "when": "always", "spec": "176"},
+                {"name": "error", "type": "str",
+                 "when": "always", "spec": "176"},
+                {"name": "exit_code", "type": "int",
+                 "when": "always", "spec": "176",
+                 "desc": "2 | 3 | 6"},
             ],
             # SPEC 164: alt komut başına özel exit_codes + kaynak SPEC.
             # `archive --list --schema` bu bilgiyi görmek için çağrılır
