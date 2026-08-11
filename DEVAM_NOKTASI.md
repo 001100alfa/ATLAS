@@ -12,11 +12,11 @@
 >    tur kapanış rutini — onaylandı.
 > 5. Zorunlu Döngü'ye (`CLAUDE.md` §Zorunlu Döngü) gir.
 
-**Son çalışma:** 2026-08-10 (47. tur — 180 + 181 + 182 + 183 + 184 + 185 KAPANIŞ)
-**Branch:** `main` = `297874c` local (6 feat lineer ff-merge, PUSH edilecek)
-**Working tree:** temiz (tools/ai-cli/package* M drift + CONTEXT.md untracked — dokunulmadı)
-**Durum:** 47. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
-**1889/1889 test yeşil** (+12 skip), cov %91.84, mypy strict + ruff +
+**Son çalışma:** 2026-08-11 (48. tur — 186 + 187 + 188 + 189 + 190 + 191 KAPANIŞ)
+**Branch:** `main` local (6 feat + 6 docs(ship) lineer, PUSH edilecek)
+**Working tree:** temiz (git reset --hard + clean -fd, dış müdahale silindi)
+**Durum:** 48. tur tamamlandı; 6 aday görev; tümü main'e lineer ff-merge.
+**1912/1912 test yeşil** (+12 skip), cov %91.85, mypy strict + ruff +
 scan temiz.
 
 ---
@@ -27,166 +27,147 @@ Yeni oturumda tek cümle yeter: **"devam et"**
 
 ---
 
-## Bu turda yapılan (2026-08-10 — 47. tur)
+## Bu turda yapılan (2026-08-11 — 48. tur)
 
-Kullanıcı "hepsini sıra ile uygula, emirler atomiktir
-(atomic-order-doctrine)" → 46. tur adayları (180-185) tümü zincirleme.
+Kullanıcı "hepsini sıra ile uygula, emirler atomiktir" +
+"B" seçimi (working tree'de 50+ dosya dış müdahale drift'i vardı;
+`git reset --hard HEAD && git clean -fd` ile temizlendi) → 47. tur
+adayları (186-191) tümü zincirleme.
 
-1. **Görev 180** — ai-cli status webhook payload size_bytes + timestamp (`bcc4ed7`)
-   - SPEC 170 payload'a 2 yeni alan (SPEC 032.4 bit-uyumlu).
-   - `size_bytes` (mevcut alan) + `timestamp` (ISO 8601 seconds).
-   - Toplam payload: 6 → 8.
-   - Monitoring: "büyük drift" + "ne zamandır düşük" ayırt eder.
-   - +4 test.
+1. **Görev 186** — vault verify webhook payload timestamp (`a6d76ec`)
+   - SPEC 165 payload'a `timestamp: ISO 8601` (SPEC 180 ai-cli kardeşi).
+   - Toplam alan: 8 → 9.
+   - +2 test (ISO regex + alan sayısı).
 
-2. **Görev 181** — doctor --schema alert_options + alert_payload (`1876f34`)
-   - SPEC 175 metrics kalıbı doctor için (SPEC 168 + SPEC 177 belgele).
-   - `alert_options`: 1 CLI seçenek (`--alert-webhook URL`, SPEC 168).
-   - `alert_payload`: 4 alan (alert/warnings/quality_warnings/strict).
-   - Prometheus'a EKLENMEDİ (YAGNI; 6 metric aile AYNI).
-   - +7 test.
+2. **Görev 187** — metrics webhook payload timestamp (`99a72c6`)
+   - SPEC 064 payload'a `timestamp` (SPEC 180/186 kardeşi).
+   - SPEC 169 `alert_window_minutes` yolu AYNI.
+   - +3 test.
 
-3. **Görev 182** — archive --restore --schema (`fd8f99e`)
-   - SPEC 179 kalıbı restore alt komutu için ayrı JSON şeması.
-   - dry_run_json_fields (5) + apply_json_fields (5) + jsonl_record_types
-     (3: plan/restored/summary) + alert_payload_fields (6: SPEC 176).
-   - SPEC 149 archive --schema kısa devresi güncellendi:
-     `--restore` verildiyse SPEC 182'ye bırakır.
-   - +10 test.
+3. **Görev 188** — vault verify --schema alert_options + alert_payload (`b220892`)
+   - SPEC 175/181 kalıbı vault verify için.
+   - `alert_options` 1 (SPEC 165), `alert_payload` 9 (SPEC 165 8 + SPEC 186 1).
+   - Prometheus'a EKLENMEDİ (YAGNI; 4 metric aile korunur).
+   - +5 test.
 
-4. **Görev 183** — vault verify --schema jsonl --out --gzip kanıt (`ca1fd92`)
-   - SPEC 172 zaten uygulanmış; SPEC 159 kalıp simetrisi kanıt testleri.
-   - +4 test: parent auto-mkdir + idempotent .gz + stdout↔file eşitlik
-     + tam MUTEX mesajı.
-   - Yeni CLI kodu YOK.
+4. **Görev 189** — archive --schema alert_options + alert_payload (`fd42ac1`)
+   - SPEC 175/181/188 kalıbı archive parent şeması için.
+   - SPEC 176 --restore --alert-webhook payload 6 alan (SPEC 182 restore
+     şeması ile paritel; parent burada da tekrarlar).
+   - Prometheus'a EKLENMEDİ (YAGNI).
+   - +5 test.
 
-5. **Görev 184** — metrics --alert-history-show --format json-lines (`57c163d`)
-   - SPEC 087/166/171/172 kalıp tutarlılığı; `--json` bit-uyumlu alias.
-   - Parser --format choices'a json-lines; --json ile MUTEX
-     (argparse mutex grubu).
-   - --out sözleşmesi genişletildi (json/json-lines/prometheus).
-   - SPEC 179 schema formats alanına json-lines (spec=184).
-   - YENİ MUTEX: normal metrics + --format json-lines exit 2.
-   - +8 test.
+5. **Görev 190** — vault backup --schema alert_options + alert_payload (`d2a7612`)
+   - SPEC 175/181/188/189 kalıbı vault backup için.
+   - SPEC 178 6 phase (backup/prune/split/encrypt) `phase` alanı desc'inde belgelendi.
+   - +5 test.
 
-6. **Görev 185** — atlas-doctor.yml webhook payload strict alanı (`297874c`)
-   - SPEC 177 CLI kardeşi (workflow-CLI parity).
-   - Payload heredoc'una `"strict": true` (sabit — workflow
-     `atlas doctor --strict --scan-src` çağırıyor).
-   - Mevcut 6 alan DOKUNULMADI.
+6. **Görev 191** — atlas-ci-status.yml webhook payload timestamp (`c49bdd1`)
+   - SPEC 141 payload heredoc'una `"timestamp":"$ts"` (SPEC 185 workflow-CLI parity).
+   - `ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)` ISO 8601 UTC.
+   - Mevcut 5 alan DOKUNULMADI.
    - +3 workflow test.
 
 7. **Kalite kapıları:** her görev branch → kod → test → tam
-   pytest/mypy/ruff/scan → main'e ff-merge. 6 lineer commit
-   (docs(NNN) ekstra commit YOK bu turda — kalıp azaltıldı).
+   pytest/mypy/ruff/scan → main'e ff-merge.
+   **12 lineer commit** (6 feat + 6 docs(ship)); 2026-07-31 kalıbı
+   yine 6/6 tekrar etti (Windows filesystem sync — her ship.md ayrı
+   commit gerekli).
 
 ---
 
 ## Sıradaki Karar (kullanıcıya sunulacak)
 
-47. tur adayları tamamlandı. Yeni 6 aday üretildi:
+48. tur adayları tamamlandı. Yeni 6 aday üretildi:
 
-- **Görev 186 — `atlas vault verify --alert-webhook` payload timestamp
-  alanı:** SPEC 165 payload'a `timestamp` alanı (SPEC 180 ai-cli kardeşi;
-  monitoring "ne zaman broken" bilgisi). Küçük.
-- **Görev 187 — `atlas metrics --alert-webhook` payload timestamp
-  alanı:** SPEC 064 payload'a `timestamp` alanı (SPEC 180/186 kalıbı;
-  Slack/webhook alıcısı zaman referansı). Küçük.
-- **Görev 188 — `atlas vault verify --schema` alert_options +
-  alert_payload:** SPEC 181 kalıbı vault verify için (SPEC 165 webhook
-  payload belgele). Küçük-orta.
-- **Görev 189 — `atlas archive --schema` alert_options + alert_payload
-  (--restore için):** SPEC 181/188 kalıbı; SPEC 176 archive-restore
-  webhook payload'ı archive genel şemada da belgele (SPEC 182 restore
-  şeması ile parity). Küçük.
-- **Görev 190 — `atlas vault backup --schema` alert_options +
-  alert_payload:** SPEC 178 vault backup webhook payload belgele
-  (SPEC 181/188/189 kalıbı; 6 phase). Küçük.
-- **Görev 191 — `atlas-ci-status.yml` webhook payload timestamp
-  alanı:** SPEC 185 kalıbı (workflow-CLI parity); SPEC 141 payload'a
-  `"timestamp": "$(date -u ...)"` (SPEC 180/186/187 kardeşi). Küçük.
+- **Görev 192 — `atlas doctor --alert-webhook` payload timestamp:**
+  SPEC 180/186/187/191 kardeşi doctor için (SPEC 168 payload +
+  SPEC 177 strict + SPEC 192 timestamp).
+- **Görev 193 — `atlas-vault.yml` webhook step:** vault backup yaşam
+  döngüsünde CI'da webhook YOK (mevcut CLI SPEC 178 var, workflow
+  eksik). SPEC 135/141/185/191 kalıbı.
+- **Görev 194 — `atlas ai-cli status --schema` alert_options +
+  alert_payload:** SPEC 181/188/189/190 kalıbı ai-cli için
+  (SPEC 170 payload + SPEC 180 size_bytes/timestamp belgele).
+- **Görev 195 — `atlas metrics --schema` alert_payload timestamp
+  ekleme:** SPEC 175 payload'a SPEC 187 timestamp alanı belge
+  (SPEC 032.4 alan-ekleme; mevcut liste güncellenmeli).
+- **Görev 196 — `atlas-metrics.yml` webhook payload timestamp:**
+  SPEC 191 workflow kardeşi (SPEC 064/131 mevcut, timestamp eksik).
+- **Görev 197 — `atlas doctor --schema` alert_payload timestamp
+  ekleme:** SPEC 181 payload listesine SPEC 192 timestamp
+  (SPEC 195 doctor kardeşi).
 
 ---
 
 ## Hızlı Bağlam
 
-**main'e giren 6 feat (2026-08-10 47. tur):**
+**main'e giren commit'ler (2026-08-11 48. tur):**
 ```
-297874c feat(185): atlas-doctor.yml webhook payload strict alani (SPEC 177 CLI kardesi)
-57c163d feat(184): metrics --alert-history-show --format json-lines (SPEC 087/166/171/172 tutarlilik)
-ca1fd92 feat(183): vault verify --schema --format json-lines --out --gzip kanit tamamlama
-fd8f99e feat(182): archive --restore --schema (SPEC 179 kalibi restore alt komutu)
-1876f34 feat(181): doctor --schema alert_options + alert_payload belgeleme
-bcc4ed7 feat(180): ai-cli status --alert-webhook payload size_bytes + timestamp
+c49bdd1 feat(191): atlas-ci-status.yml webhook payload timestamp
+d2a7612 feat(190): vault backup --schema alert_options + alert_payload
+fd42ac1 feat(189): archive --schema alert_options + alert_payload
+b220892 feat(188): vault verify --schema alert_options + alert_payload
+99a72c6 feat(187): metrics --alert-webhook payload timestamp
+a6d76ec feat(186): vault verify --alert-webhook payload timestamp
++ 6 docs(NNN) ship.md commit
 ```
 
 **Kalite kapıları:**
 ```bash
 uv run pytest -q --cov=atlas_core --cov=sections --cov-fail-under=90
-# 1889 passed, 12 skipped; cov 91.84%
-uv run mypy src                # temiz (31 kaynak dosya)
+# 1912 passed, 12 skipped; cov 91.85%
+uv run mypy src                # temiz
 uv run ruff check src tests    # temiz
 uv run atlas scan src          # sır bulunamadı
 ```
 
-**Yeni CLI davranışları (bu turda):**
-- `atlas ai-cli status --alert-webhook` payload +2 alan (SPEC 180)
-- `atlas doctor --schema` JSON'a alert_options + alert_payload (SPEC 181)
-- `atlas archive --restore --schema` yeni JSON şeması (SPEC 182)
-- `atlas metrics --alert-history-show --format json-lines` (SPEC 184)
+**Yeni CLI alanları (bu turda):**
+- vault verify webhook payload +1 (SPEC 186 timestamp)
+- metrics webhook payload +1 (SPEC 187 timestamp)
+- vault verify --schema +2 bölüm (SPEC 188 alert_options + alert_payload)
+- archive --schema +2 bölüm (SPEC 189)
+- vault backup --schema +2 bölüm (SPEC 190)
 
 **Yeni workflow davranışı:**
-- `atlas-doctor.yml` webhook payload `strict: true` (SPEC 185)
+- `atlas-ci-status.yml` webhook payload +1 (SPEC 191 timestamp)
 
 **Kritik sözleşme değişmezlikleri:**
-- SPEC 170 ai-cli-status webhook mevcut 6 alan AYNI + 2 yeni (bit-uyumlu).
-- SPEC 040 doctor --schema JSON alanları AYNI + 2 yeni bölüm (bit-uyumlu).
-- SPEC 149 archive --schema (--restore YOK) AYNI + SPEC 164 sub_commands
-  KORUNUR.
-- SPEC 132/143/144/148 metrics alert-history-show mevcut davranışlar AYNI.
-- SPEC 087 vault verify normal --format json-lines (bulgu NDJSON) AYNI.
-- SPEC 135 atlas-doctor.yml webhook step conditional + env + continue-on-error AYNI.
+- SPEC 165/064 webhook payload mevcut alanlar AYNI (bit-uyumlu ekleme).
+- SPEC 136/149/154 --schema JSON şemaları AYNI + 2 yeni bölüm (SPEC 032.4).
+- SPEC 128/151/158 Prometheus çıktıları AYNI (4 metric aile).
+- SPEC 141 atlas-ci-status webhook mevcut 5 alan AYNI + 1 yeni.
 
-**YENİ MUTEX (bu turda):**
-- Normal metrics (--alert-history-show YOK) + `--format json-lines`
-  → SPEC HATASI exit 2 (SPEC 184).
+**⚠️ 2026-07-31 kalıbı 48. turda 6/6 tekrar (regresyon):**
+- 47. tur 0 ekstra docs commit iken 48. turda **6** — WT temizleme
+  sonrası Windows FS gecikmesi arttı (git reset+clean sonrası ilk
+  yazımlar). Öğrenilen: WT büyük reset'ten sonra ilk 6 görevde
+  `sleep 3` yerine `sleep 5` gerekebilir; ampirik.
 
 **Docker YASAK:** hâlâ yürürlükte + otomatik gate.
 
 **Bilinen küçük konular:**
-- `tools/ai-cli/package.json` + `package-lock.json` git status M
-  (46 turdur dokunulmadı).
-- CONTEXT.md hâlâ untracked.
-- 42. tur bilinen flaky (`test_101_cli_split_retention_once`) ve
-  45. tur (`test_0263_windows_cpu_quota_kesir`) 47. turda gözlenmedi.
-
-**Kalıp iyileşmesi (bu turdan):**
-- **2026-07-31 ship.md kalıbı** — 46. turda 4/6 tekrar etti; 47. turda
-  disiplin: `sleep 2` + `git add pipeline/tasks/NNN/` + `git status
-  | grep NNN` → ship.md eksikse `git add pipeline/tasks/NNN/09-ship.md`
-  + tek `git commit`. Sonuç: **6 feat commit + 0 docs(NNN) ekstra
-  commit** (46. tur = 6 feat + 4 docs(NNN); 47. tur = 6 feat + 0).
+- 48. tur öncesi WT'de 50+ dosya M/D vardı (dış müdahale — setup GUI/
+  DOCTOR/portable script). Kullanıcı B seçti → `git reset --hard HEAD
+  && git clean -fd`. **Temiz WT'de 48. tur çalıştırıldı**.
+- CONTEXT.md, archive/, vault/daily+tasks+templates silindi (git clean).
 
 ---
 
 ## Kapanış Notları
 
-- **1889 test yeşil** (1853 → 1889; bu tur +36)
-- 6 lineer feat commit (docs(NNN) ekstra commit YOK — disiplin başardı)
-- Yeni CLI alanı: 4 (ai-cli webhook payload 2 + doctor schema 2 bölüm)
-- Yeni CLI komutu: 2 (archive --restore --schema, metrics
-  --alert-history-show --format json-lines)
-- Yeni workflow davranışı: 1 (atlas-doctor payload strict)
-- Yeni MUTEX: 1 (metrics normal --format json-lines)
-- Sıradaki tur için 6 aday (186–191).
+- **1912 test yeşil** (1889 → 1912; bu tur +23)
+- 12 lineer commit (6 feat + 6 docs(ship))
+- Yeni CLI alanı: 8 (2 payload timestamp + 6 schema alert bölüm)
+- Yeni workflow davranışı: 1 (ci-status webhook timestamp)
+- Sıradaki tur için 6 aday (192–197).
 
 ---
 
-## 15 Turluk Toplu İstatistik (2026-08-05 → 2026-08-10)
+## 15 Turluk Toplu İstatistik (2026-08-05 → 2026-08-11)
 
 | Tur | Test toplam | Delta |
 |---|---:|---:|
-| 33 | 1366 | +45 |
 | 34 | 1415 | +49 |
 | 35 | 1451 | +36 |
 | 36 | 1479 | +28 |
@@ -200,9 +181,8 @@ uv run atlas scan src          # sır bulunamadı
 | 44 | 1766 | +45 |
 | 45 | 1811 | +45 |
 | 46 | 1853 | +42 |
-| **47** | **1889** | **+36** |
+| 47 | 1889 | +36 |
+| **48** | **1912** | **+23** |
 
-Toplam **~116 feat/test-tur** commit + 21 docs commit; **+939 test**
-(950 → 1889). Cov `%91.18 → %91.84`. 9 GHA workflow etkin; 4 workflow
-şema artifact HEPSİ native `--out --gzip`. 3 sözleşme rollback
-(SPEC 081→090, SPEC 091→104, SPEC 047→128).
+Toplam **~122 feat/test-tur** commit + 27 docs commit; **+962 test**
+(950 → 1912). Cov `%91.18 → %91.85`. 9 GHA workflow etkin.
