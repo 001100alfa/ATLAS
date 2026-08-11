@@ -5427,6 +5427,33 @@ def _cmd_vault_backup(args: argparse.Namespace) -> int:
                 "SPEC 154: bu şema `atlas vault backup --schema` ile yayımlanır.",
                 "SPEC 158: --format prometheus info-metric ailesi.",
                 "SPEC 163: --format prometheus --out PATH [--gzip] artifact.",
+                "SPEC 178: --alert-webhook URL VaultBackupError POST.",
+                "SPEC 190: alert_options + alert_payload JSON şemada.",
+            ],
+            # SPEC 190: alert kanalları (SPEC 175/181/188/189 kalıbı).
+            # Prometheus'a EKLENMEDİ (YAGNI; 4 metric aile korunur).
+            "alert_options": [
+                {"name": "--alert-webhook URL", "spec": "178",
+                 "desc": "VaultBackupError (exit 6) URL'ye POST"},
+            ],
+            # SPEC 190: SPEC 178 payload 6 alan.
+            "alert_payload": [
+                {"name": "alert", "type": "str",
+                 "when": "always", "spec": "178",
+                 "desc": "sabit 'vault-backup'"},
+                {"name": "vault_root", "type": "str",
+                 "when": "always", "spec": "178"},
+                {"name": "action", "type": "str",
+                 "when": "always", "spec": "178",
+                 "desc": "backup | backup-auto (SPEC 041.1)"},
+                {"name": "phase", "type": "str",
+                 "when": "always", "spec": "178",
+                 "desc": "backup | prune | split | encrypt (hangi aşama)"},
+                {"name": "error", "type": "str",
+                 "when": "always", "spec": "178"},
+                {"name": "exit_code", "type": "int",
+                 "when": "always", "spec": "178",
+                 "desc": "6 (VaultBackupError)"},
             ],
         }
         if getattr(args, "format", None) == "prometheus":
